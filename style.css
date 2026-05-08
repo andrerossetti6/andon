@@ -202,6 +202,13 @@ body {
     gap: 30px;
 }
 
+/* Views de análise (vendas, estoque) ocupam toda a altura sem scroll externo */
+#view-vendas,
+#view-estoque {
+    overflow: hidden;
+    height: 100vh;
+}
+
 /* Stats Row Cards */
 .stats-row {
     display: grid;
@@ -666,11 +673,13 @@ input:checked + .chk {
     font-family: monospace;
 }
 
-/* Data Section */
+/* Data Section — cresce para preencher o espaço restante */
 #vendas-data {
     display: none;
     flex-direction: column;
     gap: 20px;
+    flex: 1;
+    min-height: 0;
 }
 
 #vendas-data.visible {
@@ -830,8 +839,8 @@ input:checked + .chk {
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     overflow: auto;
-    max-height: 400px;
-    flex-shrink: 0;
+    flex: 1;
+    min-height: 0;
 }
 
 .vendas-table {
@@ -1102,6 +1111,8 @@ input:checked + .chk {
     display: none;
     flex-direction: column;
     gap: 20px;
+    flex: 1;
+    min-height: 0;
 }
 
 #estoque-data.visible { display: flex; }
