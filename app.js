@@ -423,7 +423,7 @@ const vendas = {
     },
 
     setupFilters() {
-        ['filter-segmento', 'filter-modelo', 'filter-tamanho'].forEach(id => {
+        ['filter-segmento', 'filter-modelo', 'filter-tamanho', 'filter-descricao'].forEach(id => {
             document.getElementById(id).addEventListener('change', () => this.applyFilters());
         });
         document.getElementById('search-input').addEventListener('input', () => this.applyFilters());
@@ -432,11 +432,12 @@ const vendas = {
             this.render();
         });
         document.getElementById('clear-filters-btn').addEventListener('click', () => {
-            document.getElementById('filter-segmento').value = '';
-            document.getElementById('filter-modelo').value = '';
-            document.getElementById('filter-tamanho').value = '';
-            document.getElementById('search-input').value = '';
-            document.getElementById('filter-year').value = 'all';
+            document.getElementById('filter-segmento').value  = '';
+            document.getElementById('filter-modelo').value    = '';
+            document.getElementById('filter-tamanho').value   = '';
+            document.getElementById('filter-descricao').value = '';
+            document.getElementById('search-input').value     = '';
+            document.getElementById('filter-year').value      = 'all';
             this.selectedYear = 'all';
             this.applyFilters();
         });
@@ -760,6 +761,7 @@ const vendas = {
         this.fillSelect('filter-segmento', unique('segmento'));
         this.fillSelect('filter-modelo',   unique('modelo'));
         this.fillSelect('filter-tamanho',  unique('tamanho'));
+        this.fillSelectLabel('filter-descricao', unique('descricao'), 'Todas');
 
         const tabs = document.getElementById('year-tabs');
         if (this.years.length > 0) {
@@ -779,18 +781,27 @@ const vendas = {
             options.map(o => `<option value="${o}">${o}</option>`).join('');
     },
 
+    fillSelectLabel(id, options, label) {
+        const sel = document.getElementById(id);
+        sel.innerHTML = `<option value="">${label}</option>` +
+            options.map(o => `<option value="${o}">${o}</option>`).join('');
+    },
+
     applyFilters() {
         const seg = document.getElementById('filter-segmento').value;
         const mod = document.getElementById('filter-modelo').value;
-        const tam = document.getElementById('filter-tamanho').value;
-        const q   = document.getElementById('search-input').value.toLowerCase().trim();
+        const tam  = document.getElementById('filter-tamanho').value;
+        const desc = document.getElementById('filter-descricao').value;
+        const q    = document.getElementById('search-input').value.toLowerCase().trim();
 
         this.filtered = this.rawData.filter(r => {
-            if (seg && r.segmento !== seg) return false;
-            if (mod && r.modelo   !== mod) return false;
-            if (tam && r.tamanho  !== tam) return false;
-            if (q && !r.codigo.toLowerCase().includes(q) &&
-                     !r.descricao.toLowerCase().includes(q)) return false;
+            // Segmento: traz TODOS os itens que pertencem ao segmento selecionado
+            if (seg  && r.segmento  !== seg)  return false;
+            if (mod  && r.modelo    !== mod)  return false;
+            if (tam  && r.tamanho   !== tam)  return false;
+            // Descrição: traz todas as peças com aquela descrição (todos os tamanhos)
+            if (desc && r.descricao !== desc) return false;
+            if (q    && !r.codigo.toLowerCase().includes(q)) return false;
             return true;
         });
 
