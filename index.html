@@ -379,20 +379,22 @@
                 <select class="sigs-select" id="est-filter-segmento"><option value="">Todos</option></select>
                 <label>Tamanho</label>
                 <select class="sigs-select" id="est-filter-tamanho"><option value="">Todos</option></select>
-                <input type="text" class="sigs-input" id="est-search" placeholder="Buscar por código ou descrição...">
+                <label>Descrição</label>
+                <select class="sigs-select" id="est-filter-descricao"><option value="">Todas</option></select>
+                <input type="text" class="sigs-input" id="est-search" placeholder="Buscar por código...">
                 <span class="table-count-label" id="est-count"></span>
                 <button class="btn secondary" id="est-clear">Limpar</button>
             </div>
 
             <!-- Tabela -->
             <div class="vendas-table-wrap">
-                <table class="vendas-table" id="estoque-table">
+                <table class="vendas-table estoque-table-full" id="estoque-table">
                     <thead><tr>
-                        <th>CÓDIGO</th>
+                        <th style="width:100px;">CÓDIGO</th>
                         <th>DESCRIÇÃO</th>
-                        <th>SEGMENTO</th>
-                        <th class="td-center">TAM.</th>
-                        <th class="td-right">QUANTIDADE</th>
+                        <th style="width:130px;">SEGMENTO</th>
+                        <th class="td-center" style="width:80px;">TAM.</th>
+                        <th class="td-right" style="width:130px;">QUANTIDADE</th>
                     </tr></thead>
                     <tbody></tbody>
                 </table>

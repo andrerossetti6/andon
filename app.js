@@ -171,8 +171,8 @@ function mostrarApp() {
 
     init();
     estoque.init();
-    vendas.carregarHistorico();
-    estoque.carregarHistorico();
+    // Vendas primeiro — estoque usa os dados de vendas para enriquecer
+    vendas.carregarHistorico().then(() => estoque.carregarHistorico());
 }
 
 document.addEventListener('DOMContentLoaded', bootstrap);
@@ -965,13 +965,14 @@ const estoque = {
     },
 
     setupFiltros() {
-        ['est-filter-segmento','est-filter-tamanho'].forEach(id => {
+        ['est-filter-segmento','est-filter-tamanho','est-filter-descricao'].forEach(id => {
             document.getElementById(id).addEventListener('change', () => this.aplicarFiltros());
         });
         document.getElementById('est-search').addEventListener('input', () => this.aplicarFiltros());
         document.getElementById('est-clear').addEventListener('click', () => {
-            document.getElementById('est-filter-segmento').value = '';
-            document.getElementById('est-filter-tamanho').value  = '';
+            document.getElementById('est-filter-segmento').value  = '';
+            document.getElementById('est-filter-tamanho').value   = '';
+            document.getElementById('est-filter-descricao').value = '';
             document.getElementById('est-search').value = '';
             this.aplicarFiltros();
         });
@@ -1048,24 +1049,26 @@ const estoque = {
 
     popularFiltros() {
         const unique = fn => [...new Set(this.rawData.map(r => fn(r)).filter(Boolean))].sort();
-        const fillSel = (id, opts) => {
-            document.getElementById(id).innerHTML = '<option value="">Todos</option>' +
+        const fillSel = (id, opts, label = 'Todos') => {
+            document.getElementById(id).innerHTML = `<option value="">${label}</option>` +
                 opts.map(o => `<option value="${o}">${o}</option>`).join('');
         };
         fillSel('est-filter-segmento', unique(r => this.getInfo(r.codigo).segmento));
         fillSel('est-filter-tamanho',  unique(r => this.getInfo(r.codigo).tamanho));
+        fillSel('est-filter-descricao', unique(r => this.getInfo(r.codigo).descricao), 'Todas');
     },
 
     aplicarFiltros() {
-        const seg = document.getElementById('est-filter-segmento').value;
-        const tam = document.getElementById('est-filter-tamanho').value;
-        const q   = document.getElementById('est-search').value.toLowerCase().trim();
+        const seg  = document.getElementById('est-filter-segmento').value;
+        const tam  = document.getElementById('est-filter-tamanho').value;
+        const desc = document.getElementById('est-filter-descricao').value;
+        const q    = document.getElementById('est-search').value.toLowerCase().trim();
         this.filtered = this.rawData.filter(r => {
             const info = this.getInfo(r.codigo);
-            if (seg && info.segmento !== seg) return false;
-            if (tam && info.tamanho  !== tam) return false;
-            if (q && !r.codigo.toLowerCase().includes(q) &&
-                     !info.descricao.toLowerCase().includes(q)) return false;
+            if (seg  && info.segmento  !== seg)  return false;
+            if (tam  && info.tamanho   !== tam)  return false;
+            if (desc && info.descricao !== desc) return false;
+            if (q    && !r.codigo.toLowerCase().includes(q)) return false;
             return true;
         });
         this.render();
