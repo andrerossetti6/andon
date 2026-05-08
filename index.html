@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIGS | Gestão Stoll - Dashboard</title>
+    <meta name="description" content="Portal de Gestão Industrial SIGS - Monitoramento e Insights">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="sigs-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="sidebar-top">
+            <div class="logo">
+                <div class="logo-icon"></div>
+                <div class="logo-text">
+                    <span class="brand">SIGS</span>
+                    <span class="subtext">Gestão Stoll</span>
+                </div>
+            </div>
+
+            <nav class="nav-section">
+                <h3>ANÁLISE DE DADOS</h3>
+                <ul>
+                    <li class="active has-sub">
+                        <div class="item-content"><span class="icon">📊</span> Análise</div>
+                        <ul class="sub-menu">
+                            <li>Vendas</li>
+                            <li>Estoque</li>
+                            <li>Ordens de Produção</li>
+                        </ul>
+                    </li>
+                    <li><div class="item-content"><span class="icon">🔍</span> Análise Paradas</div></li>
+                    <li><div class="item-content"><span class="icon">📉</span> Análise Perdas</div></li>
+                    <li><div class="item-content"><span class="icon">✔️</span> Disponibilidade</div></li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section">
+                <h3>INSERÇÃO DE DADOS</h3>
+                <ul>
+                    <li><div class="item-content"><span class="icon">⚙️</span> Paradas</div></li>
+                    <li><div class="item-content"><span class="icon">🛠️</span> Manutenções</div></li>
+                    <li><div class="item-content"><span class="icon">📅</span> Par. Planejadas</div></li>
+                    <li><div class="item-content"><span class="icon">📄</span> Perdas</div></li>
+                    <li><div class="item-content"><span class="icon">🧪</span> CNQ</div></li>
+                </ul>
+            </nav>
+        </div>
+
+        <div class="sidebar-bottom">
+            <div class="user-profile">
+                <div class="avatar">AR</div>
+                <div class="user-info">
+                    <span class="name">andre rossetti</span>
+                    <span class="role">Administrador</span>
+                </div>
+                <span class="chevron">⌄</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="content">
+        <!-- Top Stats Row -->
+        <header class="stats-row">
+            <div class="stat-card agent-card">
+                <div class="agent-info">
+                    <span class="label">SIGS • AGENTE LOCAL</span>
+                    <h2>Atlas <span class="version">v 0.4</span></h2>
+                    <p class="status"><span class="pulse-green"></span> analisando / última leitura há 12min</p>
+                    <p class="details">/ 14 máq monitoradas</p>
+                </div>
+                <div class="agent-visual">
+                    <div class="orb-glow"></div>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="card-header">
+                    <span class="label">INSIGHTS • HOJE</span>
+                </div>
+                <div class="card-body">
+                    <span class="big-value">23</span>
+                    <span class="delta positive">↑ +6 vs ontem</span>
+                </div>
+                <canvas class="mini-chart blue"></canvas>
+            </div>
+
+            <div class="stat-card">
+                <div class="card-header">
+                    <span class="label">IMPLEMENTADOS</span>
+                </div>
+                <div class="card-body">
+                    <span class="big-value">8<small>/23</small></span>
+                    <span class="sub-label">35% taxa de adoção</span>
+                </div>
+                <canvas class="mini-chart green"></canvas>
+            </div>
+
+            <div class="stat-card">
+                <div class="card-header">
+                    <span class="label">OEE ESTIMADO</span>
+                </div>
+                <div class="card-body">
+                    <span class="big-value">+4.2<small>%</small></span>
+                    <span class="action-text">se aplicar pendentes</span>
+                </div>
+                <canvas class="mini-chart blue-glow"></canvas>
+            </div>
+
+            <div class="stat-card">
+                <div class="card-header">
+                    <span class="label">TEMPO • ECONOMIA</span>
+                </div>
+                <div class="card-body">
+                    <span class="big-value">3.4<small>h/dia</small></span>
+                    <span class="sub-label highlight">média móvel • 7d</span>
+                </div>
+                <canvas class="mini-chart orange"></canvas>
+            </div>
+        </header>
+
+        <!-- Secondary Layout (3 columns) -->
+        <div class="dashboard-grid">
+            <!-- Left Col: Filters -->
+            <section class="filters-column">
+                <div class="filter-group">
+                    <h3>CATEGORIA</h3>
+                    <label class="checkbox-item"><input type="checkbox" checked> Eficiência <span class="chk"></span></label>
+                    <label class="checkbox-item"><input type="checkbox" checked> Qualidade <span class="chk"></span></label>
+                    <label class="checkbox-item"><input type="checkbox" checked> Manutenção <span class="chk"></span></label>
+                    <label class="checkbox-item"><input type="checkbox" checked> Paradas <span class="chk"></span></label>
+                    <label class="checkbox-item"><input type="checkbox"> Operadores <span class="chk"></span></label>
+                </div>
+
+                <div class="filter-group">
+                    <h3>SEVERIDADE</h3>
+                    <div class="severity-item"><span class="dot info"></span> Info <span class="count">14</span></div>
+                    <div class="severity-item"><span class="dot warning"></span> Atenção <span class="count">7</span></div>
+                    <div class="severity-item"><span class="dot critical"></span> Crítico <span class="count">2</span></div>
+                </div>
+
+                <div class="filter-group">
+                    <h3>STATUS</h3>
+                    <div class="status-item">Novos <span class="count">12</span></div>
+                    <div class="status-item">Em revisão <span class="count">3</span></div>
+                    <div class="status-item">Aplicados <span class="count">8</span></div>
+                </div>
+            </section>
+
+            <!-- Middle Col: Insights List -->
+            <section class="insights-column">
+                <div class="section-header">
+                    <h2>Insights <span>recentes</span></h2>
+                    <div class="meta">23 ativos • ordem por relevância</div>
+                </div>
+                
+                <div class="insights-list" id="insights-container">
+                    <!-- Dynamic Insight Cards -->
+                </div>
+            </section>
+
+            <!-- Right Col: Activity -->
+            <section class="activity-column">
+                <div class="activity-summary">
+                    <span class="label">ATIVIDADE • ÚLTIMAS 24H</span>
+                    <div class="events-count">
+                        <span class="num">156</span>
+                        <span class="unit">eventos</span>
+                    </div>
+                    <span class="sub">+18 vs ontem • 6.5/h em média</span>
+                    <canvas class="activity-chart"></canvas>
+                </div>
+
+                <div class="actions-list">
+                    <h3>ÚLTIMAS AÇÕES</h3>
+                    <div class="action-timeline" id="actions-container">
+                        <!-- Dynamic Actions -->
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
