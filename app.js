@@ -455,18 +455,18 @@ const vendas = {
     detectMonthCols(headers) {
         // Lookup: nome/número normalizado → abreviação
         const BY_NAME = {
-            jan:'jan', janeiro:'jan',
-            fev:'fev', fevereiro:'fev',
-            mar:'mar', marco:'mar',
-            abr:'abr', abril:'abr',
-            mai:'mai', maio:'mai',
-            jun:'jun', junho:'jun',
-            jul:'jul', julho:'jul',
-            ago:'ago', agosto:'ago',
-            set:'set', setembro:'set',
-            out:'out', outubro:'out',
-            nov:'nov', novembro:'nov',
-            dez:'dez', dezembro:'dez'
+            jan:'jan', janeiro:'jan', january:'jan',
+            fev:'fev', fevereiro:'fev', february:'fev', feb:'fev',
+            mar:'mar', marco:'mar', march:'mar',
+            abr:'abr', abril:'abr', april:'abr', apr:'abr',
+            mai:'mai', maio:'mai', may:'mai',
+            jun:'jun', junho:'jun', june:'jun',
+            jul:'jul', julho:'jul', july:'jul',
+            ago:'ago', agosto:'ago', august:'ago', aug:'ago',
+            set:'set', setembro:'set', september:'set', sep:'set',
+            out:'out', outubro:'out', october:'out', oct:'out',
+            nov:'nov', novembro:'nov', november:'nov',
+            dez:'dez', dezembro:'dez', december:'dez', dec:'dez'
         };
         const BY_NUM = {
             '01':'jan','1':'jan','02':'fev','2':'fev','03':'mar','3':'mar',
@@ -569,10 +569,6 @@ const vendas = {
         this.years        = [...new Set(this.monthCols.map(c => c.year).filter(Boolean))].sort();
         this.selectedYear = 'all';
 
-        // Diagnóstico: mostra o que foi e o que não foi reconhecido
-        const recognizedCols = new Set(this.monthCols.map(c => c.originalCol));
-        const unrecognized   = allHeaders.filter(h => !recognizedCols.has(h));
-        this.showDiagnostic(allHeaders, this.monthCols, unrecognized);
 
         this.rawData = rawRows.map((row, i) => {
             const mData = {};
@@ -647,31 +643,6 @@ const vendas = {
         this.render();
     },
 
-    showDiagnostic(allHeaders, matched, unrecognized) {
-        const panel = document.getElementById('diag-panel');
-
-        // Filtra fora os campos de dados esperados — só mostra o que realmente é inesperado
-        const KNOWN = ['codigo','descricao','modelo','segmento','tamanho','quantidade','qtd','qty','qtde','valor','valorrs','valortotal','valorr'];
-        const unexpected = unrecognized.filter(h => !KNOWN.includes(this.normalizeKey(h)));
-
-        if (matched.length === 0) {
-            panel.innerHTML = `
-                <span class="diag-warn">⚠ Nenhuma coluna de mês reconhecida.</span>
-                <span class="diag-cols">Colunas no arquivo: ${allHeaders.map(h => `<code>${h}</code>`).join(' ')}</span>
-            `;
-            panel.className = 'diag-panel diag-error';
-        } else {
-            const years  = [...new Set(matched.map(c => c.year).filter(Boolean))];
-            const yearTxt = years.length ? ` • Anos: <strong>${years.join(', ')}</strong>` : '';
-            panel.innerHTML = `
-                <span class="diag-ok">✓ ${matched.length} colunas de mês detectadas${yearTxt}</span>
-                <span class="diag-cols">${matched.map(c => `<code>${c.label}</code>`).join(' ')}</span>
-                ${unexpected.length ? `<span class="diag-rest">Colunas não reconhecidas: ${unexpected.map(h=>`<code>${h}</code>`).join(' ')}</span>` : ''}
-            `;
-            panel.className = 'diag-panel diag-ok';
-        }
-        panel.style.display = 'flex';
-    },
 
     showDataSection() {
         document.getElementById('drop-zone').style.display = 'none';
