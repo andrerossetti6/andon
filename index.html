@@ -11,6 +11,36 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body class="sigs-layout">
+
+    <!-- ── Tela de Login ─────────────────────────────────── -->
+    <div id="view-login" class="login-screen">
+        <div class="login-card">
+            <div class="login-logo">
+                <div class="logo-icon"></div>
+                <div>
+                    <span class="brand">SIGS</span>
+                    <span class="subtext">Gestão Stoll</span>
+                </div>
+            </div>
+            <h2 class="login-title">Entrar na plataforma</h2>
+            <div id="login-erro" class="login-erro" style="display:none;"></div>
+            <form id="login-form" autocomplete="on">
+                <div class="input-group">
+                    <label>Email</label>
+                    <input type="email" id="login-email" placeholder="seu@email.com.br" required autocomplete="email">
+                </div>
+                <div class="input-group">
+                    <label>Senha</label>
+                    <input type="password" id="login-senha" placeholder="••••••••" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn primary login-btn" id="login-submit">Entrar</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ── App (oculto até login) ────────────────────────── -->
+    <div id="app" style="display:none; width:100%; height:100vh; display:none; flex-direction:row;">
+
     <!-- Sidebar -->
     <aside class="sidebar">
         <div class="sidebar-top">
@@ -25,10 +55,10 @@
             <nav class="nav-section">
                 <h3>ANÁLISE DE DADOS</h3>
                 <ul>
-                    <li class="active has-sub">
+                    <li class="active has-sub" id="nav-analise" onclick="navigateTo('dashboard')">
                         <div class="item-content"><span class="icon">📊</span> Análise</div>
                         <ul class="sub-menu">
-                            <li>Vendas</li>
+                            <li data-view="vendas" onclick="event.stopPropagation(); navigateTo('vendas')">Vendas</li>
                             <li>Estoque</li>
                             <li>Ordens de Produção</li>
                         </ul>
@@ -64,7 +94,7 @@
     </aside>
 
     <!-- Main Content -->
-    <main class="content">
+    <main class="content" id="view-dashboard">
         <!-- Top Stats Row -->
         <header class="stats-row">
             <div class="stat-card agent-card">
@@ -186,6 +216,96 @@
         </div>
     </main>
 
+    <!-- Vendas View -->
+    <main class="content" id="view-vendas" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Análise de <span>Vendas</span></h1>
+                <p class="page-subtitle">Importe dados de vendas em CSV ou XLS para visualizar e analisar</p>
+            </div>
+            <div class="page-header-actions">
+                <label class="btn primary import-btn" for="file-input">
+                    <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Importar Arquivo
+                </label>
+                <input type="file" id="file-input" accept=".csv,.xls,.xlsx" style="display:none;">
+            </div>
+        </header>
+
+        <!-- Drop Zone -->
+        <div class="drop-zone" id="drop-zone">
+            <div class="drop-icon">
+                <svg viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            </div>
+            <h3>Arraste seu arquivo aqui</h3>
+            <p>Suporte a .CSV, .XLS e .XLSX</p>
+            <p class="drop-hint">código · descrição · modelo · segmento · tamanho · jan–dez · quantidade · valor R$</p>
+            <label class="btn secondary" for="file-input" style="margin-top:16px;display:inline-block;cursor:pointer;">Ou clique para selecionar</label>
+        </div>
+
+        <!-- Data Section -->
+        <div id="vendas-data">
+
+            <!-- Summary Cards -->
+            <div class="vendas-summary">
+                <div class="summary-card">
+                    <span class="s-label">ITENS IMPORTADOS</span>
+                    <span class="s-value" id="summary-itens">0</span>
+                    <span class="s-sub">linhas no arquivo</span>
+                </div>
+                <div class="summary-card">
+                    <span class="s-label">QUANTIDADE TOTAL</span>
+                    <span class="s-value" id="summary-qtd">0</span>
+                    <span class="s-sub">unidades acumuladas</span>
+                </div>
+                <div class="summary-card">
+                    <span class="s-label">VALOR TOTAL R$</span>
+                    <span class="s-value" id="summary-valor">0,00</span>
+                    <span class="s-sub">receita do período</span>
+                </div>
+            </div>
+
+            <!-- Monthly Chart -->
+            <div class="chart-section">
+                <div class="chart-header">
+                    <h3 id="chart-title">QUANTIDADE POR MÊS</h3>
+                    <div class="year-tabs" id="year-tabs"></div>
+                </div>
+                <canvas id="vendas-chart"></canvas>
+            </div>
+
+            <!-- Filters Bar -->
+            <div class="vendas-filters-bar">
+                <label>Segmento</label>
+                <select class="sigs-select" id="filter-segmento"><option value="">Todos</option></select>
+                <label>Modelo</label>
+                <select class="sigs-select" id="filter-modelo"><option value="">Todos</option></select>
+                <label>Tamanho</label>
+                <select class="sigs-select" id="filter-tamanho"><option value="">Todos</option></select>
+                <select class="sigs-select" id="filter-year" style="display:none;"></select>
+                <input type="text" class="sigs-input" id="search-input" placeholder="Buscar por código ou descrição...">
+                <span class="table-count-label" id="table-count"></span>
+                <button class="btn secondary" id="clear-filters-btn">Limpar</button>
+            </div>
+
+            <!-- Diagnóstico de importação -->
+            <div id="diag-panel" style="display:none;"></div>
+
+            <!-- Data Table -->
+            <div class="vendas-table-wrap">
+                <table class="vendas-table" id="vendas-table">
+                    <thead><tr></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+        </div>
+    </main>
+
+    </div> <!-- /app -->
+
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
