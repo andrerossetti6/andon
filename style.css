@@ -978,7 +978,20 @@ input:checked + .chk {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 12px;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.history-chevron {
+    font-size: 1rem;
+    color: var(--text-dim);
+    display: inline-block;
+    transition: transform 0.2s;
+    line-height: 1;
+}
+
+.history-list {
+    margin-top: 12px;
 }
 
 .history-list {

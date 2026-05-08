@@ -234,11 +234,14 @@
 
         <!-- Histórico de Importações -->
         <div id="import-history" style="display:none;" class="import-history">
-            <div class="history-header">
-                <span class="s-label">IMPORTAÇÕES SALVAS <span id="history-saving" style="display:none;color:var(--text-dim);">· salvando...</span></span>
-                <label class="btn secondary" for="file-input" style="cursor:pointer;padding:4px 14px;font-size:0.72rem;">+ Novo arquivo</label>
+            <div class="history-header" onclick="toggleHistorico('import-history')" style="cursor:pointer;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="history-chevron" id="chevron-vendas">›</span>
+                    <span class="s-label" style="margin:0;">IMPORTAÇÕES SALVAS <span id="history-saving" style="display:none;color:var(--text-dim);">· salvando...</span></span>
+                </div>
+                <label class="btn secondary" for="file-input" onclick="event.stopPropagation()" style="cursor:pointer;padding:4px 14px;font-size:0.72rem;">+ Novo arquivo</label>
             </div>
-            <div id="history-list" class="history-list"></div>
+            <div id="history-list" class="history-list" style="display:none;"></div>
         </div>
 
         <!-- Drop Zone -->
@@ -328,11 +331,14 @@
 
         <!-- Histórico de Importações Estoque -->
         <div id="estoque-history" style="display:none;" class="import-history">
-            <div class="history-header">
-                <span class="s-label">IMPORTAÇÕES SALVAS <span id="estoque-saving" style="display:none;color:var(--text-dim);">· salvando...</span></span>
-                <label class="btn secondary" for="file-input-estoque" style="cursor:pointer;padding:4px 14px;font-size:0.72rem;">+ Novo arquivo</label>
+            <div class="history-header" onclick="toggleHistorico('estoque-history')" style="cursor:pointer;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="history-chevron" id="chevron-estoque">›</span>
+                    <span class="s-label" style="margin:0;">IMPORTAÇÕES SALVAS <span id="estoque-saving" style="display:none;color:var(--text-dim);">· salvando...</span></span>
+                </div>
+                <label class="btn secondary" for="file-input-estoque" onclick="event.stopPropagation()" style="cursor:pointer;padding:4px 14px;font-size:0.72rem;">+ Novo arquivo</label>
             </div>
-            <div id="estoque-history-list" class="history-list"></div>
+            <div id="estoque-history-list" class="history-list" style="display:none;"></div>
         </div>
 
         <!-- Drop Zone -->

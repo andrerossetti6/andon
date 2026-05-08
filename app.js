@@ -342,6 +342,14 @@ function setupEventListeners() {
 
 // ====== NAVIGATION ======
 
+function toggleHistorico(id) {
+    const list    = document.querySelector(`#${id} .history-list`);
+    const chevron = document.querySelector(`#${id} .history-chevron`);
+    const aberto  = list.style.display !== 'none';
+    list.style.display    = aberto ? 'none' : 'flex';
+    chevron.style.transform = aberto ? 'rotate(0deg)' : 'rotate(90deg)';
+}
+
 function navigateTo(viewName) {
     ['dashboard','vendas','estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
