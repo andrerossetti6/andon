@@ -68,6 +68,16 @@ const api = {
 
     async listarImportacoes() {
         return this.get('/api/importacoes');
+    },
+
+    async getVendas(importacaoId) {
+        return this.get(`/api/vendas?importacao_id=${importacaoId}`);
+    },
+
+    async deletarImportacao(id) {
+        const r = await fetch(`/api/importacoes/${id}`, { method: 'DELETE', headers: auth.cabecalho() });
+        if (r.status === 401) { auth.sair(); return null; }
+        return r.json();
     }
 };
 
@@ -154,6 +164,7 @@ function mostrarApp() {
     }
 
     init();
+    vendas.carregarHistorico();
 }
 
 document.addEventListener('DOMContentLoaded', bootstrap);
@@ -357,6 +368,7 @@ const vendas = {
         this.setupFileInput();
         this.setupFilters();
         this.setupYearTabs();
+        this.setupModal();
     },
 
     setupDropZone() {
@@ -594,11 +606,131 @@ const vendas = {
         this.populateFilters();
         this.showDataSection();
         this.render();
+        this.perguntarESalvar(this._nomeArquivo || 'importacao');
+    },
 
-        // Salva no banco em background
-        api.salvarImport(this._nomeArquivo || 'importacao', this.rawData, this.monthCols)
-            .then(res => { if (res?.ok) console.log(`✓ Salvo no banco: ${res.total} linhas`); })
-            .catch(() => {});
+    // ── Fluxo de salvar ────────────────────────────────────────
+    async perguntarESalvar(nomeArquivo) {
+        this._nomeArquivoAtual = nomeArquivo;
+        const lista = await api.listarImportacoes();
+        if (!lista || !lista.length) {
+            await this.salvarImportacao('nova');
+        } else {
+            document.getElementById('modal-arquivo').textContent = nomeArquivo;
+            document.getElementById('import-modal').style.display = 'flex';
+        }
+    },
+
+    async salvarImportacao(modo) {
+        document.getElementById('import-modal').style.display = 'none';
+        this.setSalvando(true);
+        try {
+            if (modo === 'substituir') {
+                const lista = await api.listarImportacoes();
+                for (const imp of (lista || [])) {
+                    await api.deletarImportacao(imp.id);
+                }
+            }
+            const res = await api.salvarImport(this._nomeArquivoAtual, this.rawData, this.monthCols);
+            if (res?.ok) this._currentId = res.importacaoId;
+        } catch (e) { console.error('Erro ao salvar:', e); }
+        finally { this.setSalvando(false); }
+        await this.carregarHistorico();
+    },
+
+    setSalvando(ativo) {
+        const el = document.getElementById('history-saving');
+        if (el) el.style.display = ativo ? 'inline' : 'none';
+    },
+
+    // ── Histórico ─────────────────────────────────────────────
+    async carregarHistorico() {
+        const lista = await api.listarImportacoes();
+        if (!lista) return;
+        this._importacoes = lista;
+        // Se nenhum dado em memória, carrega o mais recente automaticamente
+        if (!this.rawData.length && lista.length) {
+            await this.carregarImportacao(lista[0].id);
+        } else {
+            this.renderHistorico();
+        }
+    },
+
+    async carregarImportacao(id) {
+        this.setSalvando(true);
+        const rows = await api.getVendas(id);
+        this.setSalvando(false);
+        if (!rows || !rows.length) return;
+
+        // Reconstrói monthCols a partir das chaves do JSONB
+        const allKeys = [...new Set(rows.flatMap(r => Object.keys(r.meses || {})))];
+        this.monthCols = allKeys.map(key => {
+            const [abbr, year] = key.split('_');
+            const mLbl  = abbr.charAt(0).toUpperCase() + abbr.slice(1);
+            const label = year ? `${mLbl}/${year.slice(2)}` : mLbl;
+            return { key, abbr, year: year || null, label, originalCol: key };
+        }).sort((a, b) => {
+            const ya = a.year || '0000', yb = b.year || '0000';
+            if (ya !== yb) return ya.localeCompare(yb);
+            return MONTHS.indexOf(a.abbr) - MONTHS.indexOf(b.abbr);
+        });
+
+        this.years        = [...new Set(this.monthCols.map(c => c.year).filter(Boolean))].sort();
+        this.selectedYear = this.years[0] || 'all';
+        this._currentId   = id;
+
+        this.rawData  = rows.map((r, i) => ({
+            _id: i, codigo: r.codigo || '', descricao: r.descricao || '',
+            modelo: r.modelo || '', segmento: r.segmento || '', tamanho: r.tamanho || '',
+            ...(r.meses || {}),
+            quantidade: Number(r.quantidade) || 0, valor: Number(r.valor) || 0
+        }));
+        this.filtered = [...this.rawData];
+        this.populateFilters();
+        this.showDataSection();
+        this.render();
+        this.renderHistorico();
+    },
+
+    renderHistorico() {
+        const wrap = document.getElementById('import-history');
+        const list = document.getElementById('history-list');
+        if (!this._importacoes?.length) { wrap.style.display = 'none'; return; }
+
+        wrap.style.display = 'block';
+        list.innerHTML = this._importacoes.map(imp => {
+            const d    = new Date(imp.criado_em).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+            const anos = imp.anos?.join(', ') || '';
+            const ativo = imp.id === this._currentId;
+            return `
+            <div class="hi-item${ativo ? ' hi-ativo' : ''}" onclick="vendas.carregarImportacao('${imp.id}')">
+                <span class="hi-dot">${ativo ? '●' : '○'}</span>
+                <div class="hi-info">
+                    <span class="hi-nome">${imp.nome_arquivo}</span>
+                    <span class="hi-meta">${d} · ${imp.total_linhas} itens${anos ? ' · ' + anos : ''}</span>
+                </div>
+                <button class="hi-del" onclick="event.stopPropagation();vendas.excluirImportacao('${imp.id}')" title="Excluir">✕</button>
+            </div>`;
+        }).join('');
+    },
+
+    async excluirImportacao(id) {
+        if (!confirm('Excluir esta importação?')) return;
+        await api.deletarImportacao(id);
+        if (this._currentId === id) {
+            this.rawData = []; this.filtered = [];
+            document.getElementById('vendas-data').classList.remove('visible');
+            document.getElementById('drop-zone').style.display = '';
+        }
+        await this.carregarHistorico();
+    },
+
+    setupModal() {
+        document.getElementById('btn-substituir').addEventListener('click', () => this.salvarImportacao('substituir'));
+        document.getElementById('btn-nova-imp').addEventListener('click',   () => this.salvarImportacao('nova'));
+        document.getElementById('btn-cancelar-imp').addEventListener('click', () => {
+            document.getElementById('import-modal').style.display = 'none';
+        });
     },
 
     populateFilters() {

@@ -965,6 +965,125 @@ input:checked + .chk {
     color: var(--text-main);
 }
 
+/* ====== HISTÓRICO DE IMPORTAÇÕES ====== */
+.import-history {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 16px 20px;
+    flex-shrink: 0;
+}
+
+.history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+.history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.hi-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: rgba(255,255,255,0.03);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.hi-item:hover { background: rgba(255,255,255,0.06); }
+
+.hi-item.hi-ativo {
+    border-color: rgba(88,166,255,0.3);
+    background: rgba(88,166,255,0.07);
+}
+
+.hi-dot { font-size: 0.6rem; color: var(--text-dim); width: 12px; flex-shrink: 0; }
+.hi-item.hi-ativo .hi-dot { color: var(--indigo-primary); }
+
+.hi-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+
+.hi-nome { font-size: 0.82rem; font-weight: 500; color: var(--text-main); }
+
+.hi-meta { font-size: 0.7rem; color: var(--text-dim); }
+
+.hi-del {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    opacity: 0;
+    transition: all 0.15s;
+}
+
+.hi-item:hover .hi-del { opacity: 1; }
+.hi-del:hover { color: var(--red-accent); background: rgba(248,81,73,0.1); }
+
+/* ====== MODAL ====== */
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    backdrop-filter: blur(4px);
+}
+
+.modal-box {
+    background: #1C2128;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 32px;
+    width: 100%;
+    max-width: 440px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.modal-box h3 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.2rem;
+    font-weight: 700;
+}
+
+.modal-arquivo {
+    font-size: 0.8rem;
+    color: var(--indigo-primary);
+    font-family: monospace;
+}
+
+.modal-sub { font-size: 0.85rem; color: var(--text-dim); }
+
+.modal-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.btn.ghost {
+    background: transparent;
+    color: var(--text-dim);
+    border-color: transparent;
+    font-size: 0.8rem;
+}
+
+.btn.ghost:hover { color: var(--text-main); }
+
 /* Sidebar sub-item active */
 .sub-menu li.sub-active {
     color: var(--indigo-primary) !important;
