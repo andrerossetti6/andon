@@ -59,7 +59,7 @@
                         <div class="item-content"><span class="icon">📊</span> Importação de Dados</div>
                         <ul class="sub-menu">
                             <li data-view="vendas" onclick="event.stopPropagation(); navigateTo('vendas')">Vendas</li>
-                            <li>Estoque</li>
+                            <li data-view="estoque" onclick="event.stopPropagation(); navigateTo('estoque')">Estoque</li>
                             <li>Ordens de Produção</li>
                         </ul>
                     </li>
@@ -309,6 +309,90 @@
     </main>
 
     </div> <!-- /app -->
+
+    <!-- ── View Estoque ─────────────────────────────────────── -->
+    <main class="content" id="view-estoque" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Análise de <span>Estoque</span></h1>
+                <p class="page-subtitle">Importe dados de estoque em CSV ou XLS</p>
+            </div>
+            <div class="page-header-actions">
+                <label class="btn primary import-btn" for="file-input-estoque">
+                    <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Importar Arquivo
+                </label>
+                <input type="file" id="file-input-estoque" accept=".csv,.xls,.xlsx" style="display:none;">
+            </div>
+        </header>
+
+        <!-- Histórico de Importações Estoque -->
+        <div id="estoque-history" style="display:none;" class="import-history">
+            <div class="history-header">
+                <span class="s-label">IMPORTAÇÕES SALVAS <span id="estoque-saving" style="display:none;color:var(--text-dim);">· salvando...</span></span>
+                <label class="btn secondary" for="file-input-estoque" style="cursor:pointer;padding:4px 14px;font-size:0.72rem;">+ Novo arquivo</label>
+            </div>
+            <div id="estoque-history-list" class="history-list"></div>
+        </div>
+
+        <!-- Drop Zone -->
+        <div class="drop-zone" id="estoque-drop-zone">
+            <div class="drop-icon">
+                <svg viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            </div>
+            <h3>Arraste seu arquivo aqui</h3>
+            <p>Suporte a .CSV, .XLS e .XLSX</p>
+            <p class="drop-hint">codigo · quantidade</p>
+            <label class="btn secondary" for="file-input-estoque" style="margin-top:16px;display:inline-block;cursor:pointer;">Ou clique para selecionar</label>
+        </div>
+
+        <!-- Dados Estoque -->
+        <div id="estoque-data">
+            <!-- Summary -->
+            <div class="vendas-summary">
+                <div class="summary-card">
+                    <span class="s-label">ITENS IMPORTADOS</span>
+                    <span class="s-value" id="est-itens">0</span>
+                    <span class="s-sub">códigos únicos</span>
+                </div>
+                <div class="summary-card">
+                    <span class="s-label">QUANTIDADE TOTAL</span>
+                    <span class="s-value" id="est-qtd">0</span>
+                    <span class="s-sub">unidades em estoque</span>
+                </div>
+                <div class="summary-card">
+                    <span class="s-label">SEM ESTOQUE</span>
+                    <span class="s-value" id="est-zero" style="color:var(--red-accent);">0</span>
+                    <span class="s-sub">itens com quantidade zero</span>
+                </div>
+            </div>
+
+            <!-- Filtros -->
+            <div class="vendas-filters-bar">
+                <label>Segmento</label>
+                <select class="sigs-select" id="est-filter-segmento"><option value="">Todos</option></select>
+                <label>Tamanho</label>
+                <select class="sigs-select" id="est-filter-tamanho"><option value="">Todos</option></select>
+                <input type="text" class="sigs-input" id="est-search" placeholder="Buscar por código ou descrição...">
+                <span class="table-count-label" id="est-count"></span>
+                <button class="btn secondary" id="est-clear">Limpar</button>
+            </div>
+
+            <!-- Tabela -->
+            <div class="vendas-table-wrap">
+                <table class="vendas-table" id="estoque-table">
+                    <thead><tr>
+                        <th>CÓDIGO</th>
+                        <th>DESCRIÇÃO</th>
+                        <th>SEGMENTO</th>
+                        <th class="td-center">TAM.</th>
+                        <th class="td-right">QUANTIDADE</th>
+                    </tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
 
     <!-- Modal de importação -->
     <div id="import-modal" class="modal-overlay" style="display:none;">

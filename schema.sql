@@ -54,10 +54,37 @@ CREATE INDEX IF NOT EXISTS idx_vendas_segmento   ON vendas(segmento);
 CREATE INDEX IF NOT EXISTS idx_vendas_meses      ON vendas USING gin(meses);
 CREATE INDEX IF NOT EXISTS idx_imp_criado        ON importacoes(criado_em DESC);
 
+-- ============================================================
+-- TABELA: importacoes_estoque
+-- ============================================================
+CREATE TABLE IF NOT EXISTS importacoes_estoque (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  nome_arquivo TEXT NOT NULL,
+  usuario_id   UUID REFERENCES usuarios(id),
+  total_linhas INTEGER DEFAULT 0,
+  criado_em    TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- TABELA: estoque
+-- ============================================================
+CREATE TABLE IF NOT EXISTS estoque (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  importacao_id UUID REFERENCES importacoes_estoque(id) ON DELETE CASCADE,
+  codigo        TEXT NOT NULL,
+  quantidade    NUMERIC(14,2) DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_estoque_importacao ON estoque(importacao_id);
+CREATE INDEX IF NOT EXISTS idx_estoque_codigo     ON estoque(codigo);
+CREATE INDEX IF NOT EXISTS idx_imp_est_criado     ON importacoes_estoque(criado_em DESC);
+
 -- Desabilita RLS (sistema interno com autenticação própria via JWT)
-ALTER TABLE usuarios    DISABLE ROW LEVEL SECURITY;
-ALTER TABLE importacoes DISABLE ROW LEVEL SECURITY;
-ALTER TABLE vendas      DISABLE ROW LEVEL SECURITY;
+ALTER TABLE usuarios            DISABLE ROW LEVEL SECURITY;
+ALTER TABLE importacoes         DISABLE ROW LEVEL SECURITY;
+ALTER TABLE vendas              DISABLE ROW LEVEL SECURITY;
+ALTER TABLE importacoes_estoque DISABLE ROW LEVEL SECURITY;
+ALTER TABLE estoque             DISABLE ROW LEVEL SECURITY;
 
 -- ============================================================
 -- USUÁRIO ADMIN INICIAL

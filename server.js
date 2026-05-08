@@ -184,6 +184,59 @@ app.get('/api/vendas', auth, async (req, res) => {
     res.json(data);
 });
 
+// ── GET /api/importacoes-estoque ─────────────────────────────
+app.get('/api/importacoes-estoque', auth, async (req, res) => {
+    const { data, error } = await supabase
+        .from('importacoes_estoque')
+        .select('id, nome_arquivo, total_linhas, criado_em, usuarios(nome)')
+        .order('criado_em', { ascending: false })
+        .limit(30);
+    if (error) return res.status(500).json({ erro: 'Erro ao buscar importações de estoque' });
+    res.json(data);
+});
+
+// ── POST /api/estoque/import ──────────────────────────────────
+app.post('/api/estoque/import', auth, async (req, res) => {
+    const { nomeArquivo, linhas } = req.body;
+    if (!Array.isArray(linhas) || !linhas.length)
+        return res.status(400).json({ erro: 'Dados inválidos' });
+
+    const { data: imp, error: errImp } = await supabase
+        .from('importacoes_estoque')
+        .insert({ nome_arquivo: nomeArquivo || 'estoque', usuario_id: req.usuario.id, total_linhas: linhas.length })
+        .select().single();
+    if (errImp) return res.status(500).json({ erro: 'Erro ao criar importação' });
+
+    const rows = linhas.map(l => ({
+        importacao_id: imp.id,
+        codigo:    String(l.codigo || '').trim(),
+        quantidade: Number(l.quantidade) || 0
+    }));
+
+    for (let i = 0; i < rows.length; i += 200) {
+        const { error } = await supabase.from('estoque').insert(rows.slice(i, i + 200));
+        if (error) return res.status(500).json({ erro: 'Erro ao salvar estoque' });
+    }
+    res.json({ ok: true, importacaoId: imp.id, total: linhas.length });
+});
+
+// ── GET /api/estoque?importacao_id=xxx ────────────────────────
+app.get('/api/estoque', auth, async (req, res) => {
+    const { importacao_id } = req.query;
+    let q = supabase.from('estoque').select('*');
+    if (importacao_id) q = q.eq('importacao_id', importacao_id);
+    const { data, error } = await q.limit(10000);
+    if (error) return res.status(500).json({ erro: 'Erro ao buscar estoque' });
+    res.json(data);
+});
+
+// ── DELETE /api/importacoes-estoque/:id ───────────────────────
+app.delete('/api/importacoes-estoque/:id', auth, async (req, res) => {
+    const { error } = await supabase.from('importacoes_estoque').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: 'Erro ao deletar' });
+    res.json({ ok: true });
+});
+
 // ── DELETE /api/importacoes/:id (admin) ───────────────────────
 app.delete('/api/importacoes/:id', auth, adminOnly, async (req, res) => {
     const { error } = await supabase

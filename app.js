@@ -78,6 +78,12 @@ const api = {
         const r = await fetch(`/api/importacoes/${id}`, { method: 'DELETE', headers: auth.cabecalho() });
         if (r.status === 401) { auth.sair(); return null; }
         return r.json();
+    },
+
+    async deletarImportacaoEstoque(id) {
+        const r = await fetch(`/api/importacoes-estoque/${id}`, { method: 'DELETE', headers: auth.cabecalho() });
+        if (r.status === 401) { auth.sair(); return null; }
+        return r.json();
     }
 };
 
@@ -164,7 +170,9 @@ function mostrarApp() {
     }
 
     init();
+    estoque.init();
     vendas.carregarHistorico();
+    estoque.carregarHistorico();
 }
 
 document.addEventListener('DOMContentLoaded', bootstrap);
@@ -335,20 +343,20 @@ function setupEventListeners() {
 // ====== NAVIGATION ======
 
 function navigateTo(viewName) {
-    document.getElementById('view-dashboard').style.display = viewName === 'dashboard' ? 'flex' : 'none';
-    document.getElementById('view-vendas').style.display   = viewName === 'vendas'    ? 'flex' : 'none';
+    ['dashboard','vendas','estoque'].forEach(v => {
+        const el = document.getElementById(`view-${v}`);
+        if (el) el.style.display = v === viewName ? 'flex' : 'none';
+    });
 
-    // Sidebar active state
     document.querySelectorAll('.nav-section li').forEach(li => li.classList.remove('active'));
     document.querySelectorAll('.sub-menu li').forEach(li => li.classList.remove('sub-active'));
+    document.getElementById('nav-analise').classList.add('active');
 
     if (viewName === 'vendas') {
-        document.getElementById('nav-analise').classList.add('active');
         document.querySelector('[data-view="vendas"]').classList.add('sub-active');
-        // Re-draw chart in case canvas was hidden on first render
         setTimeout(() => vendas.renderChart(), 50);
-    } else {
-        document.getElementById('nav-analise').classList.add('active');
+    } else if (viewName === 'estoque') {
+        document.querySelector('[data-view="estoque"]').classList.add('sub-active');
     }
 }
 
@@ -726,8 +734,14 @@ const vendas = {
     },
 
     setupModal() {
-        document.getElementById('btn-substituir').addEventListener('click', () => this.salvarImportacao('substituir'));
-        document.getElementById('btn-nova-imp').addEventListener('click',   () => this.salvarImportacao('nova'));
+        document.getElementById('btn-substituir').addEventListener('click', () => {
+            const modulo = document.getElementById('import-modal').dataset.modulo;
+            modulo === 'estoque' ? estoque.salvar('substituir') : this.salvarImportacao('substituir');
+        });
+        document.getElementById('btn-nova-imp').addEventListener('click', () => {
+            const modulo = document.getElementById('import-modal').dataset.modulo;
+            modulo === 'estoque' ? estoque.salvar('nova') : this.salvarImportacao('nova');
+        });
         document.getElementById('btn-cancelar-imp').addEventListener('click', () => {
             document.getElementById('import-modal').style.display = 'none';
         });
@@ -903,5 +917,271 @@ const vendas = {
         const suffix = total > 500 ? ' (exibindo 500)' : '';
         document.getElementById('table-count').textContent =
             `${total.toLocaleString('pt-BR')} ${total === 1 ? 'item' : 'itens'}${suffix}`;
+    }
+};
+
+// ====== MÓDULO ESTOQUE ======
+
+const estoque = {
+    rawData:   [],
+    filtered:  [],
+    vendaMap:  {},   // { codigo → { descricao, segmento, tamanho } }
+    _importacoes: [],
+    _currentId:   null,
+    _nomeArquivo: '',
+
+    init() {
+        this.setupDropZone();
+        this.setupFileInput();
+        this.setupFiltros();
+    },
+
+    setupDropZone() {
+        const zone = document.getElementById('estoque-drop-zone');
+        zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+        zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+        zone.addEventListener('drop', e => {
+            e.preventDefault(); zone.classList.remove('drag-over');
+            const f = e.dataTransfer.files[0];
+            if (f) this.handleFile(f);
+        });
+    },
+
+    setupFileInput() {
+        const inp = document.getElementById('file-input-estoque');
+        inp.addEventListener('change', e => {
+            const f = e.target.files[0];
+            if (f) this.handleFile(f);
+            inp.value = '';
+        });
+    },
+
+    setupFiltros() {
+        ['est-filter-segmento','est-filter-tamanho'].forEach(id => {
+            document.getElementById(id).addEventListener('change', () => this.aplicarFiltros());
+        });
+        document.getElementById('est-search').addEventListener('input', () => this.aplicarFiltros());
+        document.getElementById('est-clear').addEventListener('click', () => {
+            document.getElementById('est-filter-segmento').value = '';
+            document.getElementById('est-filter-tamanho').value  = '';
+            document.getElementById('est-search').value = '';
+            this.aplicarFiltros();
+        });
+    },
+
+    handleFile(file) {
+        this._nomeArquivo = file.name;
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (ext === 'csv') {
+            Papa.parse(file, { header: true, skipEmptyLines: true,
+                complete: r => this.processData(r.data) });
+        } else if (['xls','xlsx'].includes(ext)) {
+            const reader = new FileReader();
+            reader.onload = e => {
+                const wb   = XLSX.read(e.target.result, { type: 'array' });
+                const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+                this.processData(data);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+    },
+
+    normalizeKey(key) {
+        return String(key).toLowerCase()
+            .normalize('NFD').replace(/[̀-ͯ]/g,'')
+            .replace(/[^a-z0-9]/g,'');
+    },
+
+    processData(rows) {
+        if (!rows?.length) return;
+        const keyMap = {};
+        Object.keys(rows[0]).forEach(k => { keyMap[this.normalizeKey(k)] = k; });
+
+        const get = (row, ...cands) => {
+            for (const c of cands) {
+                if (keyMap[c] !== undefined) return String(row[keyMap[c]] ?? '');
+            }
+            return '';
+        };
+        const toNum = v => {
+            if (typeof v === 'number') return v;
+            return parseFloat(String(v).replace(/[^\d,.\-]/g,'').replace(',','.')) || 0;
+        };
+
+        this.rawData = rows.map((r, i) => ({
+            _id:       i,
+            codigo:    get(r, 'codigo'),
+            quantidade: toNum(get(r, 'quantidade', 'qtd', 'qty', 'qtde'))
+        })).filter(r => r.codigo);
+
+        this.enriquecerComVendas();
+        this.filtered = [...this.rawData];
+        this.popularFiltros();
+        this.mostrarDados();
+        this.render();
+        this.perguntarESalvar(this._nomeArquivo);
+    },
+
+    enriquecerComVendas() {
+        // Constrói mapa a partir dos dados de vendas em memória
+        this.vendaMap = {};
+        vendas.rawData.forEach(r => {
+            if (r.codigo) this.vendaMap[String(r.codigo).trim()] = {
+                descricao: r.descricao || '',
+                segmento:  r.segmento  || '',
+                tamanho:   r.tamanho   || ''
+            };
+        });
+    },
+
+    getInfo(codigo) {
+        return this.vendaMap[String(codigo).trim()] || { descricao: '', segmento: '', tamanho: '' };
+    },
+
+    popularFiltros() {
+        const unique = fn => [...new Set(this.rawData.map(r => fn(r)).filter(Boolean))].sort();
+        const fillSel = (id, opts) => {
+            document.getElementById(id).innerHTML = '<option value="">Todos</option>' +
+                opts.map(o => `<option value="${o}">${o}</option>`).join('');
+        };
+        fillSel('est-filter-segmento', unique(r => this.getInfo(r.codigo).segmento));
+        fillSel('est-filter-tamanho',  unique(r => this.getInfo(r.codigo).tamanho));
+    },
+
+    aplicarFiltros() {
+        const seg = document.getElementById('est-filter-segmento').value;
+        const tam = document.getElementById('est-filter-tamanho').value;
+        const q   = document.getElementById('est-search').value.toLowerCase().trim();
+        this.filtered = this.rawData.filter(r => {
+            const info = this.getInfo(r.codigo);
+            if (seg && info.segmento !== seg) return false;
+            if (tam && info.tamanho  !== tam) return false;
+            if (q && !r.codigo.toLowerCase().includes(q) &&
+                     !info.descricao.toLowerCase().includes(q)) return false;
+            return true;
+        });
+        this.render();
+    },
+
+    mostrarDados() {
+        document.getElementById('estoque-drop-zone').style.display = 'none';
+        document.getElementById('estoque-data').classList.add('visible');
+    },
+
+    render() {
+        const totalQtd = this.filtered.reduce((s, r) => s + r.quantidade, 0);
+        const zeros    = this.filtered.filter(r => r.quantidade === 0).length;
+        document.getElementById('est-itens').textContent = this.filtered.length.toLocaleString('pt-BR');
+        document.getElementById('est-qtd').textContent   = totalQtd.toLocaleString('pt-BR');
+        document.getElementById('est-zero').textContent  = zeros.toLocaleString('pt-BR');
+
+        const rows = this.filtered.slice(0, 500);
+        document.querySelector('#estoque-table tbody').innerHTML = rows.map(r => {
+            const info = this.getInfo(r.codigo);
+            const zero = r.quantidade === 0;
+            return `<tr${zero ? ' class="row-zero"' : ''}>
+                <td class="td-code">${r.codigo}</td>
+                <td class="td-desc">${info.descricao}</td>
+                <td><span class="seg-badge">${info.segmento}</span></td>
+                <td class="td-center">${info.tamanho}</td>
+                <td class="td-qtd${zero ? ' zero-qtd' : ''}">${r.quantidade.toLocaleString('pt-BR')}</td>
+            </tr>`;
+        }).join('');
+
+        const total = this.filtered.length;
+        document.getElementById('est-count').textContent =
+            `${total.toLocaleString('pt-BR')} itens${total > 500 ? ' (exibindo 500)' : ''}`;
+    },
+
+    // ── Salvar / Histórico ────────────────────────────────────
+    async perguntarESalvar(nome) {
+        this._nomeArquivo = nome;
+        const lista = await api.get('/api/importacoes-estoque');
+        if (!lista?.length) { await this.salvar('nova'); }
+        else {
+            document.getElementById('modal-arquivo').textContent = nome;
+            document.getElementById('import-modal').dataset.modulo = 'estoque';
+            document.getElementById('import-modal').style.display = 'flex';
+        }
+    },
+
+    async salvar(modo) {
+        document.getElementById('import-modal').style.display = 'none';
+        this.setSalvando(true);
+        try {
+            if (modo === 'substituir') {
+                const lista = await api.get('/api/importacoes-estoque');
+                for (const imp of (lista || [])) await api.deletarImportacaoEstoque(imp.id);
+            }
+            const linhas = this.rawData.map(r => ({ codigo: r.codigo, quantidade: r.quantidade }));
+            const res = await api.post('/api/estoque/import', { nomeArquivo: this._nomeArquivo, linhas });
+            if (res?.ok) this._currentId = res.importacaoId;
+        } catch(e) { console.error(e); }
+        finally { this.setSalvando(false); }
+        await this.carregarHistorico();
+    },
+
+    setSalvando(ativo) {
+        const el = document.getElementById('estoque-saving');
+        if (el) el.style.display = ativo ? 'inline' : 'none';
+    },
+
+    async carregarHistorico() {
+        const lista = await api.get('/api/importacoes-estoque');
+        if (!lista) return;
+        this._importacoes = lista;
+        if (!this.rawData.length && lista.length) {
+            await this.carregarImportacao(lista[0].id);
+        } else {
+            this.renderHistorico();
+        }
+    },
+
+    async carregarImportacao(id) {
+        this.setSalvando(true);
+        const rows = await api.get(`/api/estoque?importacao_id=${id}`);
+        this.setSalvando(false);
+        if (!rows?.length) return;
+
+        this._currentId = id;
+        this.rawData    = rows.map((r, i) => ({
+            _id: i, codigo: r.codigo, quantidade: Number(r.quantidade) || 0
+        }));
+        this.enriquecerComVendas();
+        this.filtered = [...this.rawData];
+        this.popularFiltros();
+        this.mostrarDados();
+        this.render();
+        this.renderHistorico();
+    },
+
+    renderHistorico() {
+        const wrap = document.getElementById('estoque-history');
+        const list = document.getElementById('estoque-history-list');
+        if (!this._importacoes?.length) { wrap.style.display = 'none'; return; }
+        wrap.style.display = 'block';
+        list.innerHTML = this._importacoes.map(imp => {
+            const d    = new Date(imp.criado_em).toLocaleDateString('pt-BR', { day:'2-digit', month:'short' });
+            const ativo = imp.id === this._currentId;
+            return `<div class="hi-item${ativo ? ' hi-ativo' : ''}" onclick="estoque.carregarImportacao('${imp.id}')">
+                <span class="hi-dot">${ativo ? '●' : '○'}</span>
+                <div class="hi-info">
+                    <span class="hi-nome">${imp.nome_arquivo}</span>
+                    <span class="hi-meta">${d} · ${imp.total_linhas} itens</span>
+                </div>
+                <button class="hi-del" onclick="event.stopPropagation();estoque.excluir('${imp.id}')" title="Excluir">✕</button>
+            </div>`;
+        }).join('');
+    },
+
+    async excluir(id) {
+        if (!confirm('Excluir esta importação?')) return;
+        await api.deletarImportacaoEstoque(id);
+        if (this._currentId === id) {
+            this.rawData = []; this.filtered = [];
+            document.getElementById('estoque-data').classList.remove('visible');
+            document.getElementById('estoque-drop-zone').style.display = '';
+        }
+        await this.carregarHistorico();
     }
 };
