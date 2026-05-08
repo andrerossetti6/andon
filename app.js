@@ -369,7 +369,7 @@ function navigateTo(viewName) {
 
     if (viewName === 'vendas') {
         document.querySelector('[data-view="vendas"]').classList.add('sub-active');
-        setTimeout(() => vendas.renderChart(), 50);
+        setTimeout(() => { if (vendas.rawData.length) vendas.render(); }, 50);
     } else if (viewName === 'estoque') {
         document.querySelector('[data-view="estoque"]').classList.add('sub-active');
     } else if (viewName === 'ranking') {
@@ -846,14 +846,13 @@ const vendas = {
         // Segmento — usa rawData para mostrar todos sempre (não só os filtrados)
         const segSelecionado = document.getElementById('filter-segmento').value;
         const bySeg = {};
+        const _mod  = document.getElementById('filter-modelo')?.value    || '';
+        const _tam  = document.getElementById('filter-tamanho')?.value   || '';
+        const _desc = document.getElementById('filter-descricao')?.value || '';
         this.rawData.filter(r => {
-            // Respeita outros filtros (modelo, tamanho, descrição) mas não o de segmento
-            const mod  = document.getElementById('filter-modelo').value;
-            const tam  = document.getElementById('filter-tamanho').value;
-            const desc = document.getElementById('filter-descricao').value;
-            if (mod  && r.modelo    !== mod)  return false;
-            if (tam  && r.tamanho   !== tam)  return false;
-            if (desc && r.descricao !== desc) return false;
+            if (_mod  && r.modelo    !== _mod)  return false;
+            if (_tam  && r.tamanho   !== _tam)  return false;
+            if (_desc && r.descricao !== _desc) return false;
             return true;
         }).forEach(r => {
             const k = r.segmento || '—';
