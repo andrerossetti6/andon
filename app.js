@@ -965,14 +965,8 @@ const estoque = {
     },
 
     setupFiltros() {
-        ['est-filter-segmento','est-filter-tamanho','est-filter-descricao'].forEach(id => {
-            document.getElementById(id).addEventListener('change', () => this.aplicarFiltros());
-        });
         document.getElementById('est-search').addEventListener('input', () => this.aplicarFiltros());
         document.getElementById('est-clear').addEventListener('click', () => {
-            document.getElementById('est-filter-segmento').value  = '';
-            document.getElementById('est-filter-tamanho').value   = '';
-            document.getElementById('est-filter-descricao').value = '';
             document.getElementById('est-search').value = '';
             this.aplicarFiltros();
         });
@@ -1023,54 +1017,17 @@ const estoque = {
             quantidade: toNum(get(r, 'quantidade', 'qtd', 'qty', 'qtde'))
         })).filter(r => r.codigo);
 
-        this.enriquecerComVendas();
         this.filtered = [...this.rawData];
-        this.popularFiltros();
         this.mostrarDados();
         this.render();
         this.perguntarESalvar(this._nomeArquivo);
     },
 
-    enriquecerComVendas() {
-        // Constrói mapa a partir dos dados de vendas em memória
-        this.vendaMap = {};
-        vendas.rawData.forEach(r => {
-            if (r.codigo) this.vendaMap[String(r.codigo).trim()] = {
-                descricao: r.descricao || '',
-                segmento:  r.segmento  || '',
-                tamanho:   r.tamanho   || ''
-            };
-        });
-    },
-
-    getInfo(codigo) {
-        return this.vendaMap[String(codigo).trim()] || { descricao: '', segmento: '', tamanho: '' };
-    },
-
-    popularFiltros() {
-        const unique = fn => [...new Set(this.rawData.map(r => fn(r)).filter(Boolean))].sort();
-        const fillSel = (id, opts, label = 'Todos') => {
-            document.getElementById(id).innerHTML = `<option value="">${label}</option>` +
-                opts.map(o => `<option value="${o}">${o}</option>`).join('');
-        };
-        fillSel('est-filter-segmento', unique(r => this.getInfo(r.codigo).segmento));
-        fillSel('est-filter-tamanho',  unique(r => this.getInfo(r.codigo).tamanho));
-        fillSel('est-filter-descricao', unique(r => this.getInfo(r.codigo).descricao), 'Todas');
-    },
-
     aplicarFiltros() {
-        const seg  = document.getElementById('est-filter-segmento').value;
-        const tam  = document.getElementById('est-filter-tamanho').value;
-        const desc = document.getElementById('est-filter-descricao').value;
-        const q    = document.getElementById('est-search').value.toLowerCase().trim();
-        this.filtered = this.rawData.filter(r => {
-            const info = this.getInfo(r.codigo);
-            if (seg  && info.segmento  !== seg)  return false;
-            if (tam  && info.tamanho   !== tam)  return false;
-            if (desc && info.descricao !== desc) return false;
-            if (q    && !r.codigo.toLowerCase().includes(q)) return false;
-            return true;
-        });
+        const q = document.getElementById('est-search').value.toLowerCase().trim();
+        this.filtered = this.rawData.filter(r =>
+            !q || r.codigo.toLowerCase().includes(q)
+        );
         this.render();
     },
 
@@ -1088,13 +1045,9 @@ const estoque = {
 
         const rows = this.filtered.slice(0, 500);
         document.querySelector('#estoque-table tbody').innerHTML = rows.map(r => {
-            const info = this.getInfo(r.codigo);
             const zero = r.quantidade === 0;
             return `<tr${zero ? ' class="row-zero"' : ''}>
                 <td class="td-code">${r.codigo}</td>
-                <td class="td-desc">${info.descricao}</td>
-                <td><span class="seg-badge">${info.segmento}</span></td>
-                <td class="td-center">${info.tamanho}</td>
                 <td class="td-qtd${zero ? ' zero-qtd' : ''}">${r.quantidade.toLocaleString('pt-BR')}</td>
             </tr>`;
         }).join('');
@@ -1158,9 +1111,7 @@ const estoque = {
         this.rawData    = rows.map((r, i) => ({
             _id: i, codigo: r.codigo, quantidade: Number(r.quantidade) || 0
         }));
-        this.enriquecerComVendas();
         this.filtered = [...this.rawData];
-        this.popularFiltros();
         this.mostrarDados();
         this.render();
         this.renderHistorico();
