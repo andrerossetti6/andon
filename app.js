@@ -821,15 +821,51 @@ const vendas = {
     },
 
     renderSummary() {
-        const totalQtd   = this.filtered.reduce((s, r) => s + r.quantidade, 0);
-        const totalValor = this.filtered.reduce((s, r) => s + r.valor, 0);
+        const activeCols = this.getActiveCols();
 
-        document.getElementById('summary-itens').textContent =
-            this.filtered.length.toLocaleString('pt-BR');
+        // Quantidade total = soma de todos os meses ativos
+        const rowQtd = r => activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
+        const total  = this.filtered.reduce((s, r) => s + rowQtd(r), 0);
+
         document.getElementById('summary-qtd').textContent =
-            totalQtd.toLocaleString('pt-BR');
-        document.getElementById('summary-valor').textContent =
-            totalValor.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+            total.toLocaleString('pt-BR');
+        document.getElementById('summary-qtd-sub').textContent =
+            `${this.filtered.length.toLocaleString('pt-BR')} itens · ${this.selectedYear !== 'all' ? this.selectedYear : 'todos os anos'}`;
+
+        // Agrupamento por segmento
+        const bySeg = {};
+        this.filtered.forEach(r => {
+            const k = r.segmento || '—';
+            bySeg[k] = (bySeg[k] || 0) + rowQtd(r);
+        });
+        document.getElementById('summary-segmento').innerHTML =
+            this.renderBreakdown(bySeg, total);
+
+        // Agrupamento por tamanho
+        const byTam = {};
+        this.filtered.forEach(r => {
+            const k = r.tamanho || '—';
+            byTam[k] = (byTam[k] || 0) + rowQtd(r);
+        });
+        document.getElementById('summary-tamanho').innerHTML =
+            this.renderBreakdown(byTam, total);
+    },
+
+    renderBreakdown(map, total) {
+        return Object.entries(map)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 6)
+            .map(([label, val]) => {
+                const pct = total > 0 ? Math.round(val / total * 100) : 0;
+                return `
+                <div class="breakdown-item">
+                    <span class="bd-label">${label}</span>
+                    <div class="bd-bar-wrap">
+                        <div class="bd-bar" style="width:${pct}%"></div>
+                    </div>
+                    <span class="bd-val">${val.toLocaleString('pt-BR')}</span>
+                </div>`;
+            }).join('');
     },
 
     renderChart() {
