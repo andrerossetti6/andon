@@ -171,7 +171,8 @@ function mostrarApp() {
 
     init();
     estoque.init();
-    // Vendas primeiro — estoque usa os dados de vendas para enriquecer
+    ranking.init();
+    vxe.init();
     vendas.carregarHistorico().then(() => estoque.carregarHistorico());
 }
 
@@ -351,20 +352,30 @@ function toggleHistorico(id) {
 }
 
 function navigateTo(viewName) {
-    ['dashboard','vendas','estoque'].forEach(v => {
+    ['dashboard','vendas','estoque','ranking','vxe'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
 
     document.querySelectorAll('.nav-section li').forEach(li => li.classList.remove('active'));
     document.querySelectorAll('.sub-menu li').forEach(li => li.classList.remove('sub-active'));
-    document.getElementById('nav-analise').classList.add('active');
+
+    const navMap = {
+        vendas: 'nav-analise', estoque: 'nav-analise',
+        ranking: 'nav-ranking', vxe: 'nav-vxe', dashboard: 'nav-analise'
+    };
+    const navEl = document.getElementById(navMap[viewName]);
+    if (navEl) navEl.classList.add('active');
 
     if (viewName === 'vendas') {
         document.querySelector('[data-view="vendas"]').classList.add('sub-active');
         setTimeout(() => vendas.renderChart(), 50);
     } else if (viewName === 'estoque') {
         document.querySelector('[data-view="estoque"]').classList.add('sub-active');
+    } else if (viewName === 'ranking') {
+        setTimeout(() => ranking.render(), 50);
+    } else if (viewName === 'vxe') {
+        vxe.render();
     }
 }
 
@@ -1192,5 +1203,171 @@ const estoque = {
             document.getElementById('estoque-drop-zone').style.display = '';
         }
         await this.carregarHistorico();
+    }
+};
+
+// ====== DASHBOARD: RANKING DE VENDAS ======
+
+const ranking = {
+    init() {
+        document.getElementById('rank-seg').addEventListener('change',   () => this.render());
+        document.getElementById('rank-grupo').addEventListener('change', () => this.render());
+    },
+
+    render() {
+        if (!vendas.rawData.length) {
+            document.getElementById('rank-count').textContent = 'Importe dados de Vendas primeiro';
+            return;
+        }
+        const activeCols = vendas.getActiveCols();
+        const seg   = document.getElementById('rank-seg').value;
+        const grupo = document.getElementById('rank-grupo').value;
+
+        // Preenche filtro de segmento
+        const segs = [...new Set(vendas.rawData.map(r => r.segmento).filter(Boolean))].sort();
+        const segEl = document.getElementById('rank-seg');
+        const cur = segEl.value;
+        segEl.innerHTML = '<option value="">Todos</option>' + segs.map(s => `<option value="${s}">${s}</option>`).join('');
+        segEl.value = cur;
+
+        // Tabs de ano
+        const tabsEl = document.getElementById('rank-year-tabs');
+        tabsEl.innerHTML = vendas.years.map((y, i) =>
+            `<button class="year-tab${vendas.selectedYear === y ? ' active' : ''}" onclick="vendas.selectedYear='${y}';ranking.render()">${y}</button>`
+        ).join('');
+
+        // Agrega por grupo escolhido
+        const map = {};
+        vendas.rawData.filter(r => !seg || r.segmento === seg).forEach(r => {
+            const key   = r[grupo] || r.codigo;
+            const label = grupo === 'descricao' ? (r.descricao || r.codigo) : r.codigo;
+            const qtd   = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
+            if (!map[key]) map[key] = { label, segmento: r.segmento, total: 0 };
+            map[key].total += qtd;
+        });
+
+        const sorted = Object.values(map).sort((a, b) => b.total - a.total).slice(0, 20);
+        document.getElementById('rank-count').textContent = `Top ${sorted.length} de ${Object.keys(map).length}`;
+        this.drawChart(sorted);
+    },
+
+    drawChart(items) {
+        const canvas = document.getElementById('rank-chart');
+        if (!canvas || !items.length) return;
+
+        const rowH = 38, padL = 200, padR = 90, padT = 10, padB = 10;
+        const w = canvas.width  = canvas.offsetWidth || 800;
+        const h = canvas.height = items.length * rowH + padT + padB;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, w, h);
+
+        const max  = items[0].total || 1;
+        const barW = w - padL - padR;
+
+        items.forEach((item, i) => {
+            const y  = padT + i * rowH;
+            const bw = Math.max((item.total / max) * barW, 2);
+
+            const grad = ctx.createLinearGradient(padL, 0, padL + bw, 0);
+            grad.addColorStop(0, 'rgba(88,166,255,0.9)');
+            grad.addColorStop(1, 'rgba(88,166,255,0.3)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            const r2 = 4, bx = padL, by = y + 5, bh = rowH - 10;
+            ctx.moveTo(bx + r2, by);
+            ctx.lineTo(bx + bw - r2, by);
+            ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + r2);
+            ctx.lineTo(bx + bw, by + bh - r2);
+            ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - r2, by + bh);
+            ctx.lineTo(bx, by + bh);
+            ctx.lineTo(bx, by);
+            ctx.closePath();
+            ctx.fill();
+
+            // Rank number
+            ctx.fillStyle = 'rgba(88,166,255,0.5)';
+            ctx.font = 'bold 10px Inter';
+            ctx.textAlign = 'right';
+            ctx.fillText(`#${i + 1}`, padL - 110, y + rowH / 2 + 4);
+
+            // Label
+            ctx.fillStyle = 'rgba(230,237,243,0.85)';
+            ctx.font = '11px Inter';
+            ctx.textAlign = 'right';
+            const lbl = item.label.length > 22 ? item.label.substring(0, 22) + '…' : item.label;
+            ctx.fillText(lbl, padL - 10, y + rowH / 2 + 4);
+
+            // Value
+            ctx.fillStyle = 'rgba(230,237,243,0.9)';
+            ctx.font = 'bold 11px Inter';
+            ctx.textAlign = 'left';
+            ctx.fillText(item.total.toLocaleString('pt-BR'), padL + bw + 8, y + rowH / 2 + 4);
+        });
+    }
+};
+
+// ====== DASHBOARD: VENDAS × ESTOQUE ======
+
+const vxe = {
+    init() {
+        document.getElementById('vxe-seg').addEventListener('change',    () => this.render());
+        document.getElementById('vxe-status').addEventListener('change', () => this.render());
+    },
+
+    render() {
+        if (!vendas.rawData.length) {
+            document.getElementById('vxe-count').textContent = 'Importe dados de Vendas primeiro';
+            return;
+        }
+
+        const activeCols = vendas.getActiveCols();
+        const seg    = document.getElementById('vxe-seg').value;
+        const status = document.getElementById('vxe-status').value;
+
+        // Preenche filtro de segmento
+        const segs = [...new Set(vendas.rawData.map(r => r.segmento).filter(Boolean))].sort();
+        const segEl = document.getElementById('vxe-seg');
+        const cur = segEl.value;
+        segEl.innerHTML = '<option value="">Todos</option>' + segs.map(s => `<option value="${s}">${s}</option>`).join('');
+        segEl.value = cur;
+
+        // Mapa de estoque por código
+        const estMap = {};
+        estoque.rawData.forEach(r => { estMap[r.codigo] = Number(r.quantidade) || 0; });
+
+        const rows = vendas.rawData
+            .filter(r => !seg || r.segmento === seg)
+            .map(r => {
+                const vendQtd = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
+                const estQtd  = estMap[r.codigo] ?? null;
+                let st = 'sem-dados';
+                if (estQtd !== null) {
+                    if (estQtd === 0)                                st = 'zero';
+                    else if (vendQtd > 0 && estQtd / vendQtd < 0.2) st = 'baixo';
+                    else                                              st = 'ok';
+                }
+                return { ...r, vendQtd, estQtd, st };
+            })
+            .filter(r => !status || r.st === status)
+            .sort((a, b) => {
+                const order = { zero: 0, baixo: 1, ok: 2, 'sem-dados': 3 };
+                return (order[a.st] ?? 9) - (order[b.st] ?? 9) || b.vendQtd - a.vendQtd;
+            });
+
+        document.getElementById('vxe-count').textContent = `${rows.length.toLocaleString('pt-BR')} itens`;
+
+        const labels = { ok: 'OK', baixo: 'BAIXO', zero: 'SEM ESTOQUE', 'sem-dados': '—' };
+        const classes = { ok: 'vxe-ok', baixo: 'vxe-baixo', zero: 'vxe-zero', 'sem-dados': 'vxe-nd' };
+
+        document.querySelector('#vxe-table tbody').innerHTML = rows.slice(0, 500).map(r => `
+            <tr>
+                <td class="td-code">${r.codigo}</td>
+                <td class="td-desc">${r.descricao}</td>
+                <td><span class="seg-badge">${r.segmento}</span></td>
+                <td class="td-center">${r.tamanho}</td>
+                <td class="td-qtd">${r.vendQtd.toLocaleString('pt-BR')}</td>
+                <td class="td-qtd">${r.estQtd !== null ? r.estQtd.toLocaleString('pt-BR') : '—'}</td>
+                <td class="td-center"><span class="vxe-badge ${classes[r.st]}">${labels[r.st]}</span></td>
+            </tr>`).join('');
     }
 };

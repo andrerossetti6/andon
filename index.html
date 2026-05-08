@@ -63,6 +63,18 @@
                             <li>Ordens de Produção</li>
                         </ul>
                     </li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section">
+                <h3>DASHBOARDS</h3>
+                <ul>
+                    <li id="nav-ranking" onclick="navigateTo('ranking')">
+                        <div class="item-content"><span class="icon">🏆</span> Ranking Vendas</div>
+                    </li>
+                    <li id="nav-vxe" onclick="navigateTo('vxe')">
+                        <div class="item-content"><span class="icon">🔄</span> Vendas × Estoque</div>
+                    </li>
                     <li><div class="item-content"><span class="icon">🔍</span> Análise Paradas</div></li>
                     <li><div class="item-content"><span class="icon">📉</span> Análise Perdas</div></li>
                     <li><div class="item-content"><span class="icon">✔️</span> Disponibilidade</div></li>
@@ -390,6 +402,66 @@
                     <tbody></tbody>
                 </table>
             </div>
+        </div>
+    </main>
+
+    <!-- ── Dashboard: Ranking de Vendas ─────────────────────── -->
+    <main class="content" id="view-ranking" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Ranking de <span>Vendas</span></h1>
+                <p class="page-subtitle">Top produtos por quantidade vendida no período</p>
+            </div>
+        </header>
+        <div class="vendas-filters-bar" style="flex-shrink:0;">
+            <label>Segmento</label>
+            <select class="sigs-select" id="rank-seg"><option value="">Todos</option></select>
+            <label>Agrupar por</label>
+            <select class="sigs-select" id="rank-grupo">
+                <option value="descricao">Descrição</option>
+                <option value="codigo">Código</option>
+            </select>
+            <div id="rank-year-tabs" class="year-tabs"></div>
+            <span class="table-count-label" id="rank-count"></span>
+        </div>
+        <div class="rank-wrap">
+            <canvas id="rank-chart"></canvas>
+        </div>
+    </main>
+
+    <!-- ── Dashboard: Vendas × Estoque ───────────────────────── -->
+    <main class="content" id="view-vxe" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Vendas <span>× Estoque</span></h1>
+                <p class="page-subtitle">Cobertura de estoque por produto baseada nas vendas</p>
+            </div>
+        </header>
+        <div class="vendas-filters-bar" style="flex-shrink:0;">
+            <label>Segmento</label>
+            <select class="sigs-select" id="vxe-seg"><option value="">Todos</option></select>
+            <label>Status</label>
+            <select class="sigs-select" id="vxe-status">
+                <option value="">Todos</option>
+                <option value="ok">OK</option>
+                <option value="baixo">Baixo</option>
+                <option value="zero">Sem Estoque</option>
+            </select>
+            <span class="table-count-label" id="vxe-count"></span>
+        </div>
+        <div class="vendas-table-wrap" style="flex:1;min-height:0;">
+            <table class="vendas-table estoque-table-full" id="vxe-table">
+                <thead><tr>
+                    <th>CÓDIGO</th>
+                    <th>DESCRIÇÃO</th>
+                    <th>SEGMENTO</th>
+                    <th class="td-center">TAM.</th>
+                    <th class="td-right">VENDAS</th>
+                    <th class="td-right">ESTOQUE</th>
+                    <th class="td-center">STATUS</th>
+                </tr></thead>
+                <tbody></tbody>
+            </table>
         </div>
     </main>
 

@@ -1021,6 +1021,38 @@ input:checked + .chk {
     color: var(--text-main);
 }
 
+/* ====== DASHBOARD RANKING ====== */
+#view-ranking, #view-vxe {
+    overflow: hidden;
+    height: 100vh;
+}
+
+.rank-wrap {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 16px;
+}
+
+#rank-chart { display: block; width: 100%; }
+
+/* Badges Vendas × Estoque */
+.vxe-badge {
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+}
+
+.vxe-ok    { background: rgba(35,134,54,0.15);  color: #3FB950; }
+.vxe-baixo { background: rgba(210,153,34,0.15); color: #D29922; }
+.vxe-zero  { background: rgba(248,81,73,0.15);  color: #F85149; }
+.vxe-nd    { background: rgba(255,255,255,0.05); color: var(--text-dim); }
+
 /* ====== HISTÓRICO DE IMPORTAÇÕES ====== */
 .import-history {
     background: var(--bg-card);
