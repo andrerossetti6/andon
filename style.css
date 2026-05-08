@@ -772,6 +772,23 @@ input:checked + .chk {
     text-align: right;
 }
 
+.bd-click {
+    cursor: pointer;
+    border-radius: 6px;
+    padding: 3px 6px;
+    margin: 0 -6px;
+    transition: background 0.15s;
+}
+
+.bd-click:hover { background: rgba(255,255,255,0.05); }
+
+.bd-ativo {
+    background: rgba(88,166,255,0.1) !important;
+}
+
+.bd-ativo .bd-label { color: var(--indigo-primary); font-weight: 600; }
+.bd-ativo .bd-bar   { opacity: 1; background: var(--indigo-primary); }
+
 /* Chart */
 .chart-section {
     background: var(--bg-card);

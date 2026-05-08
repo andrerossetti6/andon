@@ -843,33 +843,54 @@ const vendas = {
         document.getElementById('summary-qtd-sub').textContent =
             `${this.filtered.length.toLocaleString('pt-BR')} itens · ${this.selectedYear !== 'all' ? this.selectedYear : 'todos os anos'}`;
 
-        // Agrupamento por segmento
+        // Segmento — usa rawData para mostrar todos sempre (não só os filtrados)
+        const segSelecionado = document.getElementById('filter-segmento').value;
         const bySeg = {};
-        this.filtered.forEach(r => {
+        this.rawData.filter(r => {
+            // Respeita outros filtros (modelo, tamanho, descrição) mas não o de segmento
+            const mod  = document.getElementById('filter-modelo').value;
+            const tam  = document.getElementById('filter-tamanho').value;
+            const desc = document.getElementById('filter-descricao').value;
+            if (mod  && r.modelo    !== mod)  return false;
+            if (tam  && r.tamanho   !== tam)  return false;
+            if (desc && r.descricao !== desc) return false;
+            return true;
+        }).forEach(r => {
             const k = r.segmento || '—';
             bySeg[k] = (bySeg[k] || 0) + rowQtd(r);
         });
+        const totalSeg = Object.values(bySeg).reduce((s, v) => s + v, 0);
         document.getElementById('summary-segmento').innerHTML =
-            this.renderBreakdown(bySeg, total);
+            this.renderBreakdown(bySeg, totalSeg, 'segmento', segSelecionado);
 
-        // Agrupamento por tamanho
+        // Tamanho — usa os dados já filtrados (inclusive pelo segmento clicado)
         const byTam = {};
         this.filtered.forEach(r => {
             const k = r.tamanho || '—';
             byTam[k] = (byTam[k] || 0) + rowQtd(r);
         });
         document.getElementById('summary-tamanho').innerHTML =
-            this.renderBreakdown(byTam, total);
+            this.renderBreakdown(byTam, total, null, null);
     },
 
-    renderBreakdown(map, total) {
+    clickBreakdown(campo, valor) {
+        const el = document.getElementById(`filter-${campo}`);
+        if (!el) return;
+        el.value = el.value === valor ? '' : valor;  // toggle
+        this.applyFilters();
+    },
+
+    renderBreakdown(map, total, campo, selecionado) {
         return Object.entries(map)
             .sort((a, b) => b[1] - a[1])
             .slice(0, 6)
             .map(([label, val]) => {
-                const pct = total > 0 ? Math.round(val / total * 100) : 0;
+                const pct      = total > 0 ? Math.round(val / total * 100) : 0;
+                const ativo    = selecionado === label;
+                const clicavel = campo
+                    ? `onclick="vendas.clickBreakdown('${campo}','${label.replace(/'/g, "\\'")}')"` : '';
                 return `
-                <div class="breakdown-item">
+                <div class="breakdown-item${ativo ? ' bd-ativo' : ''}${campo ? ' bd-click' : ''}" ${clicavel}>
                     <span class="bd-label">${label}</span>
                     <div class="bd-bar-wrap">
                         <div class="bd-bar" style="width:${pct}%"></div>
