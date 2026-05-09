@@ -1679,6 +1679,7 @@ const op = {
 
     _parseERPReport(rows) {
         const toNum = v => parseFloat(String(v ?? '').replace(',', '.')) || 0;
+        const PART_NAMES = ['Produto', 'Cor', 'Tamanho', 'Modelo', 'Versão', 'Caract. 5', 'Caract. 6'];
         const parsed = [];
         let curOP = null;
 
@@ -1703,18 +1704,44 @@ const op = {
             }
             // Linha de produto
             else if (/^Produto:/i.test(a) && curOP) {
-                const pm = a.match(/Produto:\s*(\d+)\s*[-–]\s*(.+)/i);
-                if (!pm) continue;
-                parsed.push({
-                    ...curOP,
-                    'Código':          pm[1].trim(),
-                    'Descrição':       pm[2].trim(),
-                    'Para Produção':   toNum(vals[2]),
-                    'Produzido':       toNum(vals[3]),
-                    'Aprovado':        toNum(vals[4]),
-                    'Reprovado':       toNum(vals[5]),
-                    'À Produzir':      toNum(vals[6]),
-                });
+                // Extrai código e resto
+                const codeMatch = a.match(/Produto:\s*(\d+)\s*[-–]\s*(.+)/i);
+                if (!codeMatch) continue;
+                const codigo = codeMatch[1].trim();
+                const resto  = codeMatch[2];
+
+                // Tenta extrair 5 números do FINAL do texto (estão na coluna A como texto)
+                const numMatch = resto.match(/^(.+?)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s*$/);
+                let descricao, paraProducao, produzido, aprovado, reprovado, aProduzir;
+
+                if (numMatch) {
+                    // Números embutidos no texto (formato mais comum do ERP)
+                    descricao    = numMatch[1].trim();
+                    paraProducao = toNum(numMatch[2]);
+                    produzido    = toNum(numMatch[3]);
+                    aprovado     = toNum(numMatch[4]);
+                    reprovado    = toNum(numMatch[5]);
+                    aProduzir    = toNum(numMatch[6]);
+                } else {
+                    // Fallback: números em colunas separadas
+                    descricao    = resto.trim();
+                    paraProducao = toNum(vals[2]);
+                    produzido    = toNum(vals[3]);
+                    aprovado     = toNum(vals[4]);
+                    reprovado    = toNum(vals[5]);
+                    aProduzir    = toNum(vals[6]);
+                }
+
+                // Quebra a descrição por "|" em colunas separadas
+                const parts = descricao.split('|').map(p => p.trim());
+                const record = { ...curOP, 'Código': codigo };
+                parts.forEach((p, i) => { record[PART_NAMES[i] || `Caract. ${i}`] = p; });
+                record['Para Produção'] = paraProducao;
+                record['Produzido']     = produzido;
+                record['Aprovado']      = aprovado;
+                record['Reprovado']     = reprovado;
+                record['À Produzir']    = aProduzir;
+                parsed.push(record);
             }
         }
 
@@ -1723,7 +1750,11 @@ const op = {
             return;
         }
 
-        this.colunas  = Object.keys(parsed[0]);
+        // Garante colunas consistentes em todos os registros
+        const allKeys = [...new Set(parsed.flatMap(r => Object.keys(r)))];
+        parsed.forEach(r => { allKeys.forEach(k => { if (!(k in r)) r[k] = ''; }); });
+
+        this.colunas  = allKeys;
         this._colQtd  = 'À Produzir';
         this.rawData  = parsed.map((r, i) => ({ _id: i, dados: r }));
         this.filtered = [...this.rawData];
