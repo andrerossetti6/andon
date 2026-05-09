@@ -72,6 +72,12 @@
                     <li id="nav-vxe" onclick="navigateTo('vxe')">
                         <div class="item-content"><span class="icon">🔄</span> Vendas × Estoque</div>
                     </li>
+                    <li id="nav-abc" onclick="navigateTo('abc')">
+                        <div class="item-content"><span class="icon">📈</span> Curva ABC</div>
+                    </li>
+                    <li id="nav-dist" onclick="navigateTo('dist')">
+                        <div class="item-content"><span class="icon">🎨</span> Distribuição</div>
+                    </li>
                     <li><div class="item-content"><span class="icon">🔍</span> Análise Paradas</div></li>
                     <li><div class="item-content"><span class="icon">📉</span> Análise Perdas</div></li>
                     <li><div class="item-content"><span class="icon">✔️</span> Disponibilidade</div></li>
@@ -454,6 +460,87 @@
                 </tr></thead>
                 <tbody></tbody>
             </table>
+        </div>
+    </main>
+
+    <!-- ── Dashboard: Curva ABC ──────────────────────────── -->
+    <main class="content" id="view-abc" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Curva <span>ABC</span></h1>
+                <p class="page-subtitle">Classificação de itens por representatividade no estoque (Pareto 80/15/5)</p>
+            </div>
+            <span class="table-count-label" id="abc-count"></span>
+        </header>
+        <div class="vendas-summary">
+            <div class="summary-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <span class="s-label" style="margin:0;">CLASSE A</span>
+                    <span class="abc-badge abc-a">A</span>
+                </div>
+                <span class="s-value" id="abc-a-count" style="color:#58A6FF;">0</span>
+                <span class="s-sub"><span id="abc-a-qtd">—</span> · ~80% do total</span>
+            </div>
+            <div class="summary-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <span class="s-label" style="margin:0;">CLASSE B</span>
+                    <span class="abc-badge abc-b">B</span>
+                </div>
+                <span class="s-value" id="abc-b-count" style="color:#D29922;">0</span>
+                <span class="s-sub"><span id="abc-b-qtd">—</span> · ~15% do total</span>
+            </div>
+            <div class="summary-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <span class="s-label" style="margin:0;">CLASSE C</span>
+                    <span class="abc-badge abc-c">C</span>
+                </div>
+                <span class="s-value" id="abc-c-count" style="color:#8B949E;">0</span>
+                <span class="s-sub"><span id="abc-c-qtd">—</span> · ~5% do total</span>
+            </div>
+        </div>
+        <div class="chart-section" style="flex-shrink:0;">
+            <div class="chart-header">
+                <h3>CURVA PARETO — % ACUMULADO × NÚMERO DE ITENS</h3>
+            </div>
+            <canvas id="abc-chart" style="width:100%;height:160px;display:block;"></canvas>
+        </div>
+        <div class="vendas-table-wrap" style="flex:1;min-height:0;">
+            <table class="vendas-table estoque-table-full" id="abc-table">
+                <thead><tr>
+                    <th style="width:40px;">#</th>
+                    <th>CÓDIGO</th>
+                    <th>DESCRIÇÃO</th>
+                    <th class="td-right">QUANTIDADE</th>
+                    <th class="td-right">% TOTAL</th>
+                    <th class="td-right">% ACUM.</th>
+                    <th class="td-center" style="width:80px;">CLASSE</th>
+                </tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </main>
+
+    <!-- ── Dashboard: Distribuição por Característica ──────── -->
+    <main class="content" id="view-dist" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Distribuição por <span>Característica</span></h1>
+                <p class="page-subtitle">Análise de quantidade em estoque por categoria</p>
+            </div>
+            <span class="table-count-label" id="dist-info"></span>
+        </header>
+        <div class="vendas-filters-bar" style="flex-shrink:0;">
+            <label>Analisar por</label>
+            <select class="sigs-select" id="dist-col-sel"></select>
+        </div>
+        <div class="dist-layout">
+            <div class="dist-panel">
+                <span class="s-label">POR QUANTIDADE</span>
+                <div id="dist-breakdown" class="dist-breakdown"></div>
+            </div>
+            <div class="dist-chart-panel">
+                <canvas id="dist-chart"></canvas>
+            </div>
         </div>
     </main>
 

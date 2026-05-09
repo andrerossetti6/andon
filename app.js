@@ -174,6 +174,8 @@ function mostrarApp() {
     estoque.init();
     ranking.init();
     vxe.init();
+    abc.init();
+    dist.init();
     vendas.carregarHistorico().then(() => estoque.carregarHistorico());
 }
 
@@ -456,7 +458,7 @@ function toggleHistorico(id) {
 }
 
 function navigateTo(viewName) {
-    ['dashboard','vendas','estoque','ranking','vxe'].forEach(v => {
+    ['dashboard','vendas','estoque','ranking','vxe','abc','dist'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -466,7 +468,8 @@ function navigateTo(viewName) {
 
     const navMap = {
         vendas: 'nav-analise', estoque: 'nav-analise',
-        ranking: 'nav-ranking', vxe: 'nav-vxe', dashboard: 'nav-analise'
+        ranking: 'nav-ranking', vxe: 'nav-vxe', dashboard: 'nav-analise',
+        abc: 'nav-abc', dist: 'nav-dist'
     };
     const navEl = document.getElementById(navMap[viewName]);
     if (navEl) navEl.classList.add('active');
@@ -480,6 +483,10 @@ function navigateTo(viewName) {
         setTimeout(() => ranking.render(), 50);
     } else if (viewName === 'vxe') {
         vxe.render();
+    } else if (viewName === 'abc') {
+        setTimeout(() => abc.render(), 50);
+    } else if (viewName === 'dist') {
+        setTimeout(() => dist.render(), 50);
     }
 }
 
@@ -1445,6 +1452,265 @@ const estoque = {
             document.getElementById('estoque-drop-zone').style.display = '';
         }
         await this.carregarHistorico();
+    }
+};
+
+// ====== DASHBOARD: CURVA ABC ======
+
+const abc = {
+    init() {},
+
+    render() {
+        const countEl = document.getElementById('abc-count');
+        if (!estoque.rawData.length) {
+            countEl.textContent = 'Importe dados de Estoque primeiro';
+            ['a','b','c'].forEach(k => {
+                document.getElementById(`abc-${k}-count`).textContent = '0';
+                document.getElementById(`abc-${k}-qtd`).textContent = '—';
+            });
+            document.querySelector('#abc-table tbody').innerHTML = '';
+            return;
+        }
+
+        const sorted = [...estoque.rawData].sort((a, b) => b.quantidade - a.quantidade);
+        const total  = sorted.reduce((s, r) => s + r.quantidade, 0);
+
+        let cumQtd = 0;
+        const items = sorted.map(r => {
+            cumQtd += r.quantidade;
+            const cumPct = total > 0 ? cumQtd / total * 100 : 0;
+            return { ...r, pct: total > 0 ? r.quantidade / total * 100 : 0, cumPct,
+                     classe: cumPct <= 80 ? 'A' : cumPct <= 95 ? 'B' : 'C' };
+        });
+
+        const cA = items.filter(i => i.classe === 'A');
+        const cB = items.filter(i => i.classe === 'B');
+        const cC = items.filter(i => i.classe === 'C');
+        const fmtQ = q => q.toLocaleString('pt-BR') + ' un';
+
+        document.getElementById('abc-a-count').textContent = cA.length;
+        document.getElementById('abc-b-count').textContent = cB.length;
+        document.getElementById('abc-c-count').textContent = cC.length;
+        document.getElementById('abc-a-qtd').textContent = fmtQ(cA.reduce((s,i) => s + i.quantidade, 0));
+        document.getElementById('abc-b-qtd').textContent = fmtQ(cB.reduce((s,i) => s + i.quantidade, 0));
+        document.getElementById('abc-c-qtd').textContent = fmtQ(cC.reduce((s,i) => s + i.quantidade, 0));
+        countEl.textContent = `${items.length.toLocaleString('pt-BR')} itens analisados`;
+
+        setTimeout(() => this.drawChart(items), 30);
+        this.renderTable(items);
+    },
+
+    drawChart(items) {
+        const canvas = document.getElementById('abc-chart');
+        if (!canvas || !items.length) return;
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width  = canvas.offsetWidth || 800;
+        const h = canvas.height = 160;
+        ctx.clearRect(0, 0, w, h);
+
+        const padL = 8, padR = 42, padT = 18, padB = 20;
+        const n      = items.length;
+        const chartW = w - padL - padR;
+        const chartH = h - padT - padB;
+
+        const iA = items.findIndex(i => i.classe !== 'A');
+        const iB = items.findIndex(i => i.classe === 'C');
+        const bA = iA < 0 ? n : iA;
+        const bB = iB < 0 ? n : iB;
+        const xA = padL + (bA / n) * chartW;
+        const xB = padL + (bB / n) * chartW;
+
+        ctx.fillStyle = 'rgba(88,166,255,0.07)';
+        ctx.fillRect(padL, padT, xA - padL, chartH);
+        ctx.fillStyle = 'rgba(210,153,34,0.07)';
+        ctx.fillRect(xA, padT, xB - xA, chartH);
+        ctx.fillStyle = 'rgba(139,148,158,0.05)';
+        ctx.fillRect(xB, padT, w - padR - xB, chartH);
+
+        ctx.font = 'bold 10px Inter'; ctx.textAlign = 'center';
+        if (bA > 0) {
+            ctx.fillStyle = 'rgba(88,166,255,0.65)';
+            ctx.fillText('A', padL + (xA - padL) / 2, padT + 11);
+        }
+        if (bB > bA) {
+            ctx.fillStyle = 'rgba(210,153,34,0.65)';
+            ctx.fillText('B', xA + (xB - xA) / 2, padT + 11);
+        }
+        if (n > bB) {
+            ctx.fillStyle = 'rgba(139,148,158,0.6)';
+            ctx.fillText('C', xB + (w - padR - xB) / 2, padT + 11);
+        }
+
+        [80, 95].forEach(pct => {
+            const y = padT + chartH * (1 - pct / 100);
+            ctx.setLineDash([4, 4]);
+            ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(255,255,255,0.35)';
+            ctx.font = '8px Inter'; ctx.textAlign = 'left';
+            ctx.fillText(`${pct}%`, w - padR + 4, y + 3);
+        });
+
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(88,166,255,0.85)';
+        ctx.lineWidth = 2;
+        items.forEach((item, i) => {
+            const x = padL + (i / Math.max(n - 1, 1)) * chartW;
+            const y = padT + chartH * (1 - item.cumPct / 100);
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+        const lastX = padL + chartW;
+        const lastY = padT;
+        ctx.lineTo(lastX, padT + chartH);
+        ctx.lineTo(padL, padT + chartH);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(88,166,255,0.05)';
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(139,148,158,0.5)';
+        ctx.font = '8px Inter'; ctx.textAlign = 'left';
+        [0, 50, 100].forEach(pct => {
+            ctx.fillText(`${pct}%`, w - padR + 4, padT + chartH * (1 - pct / 100) + 3);
+        });
+    },
+
+    renderTable(items) {
+        const descCol = estoque.colunas.find(c => {
+            const n = estoque.normalizeKey(c);
+            return ['descricao','descr','description','nome'].some(x => n.startsWith(x));
+        });
+        document.querySelector('#abc-table tbody').innerHTML = items.map((r, i) => {
+            const cls  = `abc-${r.classe.toLowerCase()}`;
+            const desc = descCol ? (r.dados?.[descCol] || '—') : '—';
+            return `<tr>
+                <td class="td-dim td-center">${i + 1}</td>
+                <td class="td-code">${r.codigo}</td>
+                <td class="td-desc">${desc}</td>
+                <td class="td-qtd">${r.quantidade.toLocaleString('pt-BR')}</td>
+                <td class="td-right td-dim">${r.pct.toFixed(2)}%</td>
+                <td class="td-right td-dim">${r.cumPct.toFixed(1)}%</td>
+                <td class="td-center"><span class="abc-badge ${cls}">${r.classe}</span></td>
+            </tr>`;
+        }).join('');
+    }
+};
+
+// ====== DASHBOARD: DISTRIBUIÇÃO POR CARACTERÍSTICA ======
+
+const dist = {
+    colAtiva: '',
+
+    init() {
+        document.getElementById('dist-col-sel').addEventListener('change', e => {
+            this.colAtiva = e.target.value;
+            this.renderGrafico();
+        });
+    },
+
+    render() {
+        const infoEl = document.getElementById('dist-info');
+        if (!estoque.rawData.length) {
+            infoEl.textContent = 'Importe dados de Estoque primeiro';
+            document.getElementById('dist-breakdown').innerHTML = '';
+            return;
+        }
+
+        const QTD_NORMS = ['quantidade','qtd','qty','qtde','estoque','saldo','codigo','cod','code','cdproduto','cdprod'];
+        const cols = estoque.colunas.filter(c => {
+            const n = estoque.normalizeKey(c);
+            return !QTD_NORMS.includes(n) && !n.startsWith('__');
+        });
+
+        if (!cols.length) { infoEl.textContent = 'Nenhuma coluna de categoria encontrada'; return; }
+
+        const sel = document.getElementById('dist-col-sel');
+        const cur = this.colAtiva;
+        sel.innerHTML = cols.map(c => `<option value="${c}">${c}</option>`).join('');
+
+        const caract = cols.find(c => estoque.normalizeKey(c).includes('caracter')) || cols[0];
+        this.colAtiva = (cur && cols.includes(cur)) ? cur : caract;
+        sel.value = this.colAtiva;
+
+        this.renderGrafico();
+    },
+
+    renderGrafico() {
+        if (!this.colAtiva || !estoque.rawData.length) return;
+
+        const map = {};
+        estoque.rawData.forEach(r => {
+            const val = String(r.dados?.[this.colAtiva] ?? '—').trim() || '—';
+            if (!map[val]) map[val] = { count: 0, qtd: 0 };
+            map[val].count++;
+            map[val].qtd += r.quantidade;
+        });
+
+        const total  = Object.values(map).reduce((s, v) => s + v.qtd, 0);
+        const sorted = Object.entries(map)
+            .map(([label, v]) => ({ label, ...v, pct: total > 0 ? v.qtd / total * 100 : 0 }))
+            .sort((a, b) => b.qtd - a.qtd);
+
+        document.getElementById('dist-info').textContent =
+            `${sorted.length} categorias · ${estoque.rawData.length.toLocaleString('pt-BR')} itens`;
+
+        document.getElementById('dist-breakdown').innerHTML = sorted.map(item => `
+            <div class="breakdown-item">
+                <span class="bd-label" title="${item.label}">${item.label}</span>
+                <div class="bd-bar-wrap"><div class="bd-bar" style="width:${item.pct}%"></div></div>
+                <span class="bd-val">${item.qtd.toLocaleString('pt-BR')}</span>
+            </div>
+        `).join('');
+
+        setTimeout(() => this.drawChart(sorted.slice(0, 15)), 30);
+    },
+
+    drawChart(items) {
+        const canvas = document.getElementById('dist-chart');
+        if (!canvas || !items.length) return;
+        const ctx = canvas.getContext('2d');
+        const rowH = 36, padL = 200, padR = 120, padT = 8, padB = 8;
+        const w = canvas.width  = canvas.offsetWidth || 700;
+        const h = canvas.height = items.length * rowH + padT + padB;
+        ctx.clearRect(0, 0, w, h);
+
+        const max  = items[0].qtd || 1;
+        const barW = w - padL - padR;
+
+        items.forEach((item, i) => {
+            const y  = padT + i * rowH;
+            const bw = Math.max((item.qtd / max) * barW, 2);
+
+            const grad = ctx.createLinearGradient(padL, 0, padL + bw, 0);
+            grad.addColorStop(0, 'rgba(88,166,255,0.85)');
+            grad.addColorStop(1, 'rgba(88,166,255,0.25)');
+            ctx.fillStyle = grad;
+            const r2 = 4, bx = padL, by = y + 5, bh = rowH - 10;
+            ctx.beginPath();
+            ctx.moveTo(bx + r2, by);
+            ctx.lineTo(bx + bw - r2, by);
+            ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + r2);
+            ctx.lineTo(bx + bw, by + bh - r2);
+            ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - r2, by + bh);
+            ctx.lineTo(bx, by + bh);
+            ctx.lineTo(bx, by);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = 'rgba(230,237,243,0.75)';
+            ctx.font = '10px Inter';
+            ctx.textAlign = 'right';
+            const lbl = item.label.length > 26 ? item.label.substring(0, 26) + '…' : item.label;
+            ctx.fillText(lbl, padL - 10, y + rowH / 2 + 4);
+
+            ctx.fillStyle = 'rgba(230,237,243,0.9)';
+            ctx.font = 'bold 10px Inter';
+            ctx.textAlign = 'left';
+            ctx.fillText(`${item.qtd.toLocaleString('pt-BR')} (${item.pct.toFixed(1)}%)`, padL + bw + 8, y + rowH / 2 + 4);
+        });
     }
 };
 
