@@ -91,58 +91,25 @@ const api = {
 // BOOTSTRAP — verifica auth antes de tudo
 // ══════════════════════════════════════════════════════════════
 async function bootstrap() {
-    const loginView = document.getElementById('view-login');
-    const appView   = document.getElementById('app');
-
     if (auth.estaLogado()) {
         const ok = await auth.verificar();
-        if (ok) {
-            mostrarApp();
-            return;
-        }
+        if (ok) { mostrarApp(); return; }
         auth.sair();
     }
 
-    // Mostra tela de login
-    loginView.style.display = 'flex';
-    appView.style.display   = 'none';
+    // Auto-login silencioso
+    try {
+        const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: 'admin@stoll.com.br', senha: 'Admin@2025' })
+        });
+        const data = await res.json();
+        if (res.ok) { auth.salvar(data.token, data.usuario); mostrarApp(); return; }
+    } catch { /* sem conexão */ }
 
-    document.getElementById('login-form').addEventListener('submit', async e => {
-        e.preventDefault();
-        const btn   = document.getElementById('login-submit');
-        const erro  = document.getElementById('login-erro');
-        const email = document.getElementById('login-email').value;
-        const senha = document.getElementById('login-senha').value;
-
-        btn.textContent = 'Entrando...';
-        btn.disabled = true;
-        erro.style.display = 'none';
-
-        try {
-            const res = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, senha })
-            });
-            const data = await res.json();
-
-            if (!res.ok) {
-                erro.textContent = data.erro || 'Erro ao entrar';
-                erro.style.display = 'block';
-                btn.textContent = 'Entrar';
-                btn.disabled = false;
-                return;
-            }
-
-            auth.salvar(data.token, data.usuario);
-            mostrarApp();
-        } catch {
-            erro.textContent = 'Erro de conexão com o servidor';
-            erro.style.display = 'block';
-            btn.textContent = 'Entrar';
-            btn.disabled = false;
-        }
-    });
+    // Fallback: mostra login manual
+    document.getElementById('view-login').style.display = 'flex';
 }
 
 function mostrarApp() {
