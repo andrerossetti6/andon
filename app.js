@@ -2036,10 +2036,18 @@ const dashOp = {
 
 // ====== DASHBOARD: CURVA ABC ======
 
+const TRIMESTRES = {
+    Q1: ['jan','fev','mar'],
+    Q2: ['abr','mai','jun'],
+    Q3: ['jul','ago','set'],
+    Q4: ['out','nov','dez']
+};
+
 const abc = {
-    selectedYear:   'all',
-    selectedMonth:  '',
-    selectedGrupo:  'descricao',
+    selectedYear:       'all',
+    selectedMonth:      '',
+    selectedTrimestre:  '',
+    selectedGrupo:      'descricao',
     _selectedClasse: null,
     _items:          [],
     _zonas:          {},
@@ -2050,13 +2058,21 @@ const abc = {
             if (!btn) return;
             document.querySelectorAll('#abc-year-tabs .year-tab').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            this.selectedYear  = btn.dataset.year;
-            this.selectedMonth = '';
+            this.selectedYear      = btn.dataset.year;
+            this.selectedMonth     = '';
+            this.selectedTrimestre = '';
             document.getElementById('abc-month-sel').value = '';
+            document.getElementById('abc-tri-sel').value   = '';
             this.render();
         });
         document.getElementById('abc-month-sel').addEventListener('change', e => {
             this.selectedMonth = e.target.value;
+            if (e.target.value) { this.selectedTrimestre = ''; document.getElementById('abc-tri-sel').value = ''; }
+            this.render();
+        });
+        document.getElementById('abc-tri-sel').addEventListener('change', e => {
+            this.selectedTrimestre = e.target.value;
+            if (e.target.value) { this.selectedMonth = ''; document.getElementById('abc-month-sel').value = ''; }
             this.render();
         });
         document.getElementById('abc-grupo-sel').addEventListener('change', e => {
@@ -2087,8 +2103,21 @@ const abc = {
             : '');
 
         // Active columns for selected period
-        const allCols    = this.selectedYear === 'all' ? vendas.monthCols : vendas.monthCols.filter(c => c.year === this.selectedYear);
-        const activeCols = this.selectedMonth ? allCols.filter(c => c.abbr === this.selectedMonth) : allCols;
+        const allCols = this.selectedYear === 'all' ? vendas.monthCols : vendas.monthCols.filter(c => c.year === this.selectedYear);
+
+        // Trimestre ou mês
+        let activeCols, divisor;
+        if (this.selectedTrimestre && TRIMESTRES[this.selectedTrimestre]) {
+            const triMeses = TRIMESTRES[this.selectedTrimestre];
+            activeCols = allCols.filter(c => triMeses.includes(c.abbr));
+            divisor    = 3;
+        } else if (this.selectedMonth) {
+            activeCols = allCols.filter(c => c.abbr === this.selectedMonth);
+            divisor    = 1;
+        } else {
+            activeCols = allCols;
+            divisor    = 1;
+        }
 
         // Month selector
         const monthSel    = document.getElementById('abc-month-sel');
@@ -2098,11 +2127,11 @@ const abc = {
                   .map(m => `<option value="${m}" ${this.selectedMonth === m ? 'selected' : ''}>${m.charAt(0).toUpperCase() + m.slice(1)}</option>`)
                   .join('');
 
-        // Aggregate vendas by grupo
+        // Aggregate vendas by grupo (com divisão por 3 se trimestre)
         const map = {};
         vendas.rawData.forEach(r => {
             const key = this.selectedGrupo === 'descricao' ? r.descricao : r.codigo;
-            const qtd = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
+            const qtd = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0) / divisor;
             if (!map[key]) map[key] = { label: key, quantidade: 0 };
             map[key].quantidade += qtd;
         });
