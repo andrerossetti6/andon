@@ -2483,15 +2483,6 @@ const abcEstoque = {
     }
 };
 
-        const padL = 40, padR = 20, padT = 10, padB = 20;
-        const chartW = W - padL - padR, chartH = H - padT - padB;
-        const top = items.slice(0, 60);
-        const maxV = top[0]?.qtd || 1;
-        const barW = chartW / top.length;
-
-        ctx.fillStyle = 'rgba(255,255,255,0.03)';
-        ctx.fillRect(padL, padT, chartW, chartH);
-
 // ====== DASHBOARD: ABC CRUZADA ======
 
 const abcCruzada = {
