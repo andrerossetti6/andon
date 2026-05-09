@@ -147,8 +147,9 @@ async function bootstrap() {
 
 function mostrarApp() {
     const usuario = auth.getUsuario();
-    document.getElementById('view-login').style.display = 'none';
-    document.getElementById('app').style.display = 'flex';
+    document.getElementById('view-login').style.display  = 'none';
+    document.getElementById('app-sidebar').style.display = 'flex';
+    navigateTo('dashboard');
 
     // Atualiza nome do usuário na sidebar
     if (usuario) {

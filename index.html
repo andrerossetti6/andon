@@ -38,11 +38,8 @@
         </div>
     </div>
 
-    <!-- ── App (oculto até login) ────────────────────────── -->
-    <div id="app" style="display:none; width:100%; height:100vh; display:none; flex-direction:row;">
-
-    <!-- Sidebar -->
-    <aside class="sidebar">
+    <!-- ── Sidebar (oculta até login) ───────────────────── -->
+    <aside class="sidebar" id="app-sidebar" style="display:none;">
         <div class="sidebar-top">
             <div class="logo">
                 <div class="logo-icon"></div>
@@ -106,7 +103,7 @@
     </aside>
 
     <!-- Main Content -->
-    <main class="content" id="view-dashboard">
+    <main class="content" id="view-dashboard" style="display:none;">
         <!-- Top Stats Row -->
         <header class="stats-row">
             <div class="stat-card agent-card">
@@ -323,13 +320,11 @@
         </div>
     </main>
 
-    </div> <!-- /app -->
-
     <!-- ── View Estoque ─────────────────────────────────────── -->
     <main class="content" id="view-estoque" style="display:none;">
         <header class="page-header">
             <div class="page-header-text">
-                <h1 class="page-title">Análise de <span>Estoque</span></h1>
+                <h1 class="page-title">Importação de <span>Estoque</span></h1>
                 <p class="page-subtitle">Importe dados de estoque em CSV ou XLS</p>
             </div>
             <div class="page-header-actions">
