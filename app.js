@@ -2363,15 +2363,23 @@ const dist = {
 const abcEstoque = {
     render() {
         if (!estoque.rawData.length) {
-            document.getElementById('abce-aviso').style.display = '';
-            document.getElementById('abce-aviso').textContent = 'Importe dados de Estoque primeiro.';
+            document.getElementById('abce-count').textContent = 'Importe dados de Estoque primeiro.';
             return;
         }
-        document.getElementById('abce-aviso').style.display = 'none';
+
+        // Detecta coluna de descrição no estoque
+        const descCol = estoque._colDesc || estoque.colunas.find(c => {
+            const n = estoque.normalizeKey(c);
+            return n.includes('descricao') || n.includes('descr') || n.includes('produto');
+        });
 
         // Agrupa por código
-        const map = {};
-        estoque.rawData.forEach(r => { map[r.codigo] = (map[r.codigo] || 0) + r.quantidade; });
+        const map  = {};
+        const desc = {};
+        estoque.rawData.forEach(r => {
+            map[r.codigo]  = (map[r.codigo]  || 0) + r.quantidade;
+            if (!desc[r.codigo] && descCol) desc[r.codigo] = String(r.dados?.[descCol] || '');
+        });
 
         const sorted = Object.entries(map).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]);
         const total  = sorted.reduce((s,[,v]) => s + v, 0);
@@ -2379,7 +2387,9 @@ const abcEstoque = {
         const items = sorted.map(([codigo, qtd]) => {
             cum += qtd;
             const cumPct = total > 0 ? cum / total * 100 : 100;
-            return { codigo, qtd, cumPct, classe: cumPct <= 80 ? 'A' : cumPct <= 95 ? 'B' : 'C' };
+            const pct    = total > 0 ? qtd / total * 100 : 0;
+            return { codigo, descricao: desc[codigo] || '', qtd, pct, cumPct,
+                     classe: cumPct <= 80 ? 'A' : cumPct <= 95 ? 'B' : 'C' };
         });
 
         const cA = items.filter(i => i.classe === 'A');
@@ -2391,19 +2401,87 @@ const abcEstoque = {
         document.getElementById('abce-a-qtd').textContent   = cA.reduce((s,i) => s+i.qtd,0).toLocaleString('pt-BR') + ' un';
         document.getElementById('abce-b-qtd').textContent   = cB.reduce((s,i) => s+i.qtd,0).toLocaleString('pt-BR') + ' un';
         document.getElementById('abce-c-qtd').textContent   = cC.reduce((s,i) => s+i.qtd,0).toLocaleString('pt-BR') + ' un';
-        document.getElementById('abce-total').textContent   = `${items.length.toLocaleString('pt-BR')} itens analisados`;
+        document.getElementById('abce-count').textContent   = `${items.length.toLocaleString('pt-BR')} itens analisados`;
 
-        setTimeout(() => this.drawChart(items, total), 30);
+        setTimeout(() => this.drawChart(items), 30);
         this.renderTable(items);
     },
 
-    drawChart(items, total) {
+    drawChart(items) {
         const canvas = document.getElementById('abce-chart');
         if (!canvas || !items.length) return;
         const ctx = canvas.getContext('2d');
-        const W = canvas.width = canvas.offsetWidth || 800;
-        const H = canvas.height = 180;
-        ctx.clearRect(0, 0, W, H);
+        const w = canvas.width  = canvas.offsetWidth || 800;
+        const h = canvas.height = 160;
+        ctx.clearRect(0, 0, w, h);
+
+        const padL = 8, padR = 42, padT = 18, padB = 20;
+        const n      = items.length;
+        const chartW = w - padL - padR;
+        const chartH = h - padT - padB;
+
+        const iA = items.findIndex(i => i.classe !== 'A');
+        const iB = items.findIndex(i => i.classe === 'C');
+        const bA = iA < 0 ? n : iA;
+        const bB = iB < 0 ? n : iB;
+        const xA = padL + (bA / n) * chartW;
+        const xB = padL + (bB / n) * chartW;
+
+        ctx.fillStyle = 'rgba(88,166,255,0.07)';
+        ctx.fillRect(padL, padT, xA - padL, chartH);
+        ctx.fillStyle = 'rgba(210,153,34,0.07)';
+        ctx.fillRect(xA, padT, xB - xA, chartH);
+        ctx.fillStyle = 'rgba(139,148,158,0.05)';
+        ctx.fillRect(xB, padT, w - padR - xB, chartH);
+
+        ctx.font = 'bold 10px Inter'; ctx.textAlign = 'center';
+        if (bA > 0) { ctx.fillStyle = 'rgba(88,166,255,0.65)'; ctx.fillText('A', padL + (xA - padL) / 2, padT + 11); }
+        if (bB > bA) { ctx.fillStyle = 'rgba(210,153,34,0.65)'; ctx.fillText('B', xA + (xB - xA) / 2, padT + 11); }
+        if (n > bB) { ctx.fillStyle = 'rgba(139,148,158,0.6)'; ctx.fillText('C', xB + (w - padR - xB) / 2, padT + 11); }
+
+        [80, 95].forEach(pct => {
+            const y = padT + chartH * (1 - pct / 100);
+            ctx.setLineDash([4, 4]); ctx.strokeStyle = 'rgba(255,255,255,0.12)'; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(255,255,255,0.35)'; ctx.font = '8px Inter'; ctx.textAlign = 'left';
+            ctx.fillText(`${pct}%`, w - padR + 4, y + 3);
+        });
+
+        ctx.beginPath(); ctx.strokeStyle = 'rgba(88,166,255,0.85)'; ctx.lineWidth = 2;
+        items.forEach((item, i) => {
+            const x = padL + (i / Math.max(n - 1, 1)) * chartW;
+            const y = padT + chartH * (1 - item.cumPct / 100);
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        ctx.lineTo(padL + chartW, padT + chartH);
+        ctx.lineTo(padL, padT + chartH);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(88,166,255,0.05)';
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(139,148,158,0.5)'; ctx.font = '8px Inter'; ctx.textAlign = 'left';
+        [0, 50, 100].forEach(pct => {
+            ctx.fillText(`${pct}%`, w - padR + 4, padT + chartH * (1 - pct / 100) + 3);
+        });
+    },
+
+    renderTable(items) {
+        document.querySelector('#abce-table tbody').innerHTML = items.map((r, i) => {
+            const cls = `abc-${r.classe.toLowerCase()}`;
+            return `<tr>
+                <td class="td-rank">${i + 1}</td>
+                <td class="td-code">${r.codigo}</td>
+                <td class="td-desc">${r.descricao || '<span style="opacity:.3">—</span>'}</td>
+                <td class="td-right"><strong>${r.qtd.toLocaleString('pt-BR')}</strong></td>
+                <td class="td-right">${r.pct.toFixed(2)}%</td>
+                <td class="td-right">${r.cumPct.toFixed(1)}%</td>
+                <td class="td-center"><span class="abc-badge ${cls}">${r.classe}</span></td>
+            </tr>`;
+        }).join('');
+    }
+};
 
         const padL = 40, padR = 20, padT = 10, padB = 20;
         const chartW = W - padL - padR, chartH = H - padT - padB;
@@ -2413,52 +2491,6 @@ const abcEstoque = {
 
         ctx.fillStyle = 'rgba(255,255,255,0.03)';
         ctx.fillRect(padL, padT, chartW, chartH);
-
-        top.forEach((item, i) => {
-            const color = item.classe === 'A' ? 'rgba(88,166,255,0.85)'
-                        : item.classe === 'B' ? 'rgba(210,153,34,0.75)'
-                        : 'rgba(139,148,158,0.5)';
-            const bh = (item.qtd / maxV) * chartH;
-            ctx.fillStyle = color;
-            ctx.fillRect(padL + i * barW + 0.5, padT + chartH - bh, barW - 1, bh);
-        });
-
-        ctx.beginPath();
-        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-        ctx.lineWidth = 1.5;
-        let cumLine = 0;
-        top.forEach((item, i) => {
-            cumLine += item.qtd;
-            const x = padL + (i + 0.5) * barW;
-            const y = padT + chartH * (1 - cumLine / total);
-            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-        });
-        ctx.stroke();
-
-        [{ pct: 0.80, label: 'A 80%', color: 'rgba(88,166,255,0.5)' },
-         { pct: 0.95, label: 'B 95%', color: 'rgba(210,153,34,0.5)' }].forEach(({ pct, label, color }) => {
-            const y = padT + chartH * (1 - pct);
-            ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
-            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + chartW, y); ctx.stroke();
-            ctx.setLineDash([]);
-            ctx.fillStyle = color; ctx.font = '10px Inter'; ctx.textAlign = 'left';
-            ctx.fillText(label, padL + 4, y - 3);
-        });
-    },
-
-    renderTable(items) {
-        const tbody = document.querySelector('#abce-table tbody');
-        if (!tbody) return;
-        tbody.innerHTML = items.slice(0, 200).map((item, i) => `
-            <tr>
-                <td>${i + 1}</td>
-                <td>${item.codigo}</td>
-                <td class="td-right">${item.qtd.toLocaleString('pt-BR')}</td>
-                <td class="td-right">${item.cumPct.toFixed(1)}%</td>
-                <td><span class="abc-badge abc-${item.classe.toLowerCase()}">${item.classe}</span></td>
-            </tr>`).join('');
-    }
-};
 
 // ====== DASHBOARD: ABC CRUZADA ======
 

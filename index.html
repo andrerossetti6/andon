@@ -506,35 +506,56 @@
     <main class="content" id="view-abc-estoque" style="display:none;">
         <header class="page-header">
             <div class="page-header-text">
-                <h1 class="page-title">Curva ABC — <span>Estoque</span></h1>
-                <p class="page-subtitle">Classificação dos itens em estoque por quantidade</p>
+                <h1 class="page-title">Curva <span>ABC</span></h1>
+                <p class="page-subtitle">Classificação de produtos por representatividade no estoque (Pareto 80/15/5)</p>
             </div>
         </header>
-        <p id="abce-aviso" style="color:var(--text-dim);padding:20px;display:none;"></p>
-        <div class="vendas-summary" style="flex-shrink:0;">
-            <div class="summary-card" style="border-left:3px solid var(--indigo-primary);">
-                <span class="s-label">CLASSE A</span>
-                <span class="s-value abc-val-a" id="abce-a-count">0</span>
-                <span class="s-sub" id="abce-a-qtd">—</span>
+        <div class="vendas-filters-bar" style="flex-shrink:0;">
+            <span class="table-count-label" id="abce-count"></span>
+        </div>
+        <div class="vendas-summary">
+            <div class="summary-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <span class="s-label" style="margin:0;">CLASSE A</span>
+                    <span class="abc-badge abc-a">A</span>
+                </div>
+                <span class="s-value" id="abce-a-count" style="color:#58A6FF;">0</span>
+                <span class="s-sub"><span id="abce-a-qtd">—</span> · ~80% do total</span>
             </div>
-            <div class="summary-card" style="border-left:3px solid var(--orange-accent);">
-                <span class="s-label">CLASSE B</span>
-                <span class="s-value abc-val-b" id="abce-b-count">0</span>
-                <span class="s-sub" id="abce-b-qtd">—</span>
+            <div class="summary-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <span class="s-label" style="margin:0;">CLASSE B</span>
+                    <span class="abc-badge abc-b">B</span>
+                </div>
+                <span class="s-value" id="abce-b-count" style="color:#D29922;">0</span>
+                <span class="s-sub"><span id="abce-b-qtd">—</span> · ~15% do total</span>
             </div>
-            <div class="summary-card" style="border-left:3px solid rgba(139,148,158,0.6);">
-                <span class="s-label">CLASSE C</span>
-                <span class="s-value" id="abce-c-count">0</span>
-                <span class="s-sub" id="abce-c-qtd">—</span>
+            <div class="summary-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <span class="s-label" style="margin:0;">CLASSE C</span>
+                    <span class="abc-badge abc-c">C</span>
+                </div>
+                <span class="s-value" id="abce-c-count" style="color:#8B949E;">0</span>
+                <span class="s-sub"><span id="abce-c-qtd">—</span> · ~5% do total</span>
             </div>
         </div>
-        <div class="chart-card" style="flex-shrink:0;">
-            <canvas id="abce-chart" style="width:100%;height:180px;display:block;"></canvas>
+        <div class="chart-section" style="flex-shrink:0;">
+            <div class="chart-header">
+                <h3>CURVA PARETO — % ACUMULADO × NÚMERO DE ITENS</h3>
+            </div>
+            <canvas id="abce-chart" style="width:100%;height:160px;display:block;"></canvas>
         </div>
-        <span class="table-count-label" id="abce-total" style="padding:0 4px;flex-shrink:0;"></span>
-        <div class="vendas-table-wrap">
-            <table class="vendas-table" id="abce-table">
-                <thead><tr><th>#</th><th>CÓDIGO</th><th class="td-right">QUANTIDADE</th><th class="td-right">% ACUM.</th><th>CLASSE</th></tr></thead>
+        <div class="vendas-table-wrap" style="flex:1;min-height:0;">
+            <table class="vendas-table estoque-table-full" id="abce-table">
+                <thead><tr>
+                    <th style="width:40px;">#</th>
+                    <th>CÓDIGO</th>
+                    <th>DESCRIÇÃO</th>
+                    <th class="td-right">QUANTIDADE</th>
+                    <th class="td-right">% TOTAL</th>
+                    <th class="td-right">% ACUM.</th>
+                    <th class="td-center" style="width:80px;">CLASSE</th>
+                </tr></thead>
                 <tbody></tbody>
             </table>
         </div>
