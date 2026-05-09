@@ -1741,7 +1741,7 @@ const op = {
         parsed.forEach(r => { allKeys.forEach(k => { if (!(k in r)) r[k] = ''; }); });
 
         this.colunas  = allKeys;
-        this._colQtd  = 'À Produzir';
+        this._colQtd  = 'Produção';
         this.rawData  = parsed.map((r, i) => ({ _id: i, dados: r }));
         this.filtered = [...this.rawData];
         this._finalizarImport();
@@ -1871,9 +1871,9 @@ const op = {
         this._currentId = id;
         this.colunas  = Object.keys(rows[0].dados || {});
         this.rawData  = rows.map((r, i) => ({ _id: i, dados: r.dados }));
-        const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs','aproduzir'];
+        const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs','aproduzir','producao'];
         this._colQtd = this.colunas.find(h => QTD_KEYS.includes(this.normalizeKey(h)))
-                    || this.colunas.find(h => h === 'À Produzir')
+                    || this.colunas.find(h => h === 'Produção')
                     || null;
         this.filtered = [...this.rawData];
         this._detectCombosCols();
