@@ -1831,8 +1831,10 @@ const op = {
     async perguntarESalvar(nome) {
         this._nomeArquivo = nome;
         const lista = await api.get('/api/importacoes-op');
-        if (!lista?.length) { await this.salvar('nova'); }
-        else {
+        const temSalvo = lista?.length > 0 || !!this._currentId;
+        if (!temSalvo) {
+            await this.salvar('nova');
+        } else {
             document.getElementById('modal-arquivo').textContent = nome;
             document.getElementById('import-modal').dataset.modulo = 'op';
             document.getElementById('import-modal').style.display = 'flex';
@@ -1848,7 +1850,13 @@ const op = {
             }
             const linhas = this.rawData.map(r => ({ dados: r.dados }));
             const res = await api.post('/api/op/import', { nomeArquivo: this._nomeArquivo, linhas });
-            if (res?.ok) { this._currentId = res.importacaoId; }
+            if (res?.ok) {
+                this._currentId = res.importacaoId;
+            } else {
+                alert('Erro ao salvar no banco. Verifique se as tabelas importacoes_op e ordens_producao foram criadas no Supabase.');
+            }
+        } catch(e) {
+            alert('Erro de conexão ao salvar importação.');
         } finally { this._setSaving(false); }
         await this.carregarHistorico();
     },
@@ -1900,8 +1908,10 @@ const op = {
                 <button class="hi-del" onclick="event.stopPropagation();op.excluir('${imp.id}')" title="Excluir">✕</button>
             </div>`;
         }).join('');
+        // Auto-expande a lista após salvar
+        list.style.display = 'flex';
         const chev = document.getElementById('chevron-op');
-        if (chev) chev.style.transform = 'rotate(0deg)';
+        if (chev) chev.style.transform = 'rotate(90deg)';
     },
 
     async excluir(id) {
