@@ -460,6 +460,34 @@
         </div>
     </main>
 
+    <!-- ── Painel de Detalhes do Produto ─────────────────── -->
+    <div id="detail-overlay" class="detail-overlay" onclick="fecharDetalhe()"></div>
+    <div id="detail-panel" class="detail-panel">
+        <div class="detail-header">
+            <div>
+                <h3 id="detail-nome"></h3>
+                <span id="detail-seg" class="seg-badge" style="margin-top:6px;display:inline-block;"></span>
+            </div>
+            <button class="detail-close" onclick="fecharDetalhe()">×</button>
+        </div>
+        <div class="detail-chart-wrap">
+            <span class="s-label">VENDAS POR MÊS</span>
+            <canvas id="detail-chart"></canvas>
+        </div>
+        <div>
+            <span class="s-label" style="margin-bottom:10px;display:block;">TAMANHOS</span>
+            <table class="detail-table">
+                <thead><tr>
+                    <th>TAM.</th>
+                    <th class="td-right">VENDAS</th>
+                    <th class="td-right">ESTOQUE</th>
+                    <th class="td-center">STATUS</th>
+                </tr></thead>
+                <tbody id="detail-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+
     <!-- Modal de importação -->
     <div id="import-modal" class="modal-overlay" style="display:none;">
         <div class="modal-box">

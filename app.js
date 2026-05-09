@@ -344,6 +344,96 @@ function setupEventListeners() {
 
 // ====== NAVIGATION ======
 
+// ====== PAINEL DE DETALHES DO PRODUTO ======
+
+function abrirDetalhe(descricao, segmento) {
+    const activeCols = vendas.getActiveCols();
+    const TAM_ORDER  = { PP:0, P:1, M:2, G:3, GG:4, XG:5, XXG:6, XGG:7 };
+
+    // Todas as variantes com a mesma descrição
+    const variants = vendas.rawData
+        .filter(r => r.descricao === descricao)
+        .sort((a, b) => (TAM_ORDER[a.tamanho] ?? 9) - (TAM_ORDER[b.tamanho] ?? 9));
+
+    if (!variants.length) return;
+
+    // Mapa de estoque
+    const estMap = {};
+    estoque.rawData.forEach(r => { estMap[r.codigo] = Number(r.quantidade) || 0; });
+
+    // Header
+    document.getElementById('detail-nome').textContent = descricao;
+    document.getElementById('detail-seg').textContent  = segmento;
+
+    // Gráfico mensal (soma todas as variantes)
+    const monthTotals = {};
+    activeCols.forEach(c => {
+        const total = variants.reduce((s, r) => s + (r[c.key] || 0), 0);
+        if (!monthTotals[c.label]) monthTotals[c.label] = 0;
+        monthTotals[c.label] += total;
+    });
+    setTimeout(() => drawDetailChart(monthTotals), 30);
+
+    // Tabela de tamanhos
+    document.getElementById('detail-tbody').innerHTML = variants.map(r => {
+        const vendQtd = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
+        const estQtd  = estMap[r.codigo] ?? null;
+        let st, stCls;
+        if (estQtd === null)   { st = '—';           stCls = 'vxe-nd'; }
+        else if (estQtd === 0) { st = 'SEM ESTOQUE'; stCls = 'vxe-zero'; }
+        else if (vendQtd > 0 && estQtd / vendQtd < 0.2) { st = 'BAIXO'; stCls = 'vxe-baixo'; }
+        else                   { st = 'OK';          stCls = 'vxe-ok'; }
+        return `<tr>
+            <td class="td-center"><strong>${r.tamanho}</strong></td>
+            <td class="td-right">${vendQtd.toLocaleString('pt-BR')}</td>
+            <td class="td-right">${estQtd !== null ? estQtd.toLocaleString('pt-BR') : '—'}</td>
+            <td class="td-center"><span class="vxe-badge ${stCls}">${st}</span></td>
+        </tr>`;
+    }).join('');
+
+    document.getElementById('detail-overlay').style.display = 'block';
+    document.getElementById('detail-panel').classList.add('open');
+}
+
+function fecharDetalhe() {
+    document.getElementById('detail-overlay').style.display = 'none';
+    document.getElementById('detail-panel').classList.remove('open');
+}
+
+function drawDetailChart(monthTotals) {
+    const canvas = document.getElementById('detail-chart');
+    const ctx    = canvas.getContext('2d');
+    const w = canvas.width  = canvas.offsetWidth || 370;
+    const h = canvas.height = 90;
+    ctx.clearRect(0, 0, w, h);
+
+    const entries = Object.entries(monthTotals);
+    if (!entries.length) return;
+
+    const max  = Math.max(...entries.map(([,v]) => v)) || 1;
+    const padX = 8, padY = 18;
+    const barW = (w - padX * 2) / entries.length;
+
+    entries.forEach(([label, val], i) => {
+        const x    = padX + i * barW;
+        const barH = Math.max(((h - padY * 2) * val) / max, val > 0 ? 2 : 0);
+        const y    = h - padY - barH;
+
+        const grad = ctx.createLinearGradient(0, y, 0, h - padY);
+        grad.addColorStop(0, 'rgba(88,166,255,0.9)');
+        grad.addColorStop(1, 'rgba(88,166,255,0.2)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.rect(x + 2, y, barW - 4, barH);
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(139,148,158,0.6)';
+        ctx.font = '7px Inter';
+        ctx.textAlign = 'center';
+        ctx.fillText(label.substring(0, 6), x + barW / 2, h - 3);
+    });
+}
+
 function toggleHistorico(id) {
     const list    = document.querySelector(`#${id} .history-list`);
     const chevron = document.querySelector(`#${id} .history-chevron`);
@@ -1035,7 +1125,7 @@ const vendas = {
 
         const rows = displayRows.slice(0, 500);
         table.querySelector('tbody').innerHTML = rows.map(r => `
-            <tr>
+            <tr onclick="abrirDetalhe('${r.descricao.replace(/'/g, "\\'")}','${r.segmento}')">
                 <td class="td-code">${r.codigo}</td>
                 <td class="td-desc">${r.descricao}</td>
                 <td>${r.modelo}</td>

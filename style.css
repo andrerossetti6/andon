@@ -1164,6 +1164,107 @@ input:checked + .chk {
 .hi-item:hover .hi-del { opacity: 1; }
 .hi-del:hover { color: var(--red-accent); background: rgba(248,81,73,0.1); }
 
+/* ====== PAINEL DE DETALHES ====== */
+.detail-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    z-index: 200;
+    display: none;
+    backdrop-filter: blur(2px);
+}
+
+.detail-panel {
+    position: fixed;
+    top: 0;
+    right: -440px;
+    width: 420px;
+    height: 100vh;
+    background: #161B22;
+    border-left: 1px solid var(--border-color);
+    z-index: 201;
+    padding: 28px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    transition: right 0.28s cubic-bezier(0.4,0,0.2,1);
+    overflow-y: auto;
+}
+
+.detail-panel.open { right: 0; }
+
+.detail-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.detail-header h3 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 700;
+    line-height: 1.3;
+    margin-bottom: 6px;
+}
+
+.detail-close {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 1.5rem;
+    cursor: pointer;
+    padding: 0 4px;
+    line-height: 1;
+    margin-top: -4px;
+}
+.detail-close:hover { color: var(--text-main); }
+
+.detail-chart-wrap {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 14px;
+}
+
+#detail-chart {
+    width: 100%;
+    height: 90px;
+    display: block;
+    margin-top: 10px;
+}
+
+.detail-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.83rem;
+}
+
+.detail-table th {
+    padding: 8px 10px;
+    font-size: 0.62rem;
+    color: var(--text-dim);
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-color);
+    text-align: left;
+}
+
+.detail-table td {
+    padding: 11px 10px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.detail-table tbody tr { cursor: default; }
+.detail-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+
+/* Linha clicável na tabela vendas */
+#vendas-table tbody tr {
+    cursor: pointer;
+}
+#vendas-table tbody tr:hover {
+    background: rgba(88,166,255,0.05) !important;
+}
+
 /* ====== MODAL ====== */
 .modal-overlay {
     position: fixed;
