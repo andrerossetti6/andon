@@ -1185,34 +1185,83 @@ const estoque = {
     setupFiltros() {
         document.getElementById('est-search').addEventListener('input', () => this.aplicarFiltros());
         document.getElementById('est-seg').addEventListener('change', () => this.aplicarFiltros());
-        document.getElementById('est-desc').addEventListener('change', () => this.aplicarFiltros());
         document.getElementById('est-clear').addEventListener('click', () => {
             document.getElementById('est-search').value = '';
             document.getElementById('est-seg').value   = '';
-            document.getElementById('est-desc').value  = '';
+            this._descSelected = '';
+            document.getElementById('est-desc-input').value = '';
+            document.getElementById('est-desc-dropdown').classList.remove('open');
             this.aplicarFiltros();
+        });
+        this.setupDescCombobox();
+    },
+
+    _descValues:   [],
+    _descSelected: '',
+
+    setupDescCombobox() {
+        const input = document.getElementById('est-desc-input');
+        const drop  = document.getElementById('est-desc-dropdown');
+
+        input.addEventListener('focus', () => { this.renderDescDrop(''); drop.classList.add('open'); });
+        input.addEventListener('input', () => { this._descSelected = ''; this.renderDescDrop(input.value); drop.classList.add('open'); this.aplicarFiltros(); });
+
+        document.addEventListener('mousedown', e => {
+            if (!e.target.closest('#est-desc-wrap')) drop.classList.remove('open');
+        });
+    },
+
+    renderDescDrop(q) {
+        const drop = document.getElementById('est-desc-dropdown');
+        const term = q.toLowerCase().trim();
+        const matches = term
+            ? this._descValues.filter(v => v.toLowerCase().includes(term))
+            : this._descValues;
+
+        drop.innerHTML = `<div class="combobox-option clear-opt" data-val="">Todos</div>` +
+            matches.slice(0, 100).map(v =>
+                `<div class="combobox-option${v === this._descSelected ? ' active' : ''}" data-val="${v}">${v}</div>`
+            ).join('');
+
+        drop.querySelectorAll('.combobox-option').forEach(el => {
+            el.addEventListener('mousedown', e => {
+                e.preventDefault();
+                this._descSelected = el.dataset.val;
+                document.getElementById('est-desc-input').value = el.dataset.val;
+                drop.classList.remove('open');
+                this.aplicarFiltros();
+            });
         });
     },
 
     populaSelects() {
-        const segEl  = document.getElementById('est-seg');
-        const descEl = document.getElementById('est-desc');
+        const segEl     = document.getElementById('est-seg');
+        const descWrap  = document.getElementById('est-desc-wrap');
+        const descInput = document.getElementById('est-desc-input');
 
-        // Detecta colunas
         this._colSeg  = this.colunas.find(c => this.normalizeKey(c).includes('segmento') || this.normalizeKey(c) === 'seg');
         this._colDesc = this.colunas.find(c => {
             const n = this.normalizeKey(c);
             return n.includes('descricao') || n.includes('descr') || n === 'desc' || n.includes('produto') || n.includes('descproduto');
         });
 
-        const fill = (el, col) => {
-            if (!col) { el.style.display = 'none'; return; }
-            const vals = [...new Set(this.rawData.map(r => String(r.dados?.[col] ?? '')).filter(Boolean))].sort();
-            el.innerHTML = `<option value="">Todos</option>` + vals.map(v => `<option value="${v}">${v}</option>`).join('');
-            el.style.display = '';
-        };
-        fill(segEl, this._colSeg);
-        fill(descEl, this._colDesc);
+        if (this._colSeg) {
+            const vals = [...new Set(this.rawData.map(r => String(r.dados?.[this._colSeg] ?? '')).filter(Boolean))].sort();
+            segEl.innerHTML = `<option value="">Todos segmentos</option>` + vals.map(v => `<option value="${v}">${v}</option>`).join('');
+            segEl.style.display = '';
+        } else {
+            segEl.style.display = 'none';
+        }
+
+        if (this._colDesc) {
+            this._descValues   = [...new Set(this.rawData.map(r => String(r.dados?.[this._colDesc] ?? '')).filter(Boolean))].sort();
+            this._descSelected = '';
+            descInput.value    = '';
+            descWrap.style.display = '';
+        } else {
+            descWrap.style.display = 'none';
+            this._descValues = [];
+        }
     },
 
     handleFile(file) {
@@ -1286,9 +1335,9 @@ const estoque = {
     },
 
     aplicarFiltros() {
-        const q    = document.getElementById('est-search').value.toLowerCase().trim();
-        const seg  = document.getElementById('est-seg').value;
-        const desc = document.getElementById('est-desc').value;
+        const q   = document.getElementById('est-search').value.toLowerCase().trim();
+        const seg = document.getElementById('est-seg').value;
+        const desc = this._descSelected;
         this.filtered = this.rawData.filter(r => {
             if (q && !r.codigo.toLowerCase().includes(q) &&
                 !Object.values(r.dados || {}).some(v => String(v).toLowerCase().includes(q))) return false;

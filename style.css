@@ -902,6 +902,39 @@ input:checked + .chk {
     white-space: nowrap;
 }
 
+/* Combobox com busca */
+.combobox-wrap {
+    position: relative;
+    min-width: 220px;
+    flex: 1;
+}
+.combobox-input { width: 100%; }
+.combobox-dropdown {
+    display: none;
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    max-height: 260px;
+    overflow-y: auto;
+    background: #1c2128;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    z-index: 200;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+.combobox-dropdown.open { display: block; }
+.combobox-option {
+    padding: 8px 14px;
+    font-size: 0.8rem;
+    color: var(--text-main);
+    cursor: pointer;
+    transition: background 0.1s;
+}
+.combobox-option:hover { background: rgba(88,166,255,0.1); }
+.combobox-option.active { background: rgba(88,166,255,0.15); color: var(--indigo-primary); }
+.combobox-option.clear-opt { color: var(--text-dim); font-style: italic; }
+
 /* Data Table */
 .vendas-table-wrap {
     background: var(--bg-card);
