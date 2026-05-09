@@ -1710,26 +1710,16 @@ const op = {
                 const codigo = codeMatch[1].trim();
                 const resto  = codeMatch[2];
 
-                // Tenta extrair 5 números do FINAL do texto (estão na coluna A como texto)
-                const numMatch = resto.match(/^(.+?)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s+([\d,]+)\s*$/);
-                let descricao, paraProducao, produzido, aprovado, reprovado, aProduzir;
+                // Extrai "Para Produção" (1º número) do final do texto
+                const numMatch = resto.match(/^(.+?)\s+([\d,]+)\s+[\d,]+\s+[\d,]+\s+[\d,]+\s+[\d,]+\s*$/);
+                let descricao, paraProducao;
 
                 if (numMatch) {
-                    // Números embutidos no texto (formato mais comum do ERP)
                     descricao    = numMatch[1].trim();
                     paraProducao = toNum(numMatch[2]);
-                    produzido    = toNum(numMatch[3]);
-                    aprovado     = toNum(numMatch[4]);
-                    reprovado    = toNum(numMatch[5]);
-                    aProduzir    = toNum(numMatch[6]);
                 } else {
-                    // Fallback: números em colunas separadas
                     descricao    = resto.trim();
                     paraProducao = toNum(vals[2]);
-                    produzido    = toNum(vals[3]);
-                    aprovado     = toNum(vals[4]);
-                    reprovado    = toNum(vals[5]);
-                    aProduzir    = toNum(vals[6]);
                 }
 
                 // Quebra a descrição por "|" em colunas separadas
@@ -1737,10 +1727,6 @@ const op = {
                 const record = { ...curOP, 'Código': codigo };
                 parts.forEach((p, i) => { record[PART_NAMES[i] || `Caract. ${i}`] = p; });
                 record['Para Produção'] = paraProducao;
-                record['Produzido']     = produzido;
-                record['Aprovado']      = aprovado;
-                record['Reprovado']     = reprovado;
-                record['À Produzir']    = aProduzir;
                 parsed.push(record);
             }
         }
