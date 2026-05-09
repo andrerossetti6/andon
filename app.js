@@ -434,6 +434,19 @@ function drawDetailChart(monthTotals) {
     });
 }
 
+function mostrarToast(msg, tipo = 'ok') {
+    let toast = document.getElementById('sigs-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'sigs-toast';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.className = `sigs-toast sigs-toast-${tipo} sigs-toast-show`;
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => toast.classList.remove('sigs-toast-show'), 3000);
+}
+
 function toggleHistorico(id) {
     const list    = document.querySelector(`#${id} .history-list`);
     const chevron = document.querySelector(`#${id} .history-chevron`);
@@ -768,18 +781,26 @@ const vendas = {
     async salvarImportacao(modo) {
         document.getElementById('import-modal').style.display = 'none';
         this.setSalvando(true);
+        let sucesso = false;
         try {
             if (modo === 'substituir') {
                 const lista = await api.listarImportacoes();
-                for (const imp of (lista || [])) {
-                    await api.deletarImportacao(imp.id);
-                }
+                for (const imp of (lista || [])) await api.deletarImportacao(imp.id);
             }
             const res = await api.salvarImport(this._nomeArquivoAtual, this.rawData, this.monthCols);
-            if (res?.ok) this._currentId = res.importacaoId;
+            if (res?.ok) { this._currentId = res.importacaoId; sucesso = true; }
         } catch (e) { console.error('Erro ao salvar:', e); }
         finally { this.setSalvando(false); }
         await this.carregarHistorico();
+        if (sucesso) {
+            mostrarToast(`✓ ${this.rawData.length.toLocaleString('pt-BR')} itens salvos`);
+            const list = document.getElementById('history-list');
+            const chev = document.getElementById('chevron-vendas');
+            if (list && list.style.display === 'none') {
+                list.style.display = 'flex';
+                if (chev) chev.style.transform = 'rotate(90deg)';
+            }
+        }
     },
 
     setSalvando(ativo) {
@@ -1332,6 +1353,7 @@ const estoque = {
     async salvar(modo) {
         document.getElementById('import-modal').style.display = 'none';
         this.setSalvando(true);
+        let sucesso = false;
         try {
             if (modo === 'substituir') {
                 const lista = await api.get('/api/importacoes-estoque');
@@ -1339,10 +1361,20 @@ const estoque = {
             }
             const linhas = this.rawData.map(r => ({ codigo: r.codigo, quantidade: r.quantidade, dados: r.dados || {} }));
             const res = await api.post('/api/estoque/import', { nomeArquivo: this._nomeArquivo, linhas });
-            if (res?.ok) this._currentId = res.importacaoId;
+            if (res?.ok) { this._currentId = res.importacaoId; sucesso = true; }
         } catch(e) { console.error(e); }
         finally { this.setSalvando(false); }
         await this.carregarHistorico();
+        if (sucesso) {
+            mostrarToast(`✓ ${this.rawData.length.toLocaleString('pt-BR')} itens salvos`);
+            // Auto-expande o histórico
+            const list = document.getElementById('estoque-history-list');
+            const chev = document.getElementById('chevron-estoque');
+            if (list && list.style.display === 'none') {
+                list.style.display = 'flex';
+                if (chev) chev.style.transform = 'rotate(90deg)';
+            }
+        }
     },
 
     setSalvando(ativo) {

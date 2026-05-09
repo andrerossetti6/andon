@@ -1164,6 +1164,31 @@ input:checked + .chk {
 .hi-item:hover .hi-del { opacity: 1; }
 .hi-del:hover { color: var(--red-accent); background: rgba(248,81,73,0.1); }
 
+/* ====== TOAST ====== */
+.sigs-toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: #238636;
+    color: white;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    z-index: 9999;
+    opacity: 0;
+    transition: all 0.25s ease;
+    pointer-events: none;
+}
+
+.sigs-toast-show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.sigs-toast-erro { background: var(--red-accent); }
+
 /* ====== PAINEL DE DETALHES ====== */
 .detail-overlay {
     position: fixed;
