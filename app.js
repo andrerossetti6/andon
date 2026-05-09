@@ -1153,6 +1153,8 @@ const estoque = {
     _importacoes: [],
     _currentId:   null,
     _nomeArquivo: '',
+    _colSeg:  null,   // coluna detectada para segmento
+    _colDesc: null,   // coluna detectada para descrição
 
     init() {
         this.setupDropZone();
@@ -1182,10 +1184,35 @@ const estoque = {
 
     setupFiltros() {
         document.getElementById('est-search').addEventListener('input', () => this.aplicarFiltros());
+        document.getElementById('est-seg').addEventListener('change', () => this.aplicarFiltros());
+        document.getElementById('est-desc').addEventListener('change', () => this.aplicarFiltros());
         document.getElementById('est-clear').addEventListener('click', () => {
             document.getElementById('est-search').value = '';
+            document.getElementById('est-seg').value   = '';
+            document.getElementById('est-desc').value  = '';
             this.aplicarFiltros();
         });
+    },
+
+    populaSelects() {
+        const segEl  = document.getElementById('est-seg');
+        const descEl = document.getElementById('est-desc');
+
+        // Detecta colunas
+        this._colSeg  = this.colunas.find(c => this.normalizeKey(c).includes('segmento') || this.normalizeKey(c) === 'seg');
+        this._colDesc = this.colunas.find(c => {
+            const n = this.normalizeKey(c);
+            return n.includes('descricao') || n.includes('descr') || n === 'desc' || n.includes('produto') || n.includes('descproduto');
+        });
+
+        const fill = (el, col) => {
+            if (!col) { el.style.display = 'none'; return; }
+            const vals = [...new Set(this.rawData.map(r => String(r.dados?.[col] ?? '')).filter(Boolean))].sort();
+            el.innerHTML = `<option value="">Todos</option>` + vals.map(v => `<option value="${v}">${v}</option>`).join('');
+            el.style.display = '';
+        };
+        fill(segEl, this._colSeg);
+        fill(descEl, this._colDesc);
     },
 
     handleFile(file) {
@@ -1253,16 +1280,21 @@ const estoque = {
 
         this.filtered = [...this.rawData];
         this.mostrarDados();
+        this.populaSelects();
         this.render();
         this.perguntarESalvar(this._nomeArquivo);
     },
 
     aplicarFiltros() {
-        const q = document.getElementById('est-search').value.toLowerCase().trim();
+        const q    = document.getElementById('est-search').value.toLowerCase().trim();
+        const seg  = document.getElementById('est-seg').value;
+        const desc = document.getElementById('est-desc').value;
         this.filtered = this.rawData.filter(r => {
-            if (!q) return true;
-            if (r.codigo.toLowerCase().includes(q)) return true;
-            return Object.values(r.dados || {}).some(v => String(v).toLowerCase().includes(q));
+            if (q && !r.codigo.toLowerCase().includes(q) &&
+                !Object.values(r.dados || {}).some(v => String(v).toLowerCase().includes(q))) return false;
+            if (seg  && String(r.dados?.[this._colSeg]  ?? '') !== seg)  return false;
+            if (desc && String(r.dados?.[this._colDesc] ?? '') !== desc) return false;
+            return true;
         });
         this.render();
     },
@@ -1387,6 +1419,7 @@ const estoque = {
         }));
         this.filtered = [...this.rawData];
         this.mostrarDados();
+        this.populaSelects();
         this.render();
         this.renderHistorico();
     },
