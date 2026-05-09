@@ -2037,9 +2037,12 @@ const dashOp = {
 // ====== DASHBOARD: CURVA ABC ======
 
 const abc = {
-    selectedYear:  'all',
-    selectedMonth: '',
-    selectedGrupo: 'descricao',
+    selectedYear:   'all',
+    selectedMonth:  '',
+    selectedGrupo:  'descricao',
+    _selectedClasse: null,
+    _items:          [],
+    _zonas:          {},
 
     init() {
         document.getElementById('abc-year-tabs').addEventListener('click', e => {
@@ -2137,8 +2140,10 @@ const abc = {
         document.getElementById('abc-c-qtd').textContent = fmtQ(cC.reduce((s,i) => s + i.quantidade, 0));
         countEl.textContent = `${items.length.toLocaleString('pt-BR')} itens analisados`;
 
+        this._items = items;
+        this._setupCardClicks('abc');
         setTimeout(() => this.drawChart(items), 30);
-        this.renderTable(items);
+        this.renderTable();
     },
 
     drawChart(items) {
@@ -2216,10 +2221,52 @@ const abc = {
         [0, 50, 100].forEach(pct => {
             ctx.fillText(`${pct}%`, w - padR + 4, padT + chartH * (1 - pct / 100) + 3);
         });
+
+        // Salva zonas e adiciona clique no gráfico
+        this._zonas = { padL, chartW, n, bA, bB, canvas };
+        canvas.style.cursor = 'pointer';
+        canvas.onclick = e => {
+            const rect = canvas.getBoundingClientRect();
+            const mx   = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const xAc  = padL + (bA / n) * chartW;
+            const xBc  = padL + (bB / n) * chartW;
+            const zona  = mx < xAc ? 'A' : mx < xBc ? 'B' : 'C';
+            this.filtrarClasse(zona, 'abc');
+        };
     },
 
-    renderTable(items) {
-        const isDesc = this.selectedGrupo === 'descricao';
+    filtrarClasse(classe, prefix) {
+        this._selectedClasse = this._selectedClasse === classe ? null : classe;
+        this._updateCardStyles(prefix || 'abc');
+        this.renderTable();
+    },
+
+    _setupCardClicks(prefix) {
+        ['A','B','C'].forEach(c => {
+            const card = document.getElementById(`${prefix}-${c.toLowerCase()}-count`)?.closest('.summary-card');
+            if (card) { card.style.cursor = 'pointer'; card.onclick = () => this.filtrarClasse(c, prefix); }
+        });
+    },
+
+    _updateCardStyles(prefix) {
+        ['A','B','C'].forEach(c => {
+            const card = document.getElementById(`${prefix}-${c.toLowerCase()}-count`)?.closest('.summary-card');
+            if (!card) return;
+            const ativo = this._selectedClasse === c;
+            card.style.outline     = ativo ? `2px solid var(--indigo-primary)` : '';
+            card.style.opacity     = (!this._selectedClasse || ativo) ? '1' : '0.4';
+        });
+    },
+
+    renderTable() {
+        const isDesc  = this.selectedGrupo === 'descricao';
+        const visible = this._selectedClasse
+            ? this._items.filter(i => i.classe === this._selectedClasse)
+            : this._items;
+        const countEl = document.getElementById('abc-count');
+        if (countEl) countEl.textContent = this._selectedClasse
+            ? `${visible.length} itens — Classe ${this._selectedClasse} (clique para ver todos)`
+            : `${this._items.length.toLocaleString('pt-BR')} itens analisados`;
         document.querySelector('#abc-table thead tr').innerHTML = `
             <th style="width:40px;">#</th>
             <th colspan="2">${isDesc ? 'DESCRIÇÃO' : 'CÓDIGO'}</th>
@@ -2228,7 +2275,7 @@ const abc = {
             <th class="td-right">% ACUM.</th>
             <th class="td-center" style="width:80px;">CLASSE</th>
         `;
-        document.querySelector('#abc-table tbody').innerHTML = items.map((r, i) => {
+        document.querySelector('#abc-table tbody').innerHTML = visible.map((r, i) => {
             const cls     = `abc-${r.classe.toLowerCase()}`;
             const cellCls = isDesc ? 'td-desc' : 'td-code';
             return `<tr>
@@ -2361,6 +2408,9 @@ const dist = {
 // ====== DASHBOARD: ABC ESTOQUE ======
 
 const abcEstoque = {
+    _selectedClasse: null,
+    _items: [],
+
     render() {
         if (!estoque.rawData.length) {
             document.getElementById('abce-count').textContent = 'Importe dados de Estoque primeiro.';
@@ -2403,8 +2453,10 @@ const abcEstoque = {
         document.getElementById('abce-c-qtd').textContent   = cC.reduce((s,i) => s+i.qtd,0).toLocaleString('pt-BR') + ' un';
         document.getElementById('abce-count').textContent   = `${items.length.toLocaleString('pt-BR')} itens analisados`;
 
+        this._items = items;
+        this._setupCardClicks();
         setTimeout(() => this.drawChart(items), 30);
-        this.renderTable(items);
+        this.renderTable();
     },
 
     drawChart(items) {
@@ -2465,10 +2517,51 @@ const abcEstoque = {
         [0, 50, 100].forEach(pct => {
             ctx.fillText(`${pct}%`, w - padR + 4, padT + chartH * (1 - pct / 100) + 3);
         });
+
+        // Clique no gráfico → filtra por zona
+        canvas.style.cursor = 'pointer';
+        canvas.onclick = e => {
+            const rect = canvas.getBoundingClientRect();
+            const mx   = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const xAc  = padL + (bA / n) * chartW;
+            const xBc  = padL + (bB / n) * chartW;
+            const zona  = mx < xAc ? 'A' : mx < xBc ? 'B' : 'C';
+            this.filtrarClasse(zona);
+        };
     },
 
-    renderTable(items) {
-        document.querySelector('#abce-table tbody').innerHTML = items.map((r, i) => {
+    filtrarClasse(classe) {
+        this._selectedClasse = this._selectedClasse === classe ? null : classe;
+        this._updateCardStyles();
+        this.renderTable();
+    },
+
+    _setupCardClicks() {
+        ['A','B','C'].forEach(c => {
+            const card = document.getElementById(`abce-${c.toLowerCase()}-count`)?.closest('.summary-card');
+            if (card) { card.style.cursor = 'pointer'; card.onclick = () => this.filtrarClasse(c); }
+        });
+    },
+
+    _updateCardStyles() {
+        ['A','B','C'].forEach(c => {
+            const card = document.getElementById(`abce-${c.toLowerCase()}-count`)?.closest('.summary-card');
+            if (!card) return;
+            const ativo = this._selectedClasse === c;
+            card.style.outline = ativo ? '2px solid var(--indigo-primary)' : '';
+            card.style.opacity = (!this._selectedClasse || ativo) ? '1' : '0.4';
+        });
+    },
+
+    renderTable() {
+        const visible = this._selectedClasse
+            ? this._items.filter(i => i.classe === this._selectedClasse)
+            : this._items;
+        document.getElementById('abce-count').textContent =
+            this._selectedClasse
+                ? `${visible.length} itens — Classe ${this._selectedClasse} (clique para ver todos)`
+                : `${this._items.length.toLocaleString('pt-BR')} itens analisados`;
+        document.querySelector('#abce-table tbody').innerHTML = visible.map((r, i) => {
             const cls = `abc-${r.classe.toLowerCase()}`;
             return `<tr>
                 <td class="td-rank">${i + 1}</td>
