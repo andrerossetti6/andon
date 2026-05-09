@@ -1582,16 +1582,19 @@ const op = {
 
     setupFiltros() {
         document.getElementById('op-search').addEventListener('input', () => this.aplicarFiltros());
-        document.getElementById('op-clear').addEventListener('click', () => {
-            document.getElementById('op-search').value = '';
-            this._col1Selected = ''; document.getElementById('op-col1-input').value = '';
-            this._col2Selected = ''; document.getElementById('op-col2-input').value = '';
-            document.getElementById('op-col1-dropdown').classList.remove('open');
-            document.getElementById('op-col2-dropdown').classList.remove('open');
-            this.aplicarFiltros();
-        });
         this._setupCombo('op-col1-input','op-col1-dropdown','_col1Selected','_col1Values');
         this._setupCombo('op-col2-input','op-col2-dropdown','_col2Selected','_col2Values');
+    },
+
+    limpar() {
+        document.getElementById('op-search').value = '';
+        this._col1Selected = '';
+        this._col2Selected = '';
+        document.getElementById('op-col1-input').value = '';
+        document.getElementById('op-col2-input').value = '';
+        document.getElementById('op-col1-dropdown').classList.remove('open');
+        document.getElementById('op-col2-dropdown').classList.remove('open');
+        this.aplicarFiltros();
     },
 
     _setupCombo(inputId, dropId, selKey, valsKey) {
