@@ -389,12 +389,14 @@ const vendas = {
     monthCols: [],      // [{ key, abbr, year, label, originalCol }]
     years: [],          // anos detectados no arquivo
     selectedYear: 'all',
+    selectedMonth: null,
 
     init() {
         this.setupDropZone();
         this.setupFileInput();
         this.setupFilters();
         this.setupYearTabs();
+        this.setupChartClick();
         this.setupModal();
     },
 
@@ -428,8 +430,31 @@ const vendas = {
             if (!btn) return;
             document.querySelectorAll('.year-tab').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            this.selectedYear = btn.dataset.year;
+            this.selectedYear  = btn.dataset.year;
+            this.selectedMonth = null;
             this.render();
+        });
+    },
+
+    setupChartClick() {
+        const canvas = document.getElementById('vendas-chart');
+        canvas.style.cursor = 'pointer';
+        canvas.addEventListener('click', e => {
+            const activeCols  = this.getActiveCols();
+            const activeAbbrs = MONTHS.filter(m => activeCols.some(c => c.abbr === m));
+            if (!activeAbbrs.length) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const x    = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const padX = 20;
+            const barW = (canvas.width - padX * 2) / activeAbbrs.length;
+            const idx  = Math.floor((x - padX) / barW);
+
+            if (idx >= 0 && idx < activeAbbrs.length) {
+                const clicked      = activeAbbrs[idx];
+                this.selectedMonth = this.selectedMonth === clicked ? null : clicked;
+                this.render();
+            }
         });
     },
 
@@ -835,7 +860,9 @@ const vendas = {
         const activeCols = this.getActiveCols();
 
         // Quantidade total = soma de todos os meses ativos
-        const rowQtd = r => activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
+        // Se mês selecionado, calcula só aquele mês
+        const mCols  = this.selectedMonth ? activeCols.filter(c => c.abbr === this.selectedMonth) : activeCols;
+        const rowQtd = r => mCols.reduce((s, c) => s + (r[c.key] || 0), 0);
         const total  = this.filtered.reduce((s, r) => s + rowQtd(r), 0);
 
         document.getElementById('summary-qtd').textContent =
@@ -921,8 +948,10 @@ const vendas = {
         const yearLbl = this.selectedYear === 'all'
             ? (this.years.length > 1 ? 'TODOS OS ANOS' : (this.years[0] || ''))
             : this.selectedYear;
+        const mLbl = this.selectedMonth
+            ? ` • ${this.selectedMonth.charAt(0).toUpperCase() + this.selectedMonth.slice(1)}` : '';
         document.getElementById('chart-title').textContent =
-            `QUANTIDADE POR MÊS${yearLbl ? ' • ' + yearLbl : ''}`;
+            `QUANTIDADE POR MÊS${yearLbl ? ' • ' + yearLbl : ''}${mLbl}`;
         document.querySelectorAll('.year-tab').forEach(b => {
             b.classList.toggle('active', b.dataset.year === this.selectedYear);
         });
@@ -932,13 +961,24 @@ const vendas = {
         const barW = (w - padX * 2) / activeAbbrs.length;
 
         monthTotals.forEach((val, i) => {
-            const x    = padX + i * barW;
-            const barH = Math.max(((h - padY * 2) * val) / max, val > 0 ? 2 : 0);
-            const y    = h - padY - barH;
+            const x         = padX + i * barW;
+            const barH      = Math.max(((h - padY * 2) * val) / max, val > 0 ? 2 : 0);
+            const y         = h - padY - barH;
+            const isSel     = this.selectedMonth === activeAbbrs[i];
+            const isOther   = this.selectedMonth && !isSel;
 
+            // Barra selecionada: branca; outras: dimmed
             const grad = ctx.createLinearGradient(0, y, 0, h - padY);
-            grad.addColorStop(0, 'rgba(88,166,255,0.85)');
-            grad.addColorStop(1, 'rgba(88,166,255,0.2)');
+            if (isSel) {
+                grad.addColorStop(0, 'rgba(255,255,255,0.95)');
+                grad.addColorStop(1, 'rgba(88,166,255,0.6)');
+            } else if (isOther) {
+                grad.addColorStop(0, 'rgba(88,166,255,0.3)');
+                grad.addColorStop(1, 'rgba(88,166,255,0.08)');
+            } else {
+                grad.addColorStop(0, 'rgba(88,166,255,0.85)');
+                grad.addColorStop(1, 'rgba(88,166,255,0.2)');
+            }
             ctx.fillStyle = grad;
 
             const r2 = 3, bx = x + 4, by = y, bw = barW - 8, bh = barH;
@@ -953,14 +993,14 @@ const vendas = {
             ctx.closePath();
             ctx.fill();
 
-            ctx.fillStyle = 'rgba(139,148,158,0.65)';
-            ctx.font = '9px Inter';
+            ctx.fillStyle = isSel ? 'rgba(255,255,255,0.9)' : isOther ? 'rgba(139,148,158,0.35)' : 'rgba(139,148,158,0.65)';
+            ctx.font = isSel ? 'bold 9px Inter' : '9px Inter';
             ctx.textAlign = 'center';
             ctx.fillText(activeAbbrs[i].charAt(0).toUpperCase() + activeAbbrs[i].slice(1), x + barW / 2, h - 6);
 
             if (val > 0) {
-                ctx.fillStyle = 'rgba(230,237,243,0.7)';
-                ctx.font = '8px Inter';
+                ctx.fillStyle = isSel ? 'rgba(255,255,255,0.95)' : isOther ? 'rgba(230,237,243,0.3)' : 'rgba(230,237,243,0.7)';
+                ctx.font = isSel ? 'bold 9px Inter' : '8px Inter';
                 ctx.fillText(val.toLocaleString('pt-BR'), x + barW / 2, y - 4);
             }
         });
@@ -970,19 +1010,29 @@ const vendas = {
         const cols  = this.getActiveCols();
         const table = document.getElementById('vendas-table');
 
-        // Cabeçalho dinâmico
+        // Cabeçalho dinâmico — destaca coluna do mês selecionado
         table.querySelector('thead tr').innerHTML = `
             <th>CÓDIGO</th>
             <th>DESCRIÇÃO</th>
             <th>MODELO</th>
             <th>SEGMENTO</th>
             <th class="td-center">TAM.</th>
-            ${cols.map(c => `<th class="th-month">${c.label.toUpperCase()}</th>`).join('')}
+            ${cols.map(c => {
+                const sel = this.selectedMonth === c.abbr;
+                return `<th class="th-month${sel ? ' th-month-sel' : ''}">${c.label.toUpperCase()}</th>`;
+            }).join('')}
             <th class="td-right">QTDE</th>
             <th class="td-right">VALOR R$</th>
         `;
 
-        const rows  = this.filtered.slice(0, 500);
+        // Filtra linhas pelo mês selecionado (só mostra quem tem valor naquele mês)
+        let displayRows = this.filtered;
+        if (this.selectedMonth) {
+            const mCols = cols.filter(c => c.abbr === this.selectedMonth);
+            displayRows = displayRows.filter(r => mCols.some(c => (r[c.key] || 0) > 0));
+        }
+
+        const rows = displayRows.slice(0, 500);
         table.querySelector('tbody').innerHTML = rows.map(r => `
             <tr>
                 <td class="td-code">${r.codigo}</td>
@@ -991,18 +1041,20 @@ const vendas = {
                 <td><span class="seg-badge">${r.segmento}</span></td>
                 <td class="td-center">${r.tamanho}</td>
                 ${cols.map(c => {
-                    const v = r[c.key];
-                    return `<td class="td-month">${v ? v.toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>'}</td>`;
+                    const v   = r[c.key];
+                    const sel = this.selectedMonth === c.abbr;
+                    return `<td class="td-month${sel ? ' td-month-sel' : ''}">${v ? v.toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>'}</td>`;
                 }).join('')}
                 <td class="td-qtd">${r.quantidade.toLocaleString('pt-BR')}</td>
                 <td class="td-valor">${r.valor ? 'R$ ' + r.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '<span style="opacity:.3">—</span>'}</td>
             </tr>
         `).join('');
 
-        const total  = this.filtered.length;
+        const total  = displayRows.length;
         const suffix = total > 500 ? ' (exibindo 500)' : '';
+        const mLabel = this.selectedMonth ? ` · ${this.selectedMonth.charAt(0).toUpperCase() + this.selectedMonth.slice(1)}` : '';
         document.getElementById('table-count').textContent =
-            `${total.toLocaleString('pt-BR')} ${total === 1 ? 'item' : 'itens'}${suffix}`;
+            `${total.toLocaleString('pt-BR')} ${total === 1 ? 'item' : 'itens'}${mLabel}${suffix}`;
     }
 };
 

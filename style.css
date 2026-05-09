@@ -945,6 +945,17 @@ input:checked + .chk {
     color: rgba(88, 166, 255, 0.6) !important;
 }
 
+.th-month-sel {
+    color: white !important;
+    background: rgba(88,166,255,0.15) !important;
+}
+
+.td-month-sel {
+    color: white !important;
+    font-weight: 600 !important;
+    background: rgba(88,166,255,0.08);
+}
+
 .vendas-table tbody tr {
     border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     transition: background 0.12s;
