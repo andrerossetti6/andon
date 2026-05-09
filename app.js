@@ -1168,8 +1168,9 @@ const estoque = {
     _importacoes: [],
     _currentId:   null,
     _nomeArquivo: '',
-    _colSeg:  null,   // coluna detectada para segmento
-    _colDesc: null,   // coluna detectada para descrição
+    _colSeg:  null,
+    _colDesc: null,
+    _colValor: null,
 
     init() {
         this.setupDropZone();
@@ -1328,6 +1329,11 @@ const estoque = {
         const QTD_KEYS = ['quantidade','qtd','qty','qtde','estoque','saldo'];
         const qtdKey   = QTD_KEYS.find(k => keyMap[k]);
 
+        // Detecta coluna de valor monetário
+        const VAL_KEYS = ['total','valor','valortotal','vltotal','preco','price','custo','vl','vlunit','valorunit'];
+        const valKey   = VAL_KEYS.find(k => keyMap[k] && k !== qtdKey);
+        this._colValor = valKey ? keyMap[valKey] : null;
+
         this.colunas = allHeaders;
 
         this.rawData = rows.map((r, i) => {
@@ -1374,6 +1380,18 @@ const estoque = {
         document.getElementById('est-itens').textContent = this.filtered.length.toLocaleString('pt-BR');
         document.getElementById('est-qtd').textContent   = totalQtd.toLocaleString('pt-BR');
         document.getElementById('est-zero').textContent  = zeros.toLocaleString('pt-BR');
+
+        // Card de valor total
+        const valorCard = document.getElementById('est-valor-card');
+        if (this._colValor) {
+            const toNum = v => parseFloat(String(v).replace(/[^\d,.\-]/g,'').replace(',','.')) || 0;
+            const totalVal = this.filtered.reduce((s, r) => s + toNum(r.dados?.[this._colValor] ?? 0), 0);
+            document.getElementById('est-valor-label').textContent = this._colValor.toUpperCase();
+            document.getElementById('est-valor').textContent = 'R$ ' + totalVal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            valorCard.style.display = '';
+        } else {
+            valorCard.style.display = 'none';
+        }
 
         const table = document.getElementById('estoque-table');
 
@@ -1474,6 +1492,10 @@ const estoque = {
         // Reconstrói colunas a partir do JSONB dados
         const sampleDados = rows.find(r => r.dados && Object.keys(r.dados).length)?.dados || {};
         this.colunas = Object.keys(sampleDados).length ? Object.keys(sampleDados) : ['codigo'];
+
+        const normKey = k => String(k).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+        const VAL_KEYS = ['total','valor','valortotal','vltotal','preco','price','custo','vl','vlunit','valorunit'];
+        this._colValor = this.colunas.find(c => VAL_KEYS.includes(normKey(c))) || null;
 
         this.rawData = rows.map((r, i) => ({
             _id:        i,
