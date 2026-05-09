@@ -84,6 +84,12 @@ const api = {
         const r = await fetch(`/api/importacoes-estoque/${id}`, { method: 'DELETE', headers: auth.cabecalho() });
         if (r.status === 401) { auth.sair(); return null; }
         return r.json();
+    },
+
+    async deletarImportacaoOP(id) {
+        const r = await fetch(`/api/importacoes-op/${id}`, { method: 'DELETE', headers: auth.cabecalho() });
+        if (r.status === 401) { auth.sair(); return null; }
+        return r.json();
     }
 };
 
@@ -139,11 +145,12 @@ function mostrarApp() {
 
     init();
     estoque.init();
+    op.init();
     ranking.init();
     vxe.init();
     abc.init();
     dist.init();
-    vendas.carregarHistorico().then(() => estoque.carregarHistorico());
+    vendas.carregarHistorico().then(() => estoque.carregarHistorico().then(() => op.carregarHistorico()));
 }
 
 document.addEventListener('DOMContentLoaded', bootstrap);
@@ -425,7 +432,7 @@ function toggleHistorico(id) {
 }
 
 function navigateTo(viewName) {
-    ['dashboard','vendas','estoque','ranking','vxe','abc','dist'].forEach(v => {
+    ['dashboard','vendas','estoque','op','ranking','vxe','abc','dist','dash-op'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -434,9 +441,9 @@ function navigateTo(viewName) {
     document.querySelectorAll('.sub-menu li').forEach(li => li.classList.remove('sub-active'));
 
     const navMap = {
-        vendas: 'nav-analise', estoque: 'nav-analise',
+        vendas: 'nav-analise', estoque: 'nav-analise', op: 'nav-analise',
         ranking: 'nav-ranking', vxe: 'nav-vxe', dashboard: 'nav-analise',
-        abc: 'nav-abc', dist: 'nav-dist'
+        abc: 'nav-abc', dist: 'nav-dist', 'dash-op': 'nav-dash-op'
     };
     const navEl = document.getElementById(navMap[viewName]);
     if (navEl) navEl.classList.add('active');
@@ -446,6 +453,8 @@ function navigateTo(viewName) {
         setTimeout(() => { if (vendas.rawData.length) vendas.render(); }, 50);
     } else if (viewName === 'estoque') {
         document.querySelector('[data-view="estoque"]').classList.add('sub-active');
+    } else if (viewName === 'op') {
+        document.querySelector('[data-view="op"]').classList.add('sub-active');
     } else if (viewName === 'ranking') {
         setTimeout(() => ranking.render(), 50);
     } else if (viewName === 'vxe') {
@@ -454,6 +463,8 @@ function navigateTo(viewName) {
         setTimeout(() => abc.render(), 50);
     } else if (viewName === 'dist') {
         setTimeout(() => dist.render(), 50);
+    } else if (viewName === 'dash-op') {
+        setTimeout(() => dashOp.render(), 50);
     }
 }
 
@@ -867,11 +878,15 @@ const vendas = {
     setupModal() {
         document.getElementById('btn-substituir').addEventListener('click', () => {
             const modulo = document.getElementById('import-modal').dataset.modulo;
-            modulo === 'estoque' ? estoque.salvar('substituir') : this.salvarImportacao('substituir');
+            if (modulo === 'estoque') estoque.salvar('substituir');
+            else if (modulo === 'op') op.salvar('substituir');
+            else this.salvarImportacao('substituir');
         });
         document.getElementById('btn-nova-imp').addEventListener('click', () => {
             const modulo = document.getElementById('import-modal').dataset.modulo;
-            modulo === 'estoque' ? estoque.salvar('nova') : this.salvarImportacao('nova');
+            if (modulo === 'estoque') estoque.salvar('nova');
+            else if (modulo === 'op') op.salvar('nova');
+            else this.salvarImportacao('nova');
         });
         document.getElementById('btn-cancelar-imp').addEventListener('click', () => {
             document.getElementById('import-modal').style.display = 'none';
@@ -1504,6 +1519,395 @@ const estoque = {
     }
 };
 
+// ====== MÓDULO: ORDENS DE PRODUÇÃO ======
+
+const op = {
+    rawData:   [],
+    filtered:  [],
+    colunas:   [],
+    _importacoes: [],
+    _currentId:   null,
+    _nomeArquivo: '',
+    _col1: null, _col1Values: [], _col1Selected: '',
+    _col2: null, _col2Values: [], _col2Selected: '',
+    _colQtd: null,
+
+    init() {
+        this.setupDropZone();
+        this.setupFileInput();
+        this.setupFiltros();
+    },
+
+    setupDropZone() {
+        const zone = document.getElementById('op-drop-zone');
+        zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+        zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+        zone.addEventListener('drop', e => {
+            e.preventDefault(); zone.classList.remove('drag-over');
+            const f = e.dataTransfer.files[0];
+            if (f) this.handleFile(f);
+        });
+    },
+
+    setupFileInput() {
+        const inp = document.getElementById('file-input-op');
+        inp.addEventListener('change', e => {
+            const f = e.target.files[0];
+            if (f) this.handleFile(f);
+            inp.value = '';
+        });
+    },
+
+    setupFiltros() {
+        document.getElementById('op-search').addEventListener('input', () => this.aplicarFiltros());
+        document.getElementById('op-clear').addEventListener('click', () => {
+            document.getElementById('op-search').value = '';
+            this._col1Selected = ''; document.getElementById('op-col1-input').value = '';
+            this._col2Selected = ''; document.getElementById('op-col2-input').value = '';
+            document.getElementById('op-col1-dropdown').classList.remove('open');
+            document.getElementById('op-col2-dropdown').classList.remove('open');
+            this.aplicarFiltros();
+        });
+        this._setupCombo('op-col1-input','op-col1-dropdown','_col1Selected','_col1Values');
+        this._setupCombo('op-col2-input','op-col2-dropdown','_col2Selected','_col2Values');
+    },
+
+    _setupCombo(inputId, dropId, selKey, valsKey) {
+        const input = document.getElementById(inputId);
+        const drop  = document.getElementById(dropId);
+        input.addEventListener('focus', () => { this._renderDrop(drop, input, selKey, valsKey, ''); drop.classList.add('open'); });
+        input.addEventListener('input', () => {
+            this[selKey] = '';
+            this._renderDrop(drop, input, selKey, valsKey, input.value);
+            drop.classList.add('open');
+            this.aplicarFiltros();
+        });
+        document.addEventListener('mousedown', e => {
+            if (!e.target.closest(`#${dropId}`) && !e.target.closest(`#${inputId}`)) drop.classList.remove('open');
+        });
+    },
+
+    _renderDrop(drop, input, selKey, valsKey, q) {
+        const term = q.toLowerCase().trim();
+        const vals = this[valsKey];
+        const matches = term ? vals.filter(v => v.toLowerCase().includes(term)) : vals;
+        drop.innerHTML = `<div class="combobox-option clear-opt" data-val="">Todos</div>` +
+            matches.slice(0, 100).map(v =>
+                `<div class="combobox-option${v === this[selKey] ? ' active' : ''}" data-val="${v}">${v}</div>`
+            ).join('');
+        drop.querySelectorAll('.combobox-option').forEach(el => {
+            el.addEventListener('mousedown', e => {
+                e.preventDefault();
+                this[selKey] = el.dataset.val;
+                input.value  = el.dataset.val;
+                drop.classList.remove('open');
+                this.aplicarFiltros();
+            });
+        });
+    },
+
+    normalizeKey(key) {
+        return String(key).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+    },
+
+    handleFile(file) {
+        this._nomeArquivo = file.name;
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (ext === 'csv') {
+            Papa.parse(file, { header: true, skipEmptyLines: true, complete: r => this.processData(r.data) });
+        } else if (['xls','xlsx'].includes(ext)) {
+            const reader = new FileReader();
+            reader.onload = e => {
+                const wb   = XLSX.read(e.target.result, { type: 'array' });
+                const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
+                this.processData(data);
+            };
+            reader.readAsArrayBuffer(file);
+        }
+    },
+
+    processData(rows) {
+        if (!rows?.length) return;
+        const allHeaders = Object.keys(rows[0]).filter(h => {
+            const n = this.normalizeKey(h);
+            return n && !n.startsWith('__');
+        });
+
+        const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs'];
+        const qtdNorm  = allHeaders.find(h => QTD_KEYS.includes(this.normalizeKey(h)));
+        this._colQtd   = qtdNorm || null;
+
+        this.colunas = allHeaders;
+
+        this.rawData = rows.map((r, i) => ({
+            _id: i,
+            dados: Object.fromEntries(allHeaders.map(h => [h, r[h] ?? '']))
+        }));
+
+        this.filtered = [...this.rawData];
+        this._detectCombosCols();
+        document.getElementById('op-drop-zone').style.display = 'none';
+        document.getElementById('op-data').classList.add('visible');
+        this.render();
+        this.perguntarESalvar(this._nomeArquivo);
+    },
+
+    _detectCombosCols() {
+        const STATUS_KEYS  = ['status','situacao','situação','estado'];
+        const DESC_KEYS    = ['descricao','descr','desc','produto','descproduto','modelo'];
+        const SEG_KEYS     = ['segmento','seg','familia','linha'];
+
+        const find = keys => this.colunas.find(c => keys.includes(this.normalizeKey(c)));
+
+        // col1 = status/situação, col2 = segmento ou descrição
+        this._col1 = find(STATUS_KEYS) || this.colunas.find(c => {
+            const n = this.normalizeKey(c);
+            return STATUS_KEYS.some(k => n.includes(k));
+        });
+        this._col2 = find(SEG_KEYS) || find(DESC_KEYS) || this.colunas.find(c => {
+            const n = this.normalizeKey(c);
+            return SEG_KEYS.some(k => n.includes(k)) || DESC_KEYS.some(k => n.includes(k));
+        });
+
+        const uniq = col => col
+            ? [...new Set(this.rawData.map(r => String(r.dados?.[col] ?? '')).filter(Boolean))].sort()
+            : [];
+
+        this._col1Values = uniq(this._col1);
+        this._col2Values = uniq(this._col2);
+        this._col1Selected = '';
+        this._col2Selected = '';
+
+        const w1 = document.getElementById('op-col1-wrap');
+        const w2 = document.getElementById('op-col2-wrap');
+        const i1 = document.getElementById('op-col1-input');
+        const i2 = document.getElementById('op-col2-input');
+
+        if (this._col1) { i1.placeholder = `Filtrar ${this._col1}...`; i1.value = ''; w1.style.display = ''; }
+        else w1.style.display = 'none';
+
+        if (this._col2) { i2.placeholder = `Filtrar ${this._col2}...`; i2.value = ''; w2.style.display = ''; }
+        else w2.style.display = 'none';
+    },
+
+    aplicarFiltros() {
+        const q = document.getElementById('op-search').value.toLowerCase().trim();
+        this.filtered = this.rawData.filter(r => {
+            if (q && !Object.values(r.dados).some(v => String(v).toLowerCase().includes(q))) return false;
+            if (this._col1Selected && String(r.dados?.[this._col1] ?? '') !== this._col1Selected) return false;
+            if (this._col2Selected && String(r.dados?.[this._col2] ?? '') !== this._col2Selected) return false;
+            return true;
+        });
+        this.render();
+    },
+
+    render() {
+        const total = this.rawData.length;
+        const filt  = this.filtered.length;
+        const qtd   = this._colQtd
+            ? this.filtered.reduce((s, r) => s + (parseFloat(String(r.dados?.[this._colQtd] ?? '0').replace(',','.')) || 0), 0)
+            : 0;
+
+        document.getElementById('op-total').textContent     = total.toLocaleString('pt-BR');
+        document.getElementById('op-qtd').textContent       = this._colQtd ? qtd.toLocaleString('pt-BR') : '—';
+        document.getElementById('op-filtrados').textContent = filt.toLocaleString('pt-BR');
+        document.getElementById('op-count').textContent     = `${filt.toLocaleString('pt-BR')} ordens${filt > 500 ? ' (exibindo 500)' : ''}`;
+
+        const table = document.getElementById('op-table');
+        table.querySelector('thead tr').innerHTML =
+            this.colunas.map(h => `<th>${h.toUpperCase()}</th>`).join('');
+        table.querySelector('tbody').innerHTML = this.filtered.slice(0, 500).map(r => {
+            const cells = this.colunas.map(h => {
+                const v = r.dados?.[h];
+                return `<td>${v !== undefined && v !== '' ? v : '<span style="opacity:.3">—</span>'}</td>`;
+            }).join('');
+            return `<tr>${cells}</tr>`;
+        }).join('');
+    },
+
+    async perguntarESalvar(nome) {
+        this._nomeArquivo = nome;
+        const lista = await api.get('/api/importacoes-op');
+        if (!lista?.length) { await this.salvar('nova'); }
+        else {
+            document.getElementById('modal-arquivo').textContent = nome;
+            document.getElementById('import-modal').dataset.modulo = 'op';
+            document.getElementById('import-modal').style.display = 'flex';
+        }
+    },
+
+    async salvar(modo) {
+        document.getElementById('import-modal').style.display = 'none';
+        this._setSaving(true);
+        try {
+            if (modo === 'substituir' && this._currentId) {
+                await api.deletarImportacaoOP(this._currentId);
+            }
+            const linhas = this.rawData.map(r => ({ dados: r.dados }));
+            const res = await api.post('/api/op/import', { nomeArquivo: this._nomeArquivo, linhas });
+            if (res?.ok) { this._currentId = res.importacaoId; }
+        } finally { this._setSaving(false); }
+        await this.carregarHistorico();
+    },
+
+    _setSaving(v) {
+        const el = document.getElementById('op-saving');
+        if (el) el.style.display = v ? '' : 'none';
+    },
+
+    async carregarHistorico() {
+        const lista = await api.get('/api/importacoes-op');
+        this._importacoes = lista || [];
+        this.renderHistorico();
+        if (lista?.length && !this._currentId) await this.carregarImportacao(lista[0].id);
+    },
+
+    async carregarImportacao(id) {
+        const rows = await api.get(`/api/op?importacao_id=${id}`);
+        if (!rows?.length) return;
+        this._currentId = id;
+        this.colunas  = Object.keys(rows[0].dados || {});
+        this.rawData  = rows.map((r, i) => ({ _id: i, dados: r.dados }));
+        const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs'];
+        this._colQtd = this.colunas.find(h => QTD_KEYS.includes(this.normalizeKey(h))) || null;
+        this.filtered = [...this.rawData];
+        this._detectCombosCols();
+        document.getElementById('op-drop-zone').style.display = 'none';
+        document.getElementById('op-data').classList.add('visible');
+        this.render();
+        this.renderHistorico();
+    },
+
+    renderHistorico() {
+        const wrap = document.getElementById('op-history');
+        const list = document.getElementById('op-history-list');
+        if (!this._importacoes?.length) { wrap.style.display = 'none'; return; }
+        wrap.style.display = 'block';
+        list.innerHTML = this._importacoes.map(imp => {
+            const d    = new Date(imp.criado_em).toLocaleDateString('pt-BR', { day:'2-digit', month:'short' });
+            const ativo = imp.id === this._currentId;
+            return `<div class="hi-item${ativo ? ' hi-ativo' : ''}" onclick="op.carregarImportacao('${imp.id}')">
+                <span class="hi-dot">${ativo ? '●' : '○'}</span>
+                <div class="hi-info">
+                    <span class="hi-nome">${imp.nome_arquivo}</span>
+                    <span class="hi-meta">${d} · ${imp.total_linhas} ordens</span>
+                </div>
+                <button class="hi-del" onclick="event.stopPropagation();op.excluir('${imp.id}')" title="Excluir">✕</button>
+            </div>`;
+        }).join('');
+        const chev = document.getElementById('chevron-op');
+        if (chev) chev.style.transform = 'rotate(0deg)';
+    },
+
+    async excluir(id) {
+        if (!confirm('Excluir esta importação?')) return;
+        await api.deletarImportacaoOP(id);
+        if (this._currentId === id) {
+            this.rawData = []; this.filtered = [];
+            document.getElementById('op-data').classList.remove('visible');
+            document.getElementById('op-drop-zone').style.display = '';
+            this._currentId = null;
+        }
+        await this.carregarHistorico();
+    }
+};
+
+// ====== DASHBOARD: ORDENS DE PRODUÇÃO ======
+
+const dashOp = {
+    render() {
+        if (!op.rawData.length) {
+            document.getElementById('dash-op-cards').innerHTML =
+                '<p style="color:var(--text-dim);padding:20px;">Importe dados de Ordens de Produção primeiro.</p>';
+            return;
+        }
+
+        // Detecta melhor coluna categórica para o gráfico
+        const catCols = op.colunas.filter(c => {
+            const QTD = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs','id','codigo','cod','numero','num'];
+            return !QTD.includes(op.normalizeKey(c));
+        });
+
+        const sel = document.getElementById('dash-op-col-sel');
+        if (!sel.options.length || sel.dataset.loaded !== 'yes') {
+            sel.innerHTML = catCols.map(c => `<option value="${c}">${c}</option>`).join('');
+            sel.dataset.loaded = 'yes';
+            sel.addEventListener('change', () => this.renderChart(sel.value));
+        }
+
+        const colAtiva = sel.value || catCols[0];
+
+        // Cards dinâmicos — top 3 valores da coluna principal
+        const counts = {};
+        op.rawData.forEach(r => {
+            const v = String(r.dados?.[colAtiva] ?? '—');
+            counts[v] = (counts[v] || 0) + 1;
+        });
+        const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]);
+        const cardsEl = document.getElementById('dash-op-cards');
+        cardsEl.innerHTML = `
+            <div class="summary-card">
+                <span class="s-label">TOTAL ORDENS</span>
+                <span class="s-value">${op.rawData.length.toLocaleString('pt-BR')}</span>
+                <span class="s-sub">ordens importadas</span>
+            </div>` +
+            sorted.slice(0,3).map(([v,n]) => `
+            <div class="summary-card">
+                <span class="s-label">${colAtiva.toUpperCase()}</span>
+                <span class="s-value" style="font-size:1.6rem;">${n.toLocaleString('pt-BR')}</span>
+                <span class="s-sub">${v}</span>
+            </div>`).join('');
+
+        this.renderChart(colAtiva);
+    },
+
+    renderChart(col) {
+        const canvas = document.getElementById('dash-op-chart');
+        const ctx    = canvas.getContext('2d');
+        canvas.width  = canvas.offsetWidth  || 600;
+        canvas.height = canvas.offsetHeight || 280;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const counts = {};
+        op.rawData.forEach(r => {
+            const v = String(r.dados?.[col] ?? '—');
+            counts[v] = (counts[v] || 0) + 1;
+        });
+        const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0, 15);
+        if (!sorted.length) return;
+
+        const W = canvas.width, H = canvas.height;
+        const padL = 180, padR = 20, padT = 20, padB = 30;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+        const max = sorted[0][1];
+        const barH = Math.max(12, (chartH / sorted.length) - 4);
+
+        ctx.font = '11px Inter';
+        ctx.fillStyle = 'rgba(255,255,255,0.06)';
+        ctx.fillRect(padL, padT, chartW, chartH);
+
+        sorted.forEach(([label, val], i) => {
+            const y = padT + i * (chartH / sorted.length) + (chartH / sorted.length - barH) / 2;
+            const w = (val / max) * chartW;
+            const grad = ctx.createLinearGradient(padL, 0, padL + w, 0);
+            grad.addColorStop(0, 'rgba(88,166,255,0.9)');
+            grad.addColorStop(1, 'rgba(88,166,255,0.3)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.roundRect(padL, y, w, barH, 4);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(230,237,243,0.75)';
+            const lbl = label.length > 22 ? label.slice(0,20)+'…' : label;
+            ctx.textAlign = 'right';
+            ctx.fillText(lbl, padL - 8, y + barH / 2 + 4);
+            ctx.fillStyle = 'rgba(230,237,243,0.5)';
+            ctx.textAlign = 'left';
+            ctx.fillText(val.toLocaleString('pt-BR'), padL + w + 6, y + barH / 2 + 4);
+        });
+    }
+};
+
 // ====== DASHBOARD: CURVA ABC ======
 
 const abc = {
@@ -1675,7 +2079,6 @@ const abc = {
         ctx.stroke();
 
         const lastX = padL + chartW;
-        const lastY = padT;
         ctx.lineTo(lastX, padT + chartH);
         ctx.lineTo(padL, padT + chartH);
         ctx.closePath();
@@ -1855,7 +2258,7 @@ const ranking = {
 
         // Tabs de ano
         const tabsEl = document.getElementById('rank-year-tabs');
-        tabsEl.innerHTML = vendas.years.map((y, i) =>
+        tabsEl.innerHTML = vendas.years.map(y =>
             `<button class="year-tab${vendas.selectedYear === y ? ' active' : ''}" onclick="vendas.selectedYear='${y}';ranking.render()">${y}</button>`
         ).join('');
 

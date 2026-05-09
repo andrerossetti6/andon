@@ -57,7 +57,7 @@
                         <ul class="sub-menu">
                             <li data-view="vendas" onclick="event.stopPropagation(); navigateTo('vendas')">Vendas</li>
                             <li data-view="estoque" onclick="event.stopPropagation(); navigateTo('estoque')">Estoque</li>
-                            <li>Ordens de Produção</li>
+                            <li data-view="op" onclick="event.stopPropagation(); navigateTo('op')">Ordens de Produção</li>
                         </ul>
                     </li>
                 </ul>
@@ -77,6 +77,9 @@
                     </li>
                     <li id="nav-dist" onclick="navigateTo('dist')">
                         <div class="item-content"><span class="icon">🎨</span> Distribuição</div>
+                    </li>
+                    <li id="nav-dash-op" onclick="navigateTo('dash-op')">
+                        <div class="item-content"><span class="icon">🏭</span> Ordens de Produção</div>
                     </li>
                     <li><div class="item-content"><span class="icon">🔍</span> Análise Paradas</div></li>
                     <li><div class="item-content"><span class="icon">📉</span> Análise Perdas</div></li>
@@ -405,6 +408,101 @@
                     <tbody></tbody>
                 </table>
             </div>
+        </div>
+    </main>
+
+    <!-- ── Importação: Ordens de Produção ───────────────────── -->
+    <main class="content" id="view-op" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Importação de <span>Ordens de Produção</span></h1>
+                <p class="page-subtitle">Importe ordens de produção em CSV ou XLS</p>
+            </div>
+            <div class="page-header-actions">
+                <label class="btn primary import-btn" for="file-input-op">
+                    <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Importar Arquivo
+                </label>
+                <input type="file" id="file-input-op" accept=".csv,.xls,.xlsx" style="display:none;">
+            </div>
+        </header>
+
+        <div id="op-history" style="display:none;" class="import-history">
+            <div class="history-header" onclick="toggleHistorico('op-history')" style="cursor:pointer;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="history-chevron" id="chevron-op">›</span>
+                    <span class="s-label" style="margin:0;">IMPORTAÇÕES SALVAS <span id="op-saving" style="display:none;color:var(--text-dim);">· salvando...</span></span>
+                </div>
+                <label class="btn secondary" for="file-input-op" onclick="event.stopPropagation()" style="cursor:pointer;padding:4px 14px;font-size:0.72rem;">+ Novo arquivo</label>
+            </div>
+            <div id="op-history-list" class="history-list" style="display:none;"></div>
+        </div>
+
+        <div class="drop-zone" id="op-drop-zone">
+            <div class="drop-icon">
+                <svg viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            </div>
+            <h3>Arraste seu arquivo aqui</h3>
+            <p>Suporte a .CSV, .XLS e .XLSX</p>
+            <label class="btn secondary" for="file-input-op" style="margin-top:16px;display:inline-block;cursor:pointer;">Ou clique para selecionar</label>
+        </div>
+
+        <div id="op-data">
+            <div class="vendas-summary">
+                <div class="summary-card">
+                    <span class="s-label">ORDENS IMPORTADAS</span>
+                    <span class="s-value" id="op-total">0</span>
+                    <span class="s-sub">ordens de produção</span>
+                </div>
+                <div class="summary-card">
+                    <span class="s-label">QUANTIDADE TOTAL</span>
+                    <span class="s-value" id="op-qtd">0</span>
+                    <span class="s-sub">unidades planejadas</span>
+                </div>
+                <div class="summary-card">
+                    <span class="s-label">ITENS FILTRADOS</span>
+                    <span class="s-value" id="op-filtrados">0</span>
+                    <span class="s-sub">resultado do filtro</span>
+                </div>
+            </div>
+
+            <div class="vendas-filters-bar">
+                <input type="text" class="sigs-input" id="op-search" placeholder="Buscar em qualquer coluna...">
+                <div class="combobox-wrap" id="op-col1-wrap" style="display:none;">
+                    <input type="text" class="sigs-input combobox-input" id="op-col1-input" placeholder="Filtrar..." autocomplete="off">
+                    <div class="combobox-dropdown" id="op-col1-dropdown"></div>
+                </div>
+                <div class="combobox-wrap" id="op-col2-wrap" style="display:none;">
+                    <input type="text" class="sigs-input combobox-input" id="op-col2-input" placeholder="Filtrar..." autocomplete="off">
+                    <div class="combobox-dropdown" id="op-col2-dropdown"></div>
+                </div>
+                <span class="table-count-label" id="op-count"></span>
+                <button class="btn secondary" id="op-clear">Limpar</button>
+            </div>
+
+            <div class="vendas-table-wrap">
+                <table class="vendas-table estoque-table-full" id="op-table">
+                    <thead><tr></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- ── Dashboard: Ordens de Produção ─────────────────────── -->
+    <main class="content" id="view-dash-op" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Dashboard <span>Ordens de Produção</span></h1>
+                <p class="page-subtitle">Visão consolidada das ordens importadas</p>
+            </div>
+        </header>
+        <div class="vendas-filters-bar" style="flex-shrink:0;">
+            <select class="sigs-select" id="dash-op-col-sel"></select>
+        </div>
+        <div class="vendas-summary" id="dash-op-cards" style="flex-shrink:0;"></div>
+        <div class="chart-card" style="flex:1;min-height:0;">
+            <canvas id="dash-op-chart" style="width:100%;height:100%;display:block;"></canvas>
         </div>
     </main>
 
