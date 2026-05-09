@@ -1726,7 +1726,7 @@ const op = {
                 const parts = descricao.split('|').map(p => p.trim());
                 const record = { ...curOP, 'Código': codigo };
                 parts.forEach((p, i) => { record[PART_NAMES[i] || `Caract. ${i}`] = p; });
-                record['Para Produção'] = paraProducao;
+                record['Produção'] = paraProducao;
                 parsed.push(record);
             }
         }
