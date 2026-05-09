@@ -433,7 +433,7 @@ function toggleHistorico(id) {
 }
 
 function navigateTo(viewName) {
-    ['dashboard','vendas','estoque','op','ranking','vxe','abc','dist','dash-op','abc-cruzada'].forEach(v => {
+    ['dashboard','vendas','estoque','op','ranking','vxe','abc','dist','dash-op','abc-cruzada','abc-estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -444,8 +444,8 @@ function navigateTo(viewName) {
     const navMap = {
         vendas: 'nav-analise', estoque: 'nav-analise', op: 'nav-analise',
         ranking: 'nav-ranking', vxe: 'nav-vxe', dashboard: 'nav-analise',
-        abc: 'nav-abc', dist: 'nav-dist', 'dash-op': 'nav-dash-op',
-        'abc-cruzada': 'nav-abc-cruzada'
+        abc: 'nav-abc-cruzada', dist: 'nav-dist', 'dash-op': 'nav-dash-op',
+        'abc-cruzada': 'nav-abc-cruzada', 'abc-estoque': 'nav-abc-cruzada'
     };
     const navEl = document.getElementById(navMap[viewName]);
     if (navEl) navEl.classList.add('active');
@@ -468,7 +468,14 @@ function navigateTo(viewName) {
     } else if (viewName === 'dash-op') {
         setTimeout(() => dashOp.render(), 50);
     } else if (viewName === 'abc-cruzada') {
+        document.querySelector('[data-view="abc-cruzada"]')?.classList.add('sub-active');
         setTimeout(() => abcCruzada.render(), 50);
+    } else if (viewName === 'abc-estoque') {
+        document.querySelector('[data-view="abc-estoque"]')?.classList.add('sub-active');
+        setTimeout(() => abcEstoque.render(), 50);
+    } else if (viewName === 'abc') {
+        document.querySelector('[data-view="abc"]')?.classList.add('sub-active');
+        setTimeout(() => abc.render(), 50);
     }
 }
 
@@ -2348,6 +2355,108 @@ const dist = {
             ctx.textAlign = 'left';
             ctx.fillText(`${item.qtd.toLocaleString('pt-BR')} (${item.pct.toFixed(1)}%)`, padL + bw + 8, y + rowH / 2 + 4);
         });
+    }
+};
+
+// ====== DASHBOARD: ABC ESTOQUE ======
+
+const abcEstoque = {
+    render() {
+        if (!estoque.rawData.length) {
+            document.getElementById('abce-aviso').style.display = '';
+            document.getElementById('abce-aviso').textContent = 'Importe dados de Estoque primeiro.';
+            return;
+        }
+        document.getElementById('abce-aviso').style.display = 'none';
+
+        // Agrupa por código
+        const map = {};
+        estoque.rawData.forEach(r => { map[r.codigo] = (map[r.codigo] || 0) + r.quantidade; });
+
+        const sorted = Object.entries(map).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]);
+        const total  = sorted.reduce((s,[,v]) => s + v, 0);
+        let cum = 0;
+        const items = sorted.map(([codigo, qtd]) => {
+            cum += qtd;
+            const cumPct = total > 0 ? cum / total * 100 : 100;
+            return { codigo, qtd, cumPct, classe: cumPct <= 80 ? 'A' : cumPct <= 95 ? 'B' : 'C' };
+        });
+
+        const cA = items.filter(i => i.classe === 'A');
+        const cB = items.filter(i => i.classe === 'B');
+        const cC = items.filter(i => i.classe === 'C');
+        document.getElementById('abce-a-count').textContent = cA.length;
+        document.getElementById('abce-b-count').textContent = cB.length;
+        document.getElementById('abce-c-count').textContent = cC.length;
+        document.getElementById('abce-a-qtd').textContent   = cA.reduce((s,i) => s+i.qtd,0).toLocaleString('pt-BR') + ' un';
+        document.getElementById('abce-b-qtd').textContent   = cB.reduce((s,i) => s+i.qtd,0).toLocaleString('pt-BR') + ' un';
+        document.getElementById('abce-c-qtd').textContent   = cC.reduce((s,i) => s+i.qtd,0).toLocaleString('pt-BR') + ' un';
+        document.getElementById('abce-total').textContent   = `${items.length.toLocaleString('pt-BR')} itens analisados`;
+
+        setTimeout(() => this.drawChart(items, total), 30);
+        this.renderTable(items);
+    },
+
+    drawChart(items, total) {
+        const canvas = document.getElementById('abce-chart');
+        if (!canvas || !items.length) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width = canvas.offsetWidth || 800;
+        const H = canvas.height = 180;
+        ctx.clearRect(0, 0, W, H);
+
+        const padL = 40, padR = 20, padT = 10, padB = 20;
+        const chartW = W - padL - padR, chartH = H - padT - padB;
+        const top = items.slice(0, 60);
+        const maxV = top[0]?.qtd || 1;
+        const barW = chartW / top.length;
+
+        ctx.fillStyle = 'rgba(255,255,255,0.03)';
+        ctx.fillRect(padL, padT, chartW, chartH);
+
+        top.forEach((item, i) => {
+            const color = item.classe === 'A' ? 'rgba(88,166,255,0.85)'
+                        : item.classe === 'B' ? 'rgba(210,153,34,0.75)'
+                        : 'rgba(139,148,158,0.5)';
+            const bh = (item.qtd / maxV) * chartH;
+            ctx.fillStyle = color;
+            ctx.fillRect(padL + i * barW + 0.5, padT + chartH - bh, barW - 1, bh);
+        });
+
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 1.5;
+        let cumLine = 0;
+        top.forEach((item, i) => {
+            cumLine += item.qtd;
+            const x = padL + (i + 0.5) * barW;
+            const y = padT + chartH * (1 - cumLine / total);
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+        [{ pct: 0.80, label: 'A 80%', color: 'rgba(88,166,255,0.5)' },
+         { pct: 0.95, label: 'B 95%', color: 'rgba(210,153,34,0.5)' }].forEach(({ pct, label, color }) => {
+            const y = padT + chartH * (1 - pct);
+            ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(padL + chartW, y); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = color; ctx.font = '10px Inter'; ctx.textAlign = 'left';
+            ctx.fillText(label, padL + 4, y - 3);
+        });
+    },
+
+    renderTable(items) {
+        const tbody = document.querySelector('#abce-table tbody');
+        if (!tbody) return;
+        tbody.innerHTML = items.slice(0, 200).map((item, i) => `
+            <tr>
+                <td>${i + 1}</td>
+                <td>${item.codigo}</td>
+                <td class="td-right">${item.qtd.toLocaleString('pt-BR')}</td>
+                <td class="td-right">${item.cumPct.toFixed(1)}%</td>
+                <td><span class="abc-badge abc-${item.classe.toLowerCase()}">${item.classe}</span></td>
+            </tr>`).join('');
     }
 };
 

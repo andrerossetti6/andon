@@ -72,17 +72,19 @@
                     <li id="nav-vxe" onclick="navigateTo('vxe')">
                         <div class="item-content">Vendas × Estoque</div>
                     </li>
-                    <li id="nav-abc" onclick="navigateTo('abc')">
-                        <div class="item-content">Curva ABC</div>
-                    </li>
                     <li id="nav-dist" onclick="navigateTo('dist')">
                         <div class="item-content">Distribuição</div>
                     </li>
                     <li id="nav-dash-op" onclick="navigateTo('dash-op')">
                         <div class="item-content">Ordens de Produção</div>
                     </li>
-                    <li id="nav-abc-cruzada" onclick="navigateTo('abc-cruzada')">
+                    <li class="has-sub" id="nav-abc-cruzada" onclick="navigateTo('abc')">
                         <div class="item-content">ABC Cruzada</div>
+                        <ul class="sub-menu">
+                            <li data-view="abc" onclick="event.stopPropagation(); navigateTo('abc')">ABC Vendas</li>
+                            <li data-view="abc-estoque" onclick="event.stopPropagation(); navigateTo('abc-estoque')">ABC Estoque</li>
+                            <li data-view="abc-cruzada" onclick="event.stopPropagation(); navigateTo('abc-cruzada')">ABC Cruzado</li>
+                        </ul>
                     </li>
                 </ul>
             </nav>
@@ -497,6 +499,44 @@
         <div class="vendas-summary" id="dash-op-cards" style="flex-shrink:0;"></div>
         <div class="chart-card" style="flex:1;min-height:0;">
             <canvas id="dash-op-chart" style="width:100%;height:100%;display:block;"></canvas>
+        </div>
+    </main>
+
+    <!-- ── Dashboard: ABC Estoque ───────────────────────────── -->
+    <main class="content" id="view-abc-estoque" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Curva ABC — <span>Estoque</span></h1>
+                <p class="page-subtitle">Classificação dos itens em estoque por quantidade</p>
+            </div>
+        </header>
+        <p id="abce-aviso" style="color:var(--text-dim);padding:20px;display:none;"></p>
+        <div class="vendas-summary" style="flex-shrink:0;">
+            <div class="summary-card" style="border-left:3px solid var(--indigo-primary);">
+                <span class="s-label">CLASSE A</span>
+                <span class="s-value abc-val-a" id="abce-a-count">0</span>
+                <span class="s-sub" id="abce-a-qtd">—</span>
+            </div>
+            <div class="summary-card" style="border-left:3px solid var(--orange-accent);">
+                <span class="s-label">CLASSE B</span>
+                <span class="s-value abc-val-b" id="abce-b-count">0</span>
+                <span class="s-sub" id="abce-b-qtd">—</span>
+            </div>
+            <div class="summary-card" style="border-left:3px solid rgba(139,148,158,0.6);">
+                <span class="s-label">CLASSE C</span>
+                <span class="s-value" id="abce-c-count">0</span>
+                <span class="s-sub" id="abce-c-qtd">—</span>
+            </div>
+        </div>
+        <div class="chart-card" style="flex-shrink:0;">
+            <canvas id="abce-chart" style="width:100%;height:180px;display:block;"></canvas>
+        </div>
+        <span class="table-count-label" id="abce-total" style="padding:0 4px;flex-shrink:0;"></span>
+        <div class="vendas-table-wrap">
+            <table class="vendas-table" id="abce-table">
+                <thead><tr><th>#</th><th>CÓDIGO</th><th class="td-right">QUANTIDADE</th><th class="td-right">% ACUM.</th><th>CLASSE</th></tr></thead>
+                <tbody></tbody>
+            </table>
         </div>
     </main>
 
