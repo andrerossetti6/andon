@@ -1154,7 +1154,7 @@ const vendas = {
 const estoque = {
     rawData:   [],
     filtered:  [],
-    vendaMap:  {},   // { codigo → { descricao, segmento, tamanho } }
+    colunas:   [],    // todas as colunas do arquivo
     _importacoes: [],
     _currentId:   null,
     _nomeArquivo: '',
@@ -1218,8 +1218,14 @@ const estoque = {
 
     processData(rows) {
         if (!rows?.length) return;
+
+        const allHeaders = Object.keys(rows[0]).filter(h => {
+            const n = this.normalizeKey(h);
+            return n && !n.startsWith('__'); // ignora colunas vazias do Excel
+        });
+
         const keyMap = {};
-        Object.keys(rows[0]).forEach(k => { keyMap[this.normalizeKey(k)] = k; });
+        allHeaders.forEach(k => { keyMap[this.normalizeKey(k)] = k; });
 
         const get = (row, ...cands) => {
             for (const c of cands) {
@@ -1232,11 +1238,23 @@ const estoque = {
             return parseFloat(String(v).replace(/[^\d,.\-]/g,'').replace(',','.')) || 0;
         };
 
-        this.rawData = rows.map((r, i) => ({
-            _id:       i,
-            codigo:    get(r, 'codigo'),
-            quantidade: toNum(get(r, 'quantidade', 'qtd', 'qty', 'qtde'))
-        })).filter(r => r.codigo);
+        // Detecta coluna de quantidade
+        const QTD_KEYS = ['quantidade','qtd','qty','qtde','estoque','saldo'];
+        const qtdKey   = QTD_KEYS.find(k => keyMap[k]);
+
+        this.colunas = allHeaders;
+
+        this.rawData = rows.map((r, i) => {
+            const dados = {};
+            allHeaders.forEach(h => { dados[h] = r[h] ?? ''; });
+            const qtdRaw = qtdKey ? (r[keyMap[qtdKey]] ?? 0) : 0;
+            return {
+                _id:        i,
+                codigo:     get(r, 'codigo', 'cod', 'code', 'cdproduto', 'cdprod'),
+                quantidade: toNum(qtdRaw),
+                dados
+            };
+        }).filter(r => r.codigo);
 
         this.filtered = [...this.rawData];
         this.mostrarDados();
@@ -1246,9 +1264,11 @@ const estoque = {
 
     aplicarFiltros() {
         const q = document.getElementById('est-search').value.toLowerCase().trim();
-        this.filtered = this.rawData.filter(r =>
-            !q || r.codigo.toLowerCase().includes(q)
-        );
+        this.filtered = this.rawData.filter(r => {
+            if (!q) return true;
+            if (r.codigo.toLowerCase().includes(q)) return true;
+            return Object.values(r.dados || {}).some(v => String(v).toLowerCase().includes(q));
+        });
         this.render();
     },
 
@@ -1264,11 +1284,30 @@ const estoque = {
         document.getElementById('est-qtd').textContent   = totalQtd.toLocaleString('pt-BR');
         document.getElementById('est-zero').textContent  = zeros.toLocaleString('pt-BR');
 
+        const table = document.getElementById('estoque-table');
+
+        // Colunas dinâmicas — tudo do arquivo exceto colunas vazias
+        const QTD_NORMS = ['quantidade','qtd','qty','qtde','estoque','saldo'];
+        const extraCols = this.colunas.filter(h => {
+            const n = this.normalizeKey(h);
+            return !QTD_NORMS.includes(n) && n && !n.startsWith('__');
+        });
+
+        // Cabeçalho dinâmico
+        table.querySelector('thead tr').innerHTML =
+            extraCols.map(h => `<th>${h.toUpperCase()}</th>`).join('') +
+            '<th class="td-right">QUANTIDADE</th>';
+
+        // Linhas
         const rows = this.filtered.slice(0, 500);
-        document.querySelector('#estoque-table tbody').innerHTML = rows.map(r => {
+        table.querySelector('tbody').innerHTML = rows.map(r => {
             const zero = r.quantidade === 0;
+            const cells = extraCols.map(h => {
+                const v = r.dados?.[h];
+                return `<td>${v !== undefined && v !== '' ? v : '<span style="opacity:.3">—</span>'}</td>`;
+            }).join('');
             return `<tr${zero ? ' class="row-zero"' : ''}>
-                <td class="td-code">${r.codigo}</td>
+                ${cells}
                 <td class="td-qtd${zero ? ' zero-qtd' : ''}">${r.quantidade.toLocaleString('pt-BR')}</td>
             </tr>`;
         }).join('');
@@ -1298,7 +1337,7 @@ const estoque = {
                 const lista = await api.get('/api/importacoes-estoque');
                 for (const imp of (lista || [])) await api.deletarImportacaoEstoque(imp.id);
             }
-            const linhas = this.rawData.map(r => ({ codigo: r.codigo, quantidade: r.quantidade }));
+            const linhas = this.rawData.map(r => ({ codigo: r.codigo, quantidade: r.quantidade, dados: r.dados || {} }));
             const res = await api.post('/api/estoque/import', { nomeArquivo: this._nomeArquivo, linhas });
             if (res?.ok) this._currentId = res.importacaoId;
         } catch(e) { console.error(e); }
@@ -1329,8 +1368,16 @@ const estoque = {
         if (!rows?.length) return;
 
         this._currentId = id;
-        this.rawData    = rows.map((r, i) => ({
-            _id: i, codigo: r.codigo, quantidade: Number(r.quantidade) || 0
+
+        // Reconstrói colunas a partir do JSONB dados
+        const sampleDados = rows.find(r => r.dados && Object.keys(r.dados).length)?.dados || {};
+        this.colunas = Object.keys(sampleDados).length ? Object.keys(sampleDados) : ['codigo'];
+
+        this.rawData = rows.map((r, i) => ({
+            _id:        i,
+            codigo:     r.codigo,
+            quantidade: Number(r.quantidade) || 0,
+            dados:      r.dados || { codigo: r.codigo }
         }));
         this.filtered = [...this.rawData];
         this.mostrarDados();

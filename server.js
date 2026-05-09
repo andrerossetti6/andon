@@ -209,8 +209,9 @@ app.post('/api/estoque/import', auth, async (req, res) => {
 
     const rows = linhas.map(l => ({
         importacao_id: imp.id,
-        codigo:    String(l.codigo || '').trim(),
-        quantidade: Number(l.quantidade) || 0
+        codigo:     String(l.codigo || '').trim(),
+        quantidade: Number(l.quantidade) || 0,
+        dados:      l.dados || {}
     }));
 
     for (let i = 0; i < rows.length; i += 200) {
