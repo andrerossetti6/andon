@@ -146,6 +146,7 @@ function mostrarApp() {
     init();
     estoque.init();
     op.init();
+    abcCruzada.init();
     ranking.init();
     vxe.init();
     abc.init();
@@ -432,7 +433,7 @@ function toggleHistorico(id) {
 }
 
 function navigateTo(viewName) {
-    ['dashboard','vendas','estoque','op','ranking','vxe','abc','dist','dash-op'].forEach(v => {
+    ['dashboard','vendas','estoque','op','ranking','vxe','abc','dist','dash-op','abc-cruzada'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -443,7 +444,8 @@ function navigateTo(viewName) {
     const navMap = {
         vendas: 'nav-analise', estoque: 'nav-analise', op: 'nav-analise',
         ranking: 'nav-ranking', vxe: 'nav-vxe', dashboard: 'nav-analise',
-        abc: 'nav-abc', dist: 'nav-dist', 'dash-op': 'nav-dash-op'
+        abc: 'nav-abc', dist: 'nav-dist', 'dash-op': 'nav-dash-op',
+        'abc-cruzada': 'nav-abc-cruzada'
     };
     const navEl = document.getElementById(navMap[viewName]);
     if (navEl) navEl.classList.add('active');
@@ -465,6 +467,8 @@ function navigateTo(viewName) {
         setTimeout(() => dist.render(), 50);
     } else if (viewName === 'dash-op') {
         setTimeout(() => dashOp.render(), 50);
+    } else if (viewName === 'abc-cruzada') {
+        setTimeout(() => abcCruzada.render(), 50);
     }
 }
 
@@ -2344,6 +2348,296 @@ const dist = {
             ctx.textAlign = 'left';
             ctx.fillText(`${item.qtd.toLocaleString('pt-BR')} (${item.pct.toFixed(1)}%)`, padL + bw + 8, y + rowH / 2 + 4);
         });
+    }
+};
+
+// ====== DASHBOARD: ABC CRUZADA ======
+
+const abcCruzada = {
+    _data: [],
+    _scatterPts: [],
+
+    init() {
+        document.getElementById('abcx-year').addEventListener('change', () => this.render());
+    },
+
+    render() {
+        const noVendas  = !vendas.rawData.length;
+        const noEstoque = !estoque.rawData.length;
+        if (noVendas || noEstoque) {
+            document.getElementById('abcx-aviso').style.display = '';
+            document.getElementById('abcx-aviso').textContent =
+                noVendas ? 'Importe dados de Vendas primeiro.' : 'Importe dados de Estoque primeiro.';
+            return;
+        }
+        document.getElementById('abcx-aviso').style.display = 'none';
+
+        this._populaAno();
+        const yearSel = document.getElementById('abcx-year').value || 'all';
+
+        // Agrupa vendas por código
+        const vendasMap = {};
+        const descMap   = {};
+        vendas.rawData.forEach(r => {
+            const qty = yearSel === 'all'
+                ? vendas.monthCols.reduce((s, c) => s + (r[c.key] || 0), 0)
+                : vendas.monthCols.filter(c => c.year === yearSel).reduce((s, c) => s + (r[c.key] || 0), 0);
+            vendasMap[r.codigo] = (vendasMap[r.codigo] || 0) + qty;
+            if (!descMap[r.codigo]) descMap[r.codigo] = r.descricao || r.codigo;
+        });
+
+        // Agrupa estoque por código
+        const estoqMap = {};
+        estoque.rawData.forEach(r => {
+            estoqMap[r.codigo] = (estoqMap[r.codigo] || 0) + r.quantidade;
+        });
+
+        const vendasABC = this._calcABC(vendasMap);
+        const estoqABC  = this._calcABC(estoqMap);
+
+        // Cruza apenas produtos em ambas as bases
+        const codes = [...new Set([...Object.keys(vendasMap), ...Object.keys(estoqMap)])].filter(c => c);
+        this._data = codes.map(codigo => {
+            const v = vendasABC[codigo] || { cumPct: 100, classe: 'C', valor: 0 };
+            const e = estoqABC[codigo]  || { cumPct: 100, classe: 'C', valor: 0 };
+            return {
+                codigo,
+                descricao:   descMap[codigo] || codigo,
+                vendasQty:   vendasMap[codigo] || 0,
+                estoqQty:    estoqMap[codigo]  || 0,
+                vendaClass:  v.classe,
+                estoqClass:  e.classe,
+                vendaCumPct: v.cumPct,
+                estoqCumPct: e.cumPct,
+            };
+        });
+
+        this._renderCards();
+        setTimeout(() => {
+            this._renderPareto('abcx-cv', vendasABC, vendasMap, 'Vendas');
+            this._renderPareto('abcx-ce', estoqABC,  estoqMap,  'Estoque');
+            this._renderScatter();
+        }, 30);
+    },
+
+    _calcABC(map) {
+        const items = Object.entries(map).map(([k, v]) => ({ k, v })).sort((a, b) => b.v - a.v);
+        const total = items.reduce((s, i) => s + i.v, 0);
+        let cum = 0;
+        const result = {};
+        items.forEach(({ k, v }) => {
+            cum += v;
+            const cumPct = total > 0 ? cum / total * 100 : 100;
+            result[k] = { valor: v, cumPct, classe: cumPct <= 80 ? 'A' : cumPct <= 95 ? 'B' : 'C' };
+        });
+        return result;
+    },
+
+    _populaAno() {
+        const sel = document.getElementById('abcx-year');
+        if (sel.dataset.loaded === 'yes') return;
+        sel.innerHTML = (vendas.years.length > 1 ? '<option value="all">Todos os anos</option>' : '') +
+            vendas.years.map(y => `<option value="${y}">${y}</option>`).join('');
+        sel.dataset.loaded = 'yes';
+    },
+
+    _renderCards() {
+        let AA = 0, AC = 0, CA = 0, CC = 0;
+        this._data.forEach(d => {
+            const vA = d.vendaClass === 'A', eA = d.estoqClass === 'A';
+            if (vA && eA) AA++;
+            else if (vA && !eA) AC++;
+            else if (!vA && eA) CA++;
+            else CC++;
+        });
+        document.getElementById('abcx-cards').innerHTML = `
+            <div class="summary-card" style="border-left:3px solid #2ea043;">
+                <span class="s-label">✅ EQUILÍBRIO</span>
+                <span class="s-value" style="color:#2ea043;">${AA}</span>
+                <span class="s-sub">Venda A · Estoque A</span>
+            </div>
+            <div class="summary-card" style="border-left:3px solid #f85149;">
+                <span class="s-label">🚨 RISCO RUPTURA</span>
+                <span class="s-value" style="color:#f85149;">${AC}</span>
+                <span class="s-sub">Venda A · Estoque baixo</span>
+            </div>
+            <div class="summary-card" style="border-left:3px solid #d29922;">
+                <span class="s-label">⚠️ ESTOQUE PARADO</span>
+                <span class="s-value" style="color:#d29922;">${CA}</span>
+                <span class="s-sub">Venda baixa · Estoque A</span>
+            </div>
+            <div class="summary-card">
+                <span class="s-label">⚪ NORMAL</span>
+                <span class="s-value">${CC}</span>
+                <span class="s-sub">Venda C · Estoque C</span>
+            </div>`;
+    },
+
+    _renderPareto(canvasId, abcData, map, titulo) {
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        canvas.width  = canvas.offsetWidth  || 500;
+        canvas.height = canvas.offsetHeight || 220;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const W = canvas.width, H = canvas.height;
+        const padL = 10, padR = 30, padT = 24, padB = 24;
+        const chartW = W - padL - padR, chartH = H - padT - padB;
+
+        const allSorted = Object.entries(map).sort((a, b) => b[1] - a[1]);
+        const total = allSorted.reduce((s, [, v]) => s + v, 0);
+        const top   = allSorted.slice(0, 40);
+        if (!top.length) return;
+        const maxV = top[0][1];
+        const barW = chartW / top.length;
+
+        // Título
+        ctx.fillStyle = 'rgba(230,237,243,0.8)';
+        ctx.font = 'bold 12px Inter';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Curva ABC — ${titulo}`, padL + chartW / 2, 14);
+
+        // Fundo
+        ctx.fillStyle = 'rgba(255,255,255,0.03)';
+        ctx.fillRect(padL, padT, chartW, chartH);
+
+        // Barras coloridas por classe
+        top.forEach(([codigo, val], i) => {
+            const abc = abcData[codigo];
+            const color = abc?.classe === 'A' ? 'rgba(88,166,255,0.85)'
+                        : abc?.classe === 'B' ? 'rgba(210,153,34,0.75)'
+                        : 'rgba(139,148,158,0.5)';
+            const bh = (val / maxV) * chartH;
+            ctx.fillStyle = color;
+            ctx.fillRect(padL + i * barW + 0.5, padT + chartH - bh, barW - 1, bh);
+        });
+
+        // Linha cumulativa (usando todos os itens)
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 1.5;
+        let cum = 0;
+        top.forEach(([, val], i) => {
+            cum += val;
+            const x = padL + (i + 0.5) * barW;
+            const y = padT + chartH * (1 - cum / total);
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+        // Linhas de referência 80% e 95%
+        [{ pct: 0.80, label: 'A 80%', color: 'rgba(88,166,255,0.5)' },
+         { pct: 0.95, label: 'B 95%', color: 'rgba(210,153,34,0.5)' }].forEach(({ pct, label, color }) => {
+            const y = padT + chartH * (1 - pct);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(padL, y); ctx.lineTo(padL + chartW, y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = color;
+            ctx.font = '10px Inter';
+            ctx.textAlign = 'right';
+            ctx.fillText(label, padL + chartW + padR - 2, y - 2);
+        });
+    },
+
+    _renderScatter() {
+        const canvas = document.getElementById('abcx-scatter');
+        if (!canvas || !this._data.length) return;
+        const ctx = canvas.getContext('2d');
+        canvas.width  = canvas.offsetWidth  || 700;
+        canvas.height = canvas.offsetHeight || 340;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const W = canvas.width, H = canvas.height;
+        const padL = 60, padR = 20, padT = 30, padB = 50;
+        const chartW = W - padL - padR, chartH = H - padT - padB;
+
+        // Título
+        ctx.fillStyle = 'rgba(230,237,243,0.8)';
+        ctx.font = 'bold 12px Inter';
+        ctx.textAlign = 'center';
+        ctx.fillText('Dispersão: Rank Vendas × Rank Estoque', padL + chartW / 2, 16);
+
+        // Linha de corte dos quadrantes (80%)
+        const xCut = padL + chartW * 0.80;
+        const yCut = padT + chartH * (1 - 0.80); // y invertido
+
+        // Quadrantes coloridos
+        const zones = [
+            { x: padL,  y: padT,    w: xCut - padL,          h: yCut - padT,           fill: 'rgba(248,81,73,0.08)',   label: '🚨 Ruptura',    lx: padL + 4,    ly: padT + 14,   align: 'left'  },
+            { x: padL,  y: yCut,    w: xCut - padL,           h: chartH - (yCut - padT), fill: 'rgba(46,160,67,0.08)',  label: '✅ Equilíbrio', lx: padL + 4,    ly: padT + chartH - 6, align: 'left'  },
+            { x: xCut,  y: padT,    w: chartW - (xCut - padL), h: yCut - padT,           fill: 'rgba(139,148,158,0.05)', label: '⚪ Normal',   lx: padL + chartW - 4, ly: padT + 14,  align: 'right' },
+            { x: xCut,  y: yCut,    w: chartW - (xCut - padL), h: chartH - (yCut - padT), fill: 'rgba(210,153,34,0.08)', label: '⚠️ Parado',  lx: padL + chartW - 4, ly: padT + chartH - 6, align: 'right' },
+        ];
+        zones.forEach(z => {
+            ctx.fillStyle = z.fill;
+            ctx.fillRect(z.x, z.y, z.w, z.h);
+            ctx.fillStyle = z.fill.replace('0.08', '0.7').replace('0.05', '0.4');
+            ctx.font = '11px Inter';
+            ctx.textAlign = z.align;
+            ctx.fillText(z.label, z.lx, z.ly);
+        });
+
+        // Linhas de corte
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(xCut, padT); ctx.lineTo(xCut, padT + chartH);
+        ctx.moveTo(padL, yCut); ctx.lineTo(padL + chartW, yCut);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Eixos labels
+        ctx.fillStyle = 'rgba(139,148,158,0.7)';
+        ctx.font = '11px Inter';
+        ctx.textAlign = 'center';
+        ctx.fillText('← Melhor Venda (A)          Rank Vendas          Pior Venda (C) →', padL + chartW / 2, padT + chartH + 38);
+        ctx.save();
+        ctx.translate(16, padT + chartH / 2);
+        ctx.rotate(-Math.PI / 2);
+        ctx.fillText('← Maior Estoque (A)   Rank Estoque   Menor Estoque (C) →', 0, 0);
+        ctx.restore();
+
+        // Pontos
+        this._scatterPts = [];
+        this._data.forEach(d => {
+            const x = padL + (d.vendaCumPct / 100) * chartW;
+            const y = padT + chartH * (1 - d.estoqCumPct / 100);
+            const color = d.vendaClass === 'A' && d.estoqClass === 'A' ? '#2ea043'
+                        : d.vendaClass === 'A'                          ? '#f85149'
+                        : d.estoqClass === 'A'                          ? '#d29922'
+                        : '#8b949e';
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, Math.PI * 2);
+            ctx.fillStyle = color + 'bb';
+            ctx.fill();
+            this._scatterPts.push({ x, y, ...d });
+        });
+
+        // Tooltip handler
+        canvas.onmousemove = e => {
+            const rect = canvas.getBoundingClientRect();
+            const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const my = (e.clientY - rect.top)  * (canvas.height / rect.height);
+            const tip = document.getElementById('abcx-tip');
+            const pt  = this._scatterPts.find(p => Math.hypot(p.x - mx, p.y - my) < 7);
+            if (pt) {
+                tip.style.display = 'block';
+                tip.style.left = (e.clientX - canvas.getBoundingClientRect().left + 12) + 'px';
+                tip.style.top  = (e.clientY - canvas.getBoundingClientRect().top  - 10) + 'px';
+                tip.innerHTML  = `<strong>${pt.codigo}</strong> — ${pt.descricao}<br>
+                    Vendas: <b>${pt.vendasQty.toLocaleString('pt-BR')}</b> (${pt.vendaClass}) &nbsp;
+                    Estoque: <b>${pt.estoqQty.toLocaleString('pt-BR')}</b> (${pt.estoqClass})`;
+            } else {
+                tip.style.display = 'none';
+            }
+        };
+        canvas.onmouseleave = () => { document.getElementById('abcx-tip').style.display = 'none'; };
     }
 };
 

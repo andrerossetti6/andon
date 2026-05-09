@@ -81,6 +81,9 @@
                     <li id="nav-dash-op" onclick="navigateTo('dash-op')">
                         <div class="item-content"><span class="icon">🏭</span> Ordens de Produção</div>
                     </li>
+                    <li id="nav-abc-cruzada" onclick="navigateTo('abc-cruzada')">
+                        <div class="item-content"><span class="icon">🎯</span> ABC Cruzada</div>
+                    </li>
                 </ul>
             </nav>
         </div>
@@ -494,6 +497,40 @@
         <div class="vendas-summary" id="dash-op-cards" style="flex-shrink:0;"></div>
         <div class="chart-card" style="flex:1;min-height:0;">
             <canvas id="dash-op-chart" style="width:100%;height:100%;display:block;"></canvas>
+        </div>
+    </main>
+
+    <!-- ── Dashboard: ABC Cruzada ───────────────────────────── -->
+    <main class="content" id="view-abc-cruzada" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">ABC <span>Cruzada</span></h1>
+                <p class="page-subtitle">Vendas × Estoque — análise de portfólio por produto</p>
+            </div>
+            <div class="page-header-actions">
+                <select class="sigs-select" id="abcx-year"></select>
+            </div>
+        </header>
+
+        <p id="abcx-aviso" style="color:var(--text-dim);padding:20px;display:none;"></p>
+
+        <!-- Cards de quadrante -->
+        <div class="vendas-summary" id="abcx-cards" style="flex-shrink:0;"></div>
+
+        <!-- Dois paretos lado a lado -->
+        <div style="display:flex;gap:16px;flex-shrink:0;height:240px;">
+            <div class="chart-card" style="flex:1;min-height:0;padding:0 12px 12px;">
+                <canvas id="abcx-cv" style="width:100%;height:100%;display:block;"></canvas>
+            </div>
+            <div class="chart-card" style="flex:1;min-height:0;padding:0 12px 12px;">
+                <canvas id="abcx-ce" style="width:100%;height:100%;display:block;"></canvas>
+            </div>
+        </div>
+
+        <!-- Scatter plot -->
+        <div class="chart-card" style="flex:1;min-height:240px;position:relative;padding:0 12px 12px;">
+            <canvas id="abcx-scatter" style="width:100%;height:100%;display:block;"></canvas>
+            <div id="abcx-tip" style="position:absolute;display:none;background:#1c2128;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:8px 12px;font-size:0.75rem;color:var(--text-main);pointer-events:none;z-index:10;max-width:280px;line-height:1.5;"></div>
         </div>
     </main>
 
