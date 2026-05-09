@@ -205,7 +205,10 @@ app.post('/api/estoque/import', auth, async (req, res) => {
         .from('importacoes_estoque')
         .insert({ nome_arquivo: nomeArquivo || 'estoque', usuario_id: req.usuario.id, total_linhas: linhas.length })
         .select().single();
-    if (errImp) return res.status(500).json({ erro: 'Erro ao criar importação' });
+    if (errImp) {
+        console.error('Erro importacoes_estoque:', errImp.message);
+        return res.status(500).json({ erro: errImp.message });
+    }
 
     const rows = linhas.map(l => ({
         importacao_id: imp.id,
