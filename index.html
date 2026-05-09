@@ -468,10 +468,20 @@
         <header class="page-header">
             <div class="page-header-text">
                 <h1 class="page-title">Curva <span>ABC</span></h1>
-                <p class="page-subtitle">Classificação de itens por representatividade no estoque (Pareto 80/15/5)</p>
+                <p class="page-subtitle">Classificação de produtos por representatividade nas vendas (Pareto 80/15/5)</p>
             </div>
-            <span class="table-count-label" id="abc-count"></span>
         </header>
+        <div class="vendas-filters-bar" style="flex-shrink:0;">
+            <div id="abc-year-tabs" class="year-tabs"></div>
+            <label>Mês</label>
+            <select class="sigs-select" id="abc-month-sel"><option value="">Todos</option></select>
+            <label>Agrupar</label>
+            <select class="sigs-select" id="abc-grupo-sel">
+                <option value="descricao">Descrição</option>
+                <option value="codigo">Código</option>
+            </select>
+            <span class="table-count-label" id="abc-count"></span>
+        </div>
         <div class="vendas-summary">
             <div class="summary-card">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">

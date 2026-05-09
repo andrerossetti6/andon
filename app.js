@@ -1458,12 +1458,35 @@ const estoque = {
 // ====== DASHBOARD: CURVA ABC ======
 
 const abc = {
-    init() {},
+    selectedYear:  'all',
+    selectedMonth: '',
+    selectedGrupo: 'descricao',
+
+    init() {
+        document.getElementById('abc-year-tabs').addEventListener('click', e => {
+            const btn = e.target.closest('.year-tab');
+            if (!btn) return;
+            document.querySelectorAll('#abc-year-tabs .year-tab').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            this.selectedYear  = btn.dataset.year;
+            this.selectedMonth = '';
+            document.getElementById('abc-month-sel').value = '';
+            this.render();
+        });
+        document.getElementById('abc-month-sel').addEventListener('change', e => {
+            this.selectedMonth = e.target.value;
+            this.render();
+        });
+        document.getElementById('abc-grupo-sel').addEventListener('change', e => {
+            this.selectedGrupo = e.target.value;
+            this.render();
+        });
+    },
 
     render() {
         const countEl = document.getElementById('abc-count');
-        if (!estoque.rawData.length) {
-            countEl.textContent = 'Importe dados de Estoque primeiro';
+        if (!vendas.rawData.length) {
+            countEl.textContent = 'Importe dados de Vendas primeiro';
             ['a','b','c'].forEach(k => {
                 document.getElementById(`abc-${k}-count`).textContent = '0';
                 document.getElementById(`abc-${k}-qtd`).textContent = '—';
@@ -1472,14 +1495,53 @@ const abc = {
             return;
         }
 
-        const sorted = [...estoque.rawData].sort((a, b) => b.quantidade - a.quantidade);
-        const total  = sorted.reduce((s, r) => s + r.quantidade, 0);
+        // Year tabs
+        const tabsEl = document.getElementById('abc-year-tabs');
+        if (vendas.years.length === 1) this.selectedYear = vendas.years[0];
+        tabsEl.innerHTML = vendas.years.map(y =>
+            `<button class="year-tab${this.selectedYear === y ? ' active' : ''}" data-year="${y}">${y}</button>`
+        ).join('') + (vendas.years.length > 1
+            ? `<button class="year-tab${this.selectedYear === 'all' ? ' active' : ''}" data-year="all">Todos</button>`
+            : '');
 
+        // Active columns for selected period
+        const allCols    = this.selectedYear === 'all' ? vendas.monthCols : vendas.monthCols.filter(c => c.year === this.selectedYear);
+        const activeCols = this.selectedMonth ? allCols.filter(c => c.abbr === this.selectedMonth) : allCols;
+
+        // Month selector
+        const monthSel    = document.getElementById('abc-month-sel');
+        const uniqueAbbrs = [...new Set(allCols.map(c => c.abbr))];
+        monthSel.innerHTML = '<option value="">Todos</option>' +
+            MONTHS.filter(m => uniqueAbbrs.includes(m))
+                  .map(m => `<option value="${m}" ${this.selectedMonth === m ? 'selected' : ''}>${m.charAt(0).toUpperCase() + m.slice(1)}</option>`)
+                  .join('');
+
+        // Aggregate vendas by grupo
+        const map = {};
+        vendas.rawData.forEach(r => {
+            const key = this.selectedGrupo === 'descricao' ? r.descricao : r.codigo;
+            const qtd = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
+            if (!map[key]) map[key] = { label: key, quantidade: 0 };
+            map[key].quantidade += qtd;
+        });
+
+        const sorted = Object.values(map).filter(i => i.quantidade > 0).sort((a, b) => b.quantidade - a.quantidade);
+        if (!sorted.length) {
+            countEl.textContent = 'Sem dados no período selecionado';
+            ['a','b','c'].forEach(k => {
+                document.getElementById(`abc-${k}-count`).textContent = '0';
+                document.getElementById(`abc-${k}-qtd`).textContent = '—';
+            });
+            document.querySelector('#abc-table tbody').innerHTML = '';
+            return;
+        }
+
+        const total = sorted.reduce((s, i) => s + i.quantidade, 0);
         let cumQtd = 0;
         const items = sorted.map(r => {
             cumQtd += r.quantidade;
-            const cumPct = total > 0 ? cumQtd / total * 100 : 0;
-            return { ...r, pct: total > 0 ? r.quantidade / total * 100 : 0, cumPct,
+            const cumPct = cumQtd / total * 100;
+            return { ...r, pct: r.quantidade / total * 100, cumPct,
                      classe: cumPct <= 80 ? 'A' : cumPct <= 95 ? 'B' : 'C' };
         });
 
@@ -1579,17 +1641,21 @@ const abc = {
     },
 
     renderTable(items) {
-        const descCol = estoque.colunas.find(c => {
-            const n = estoque.normalizeKey(c);
-            return ['descricao','descr','description','nome'].some(x => n.startsWith(x));
-        });
+        const isDesc = this.selectedGrupo === 'descricao';
+        document.querySelector('#abc-table thead tr').innerHTML = `
+            <th style="width:40px;">#</th>
+            <th colspan="2">${isDesc ? 'DESCRIÇÃO' : 'CÓDIGO'}</th>
+            <th class="td-right">VENDAS</th>
+            <th class="td-right">% TOTAL</th>
+            <th class="td-right">% ACUM.</th>
+            <th class="td-center" style="width:80px;">CLASSE</th>
+        `;
         document.querySelector('#abc-table tbody').innerHTML = items.map((r, i) => {
-            const cls  = `abc-${r.classe.toLowerCase()}`;
-            const desc = descCol ? (r.dados?.[descCol] || '—') : '—';
+            const cls     = `abc-${r.classe.toLowerCase()}`;
+            const cellCls = isDesc ? 'td-desc' : 'td-code';
             return `<tr>
                 <td class="td-dim td-center">${i + 1}</td>
-                <td class="td-code">${r.codigo}</td>
-                <td class="td-desc">${desc}</td>
+                <td class="${cellCls}" colspan="2">${r.label}</td>
                 <td class="td-qtd">${r.quantidade.toLocaleString('pt-BR')}</td>
                 <td class="td-right td-dim">${r.pct.toFixed(2)}%</td>
                 <td class="td-right td-dim">${r.cumPct.toFixed(1)}%</td>
