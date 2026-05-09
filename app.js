@@ -1653,23 +1653,84 @@ const op = {
 
     processData(rows) {
         if (!rows?.length) return;
+
+        // Detecta se é o relatório formatado do ERP (contém "O.P. N°" em alguma célula)
+        const isERPReport = rows.some(r =>
+            Object.values(r).some(v => /O\.P\.?\s*N[°º]/i.test(String(v)))
+        );
+        if (isERPReport) { this._parseERPReport(rows); return; }
+
+        // Formato tabular normal
         const allHeaders = Object.keys(rows[0]).filter(h => {
             const n = this.normalizeKey(h);
             return n && !n.startsWith('__');
         });
-
-        const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs'];
+        const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs','aproduzir'];
         const qtdNorm  = allHeaders.find(h => QTD_KEYS.includes(this.normalizeKey(h)));
         this._colQtd   = qtdNorm || null;
-
-        this.colunas = allHeaders;
-
-        this.rawData = rows.map((r, i) => ({
+        this.colunas   = allHeaders;
+        this.rawData   = rows.map((r, i) => ({
             _id: i,
             dados: Object.fromEntries(allHeaders.map(h => [h, r[h] ?? '']))
         }));
-
         this.filtered = [...this.rawData];
+        this._finalizarImport();
+    },
+
+    _parseERPReport(rows) {
+        const toNum = v => parseFloat(String(v ?? '').replace(',', '.')) || 0;
+        const parsed = [];
+        let curOP = null;
+
+        for (const row of rows) {
+            const vals = Object.values(row);
+            const a = String(vals[0] ?? '').trim();
+
+            // Linha de cabeçalho da OP
+            if (/O\.P\.?\s*N[°º]/i.test(a)) {
+                const nMatch  = a.match(/N[°º][^:]*:\s*(\d+)/i);
+                const emMatch = a.match(/Emiss[aã]o:\s*(\d{2}\/\d{2}\/\d{4})/i);
+                const piMatch = a.match(/Previs[aã]o\s+Inicial:\s*(\d{2}\/\d{2}\/\d{4})/i);
+                const pfMatch = a.match(/Previs[aã]o\s+Final:\s*(\d{2}\/\d{2}\/\d{4})/i);
+                const stMatch = a.match(/Status:\s*(.+)$/i);
+                curOP = {
+                    'OP Nº':         nMatch  ? nMatch[1]  : '',
+                    'Emissão':       emMatch ? emMatch[1] : '',
+                    'Prev. Inicial': piMatch ? piMatch[1] : '',
+                    'Prev. Final':   pfMatch ? pfMatch[1] : '',
+                    'Status':        stMatch ? stMatch[1].trim() : '',
+                };
+            }
+            // Linha de produto
+            else if (/^Produto:/i.test(a) && curOP) {
+                const pm = a.match(/Produto:\s*(\d+)\s*[-–]\s*(.+)/i);
+                if (!pm) continue;
+                parsed.push({
+                    ...curOP,
+                    'Código':          pm[1].trim(),
+                    'Descrição':       pm[2].trim(),
+                    'Para Produção':   toNum(vals[2]),
+                    'Produzido':       toNum(vals[3]),
+                    'Aprovado':        toNum(vals[4]),
+                    'Reprovado':       toNum(vals[5]),
+                    'À Produzir':      toNum(vals[6]),
+                });
+            }
+        }
+
+        if (!parsed.length) {
+            alert('Nenhuma Ordem de Produção encontrada no arquivo.');
+            return;
+        }
+
+        this.colunas  = Object.keys(parsed[0]);
+        this._colQtd  = 'À Produzir';
+        this.rawData  = parsed.map((r, i) => ({ _id: i, dados: r }));
+        this.filtered = [...this.rawData];
+        this._finalizarImport();
+    },
+
+    _finalizarImport() {
         this._detectCombosCols();
         document.getElementById('op-drop-zone').style.display = 'none';
         document.getElementById('op-data').classList.add('visible');
@@ -1793,8 +1854,10 @@ const op = {
         this._currentId = id;
         this.colunas  = Object.keys(rows[0].dados || {});
         this.rawData  = rows.map((r, i) => ({ _id: i, dados: r.dados }));
-        const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs'];
-        this._colQtd = this.colunas.find(h => QTD_KEYS.includes(this.normalizeKey(h))) || null;
+        const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs','aproduzir'];
+        this._colQtd = this.colunas.find(h => QTD_KEYS.includes(this.normalizeKey(h)))
+                    || this.colunas.find(h => h === 'À Produzir')
+                    || null;
         this.filtered = [...this.rawData];
         this._detectCombosCols();
         document.getElementById('op-drop-zone').style.display = 'none';
