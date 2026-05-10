@@ -151,7 +151,10 @@ function mostrarApp() {
     vxe.init();
     abc.init();
     dist.init();
-    vendas.carregarHistorico().then(() => estoque.carregarHistorico().then(() => op.carregarHistorico()));
+    vendas.carregarHistorico()
+        .then(() => estoque.carregarHistorico())
+        .then(() => op.carregarHistorico())
+        .catch(() => {});
 }
 
 document.addEventListener('DOMContentLoaded', bootstrap);
@@ -2061,17 +2064,20 @@ const abc = {
             this.selectedYear      = btn.dataset.year;
             this.selectedMonth     = '';
             this.selectedTrimestre = '';
+            this._selectedClasse   = null;
             document.getElementById('abc-month-sel').value = '';
             document.getElementById('abc-tri-sel').value   = '';
             this.render();
         });
         document.getElementById('abc-month-sel').addEventListener('change', e => {
             this.selectedMonth = e.target.value;
+            this._selectedClasse = null;
             if (e.target.value) { this.selectedTrimestre = ''; document.getElementById('abc-tri-sel').value = ''; }
             this.render();
         });
         document.getElementById('abc-tri-sel').addEventListener('change', e => {
             this.selectedTrimestre = e.target.value;
+            this._selectedClasse = null;
             if (e.target.value) { this.selectedMonth = ''; document.getElementById('abc-month-sel').value = ''; }
             this.render();
         });
@@ -2131,7 +2137,7 @@ const abc = {
         const map = {};
         vendas.rawData.forEach(r => {
             const key = this.selectedGrupo === 'descricao' ? r.descricao : r.codigo;
-            const qtd = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0) / divisor;
+            const qtd = Math.round(activeCols.reduce((s, c) => s + (r[c.key] || 0), 0) / divisor);
             if (!map[key]) map[key] = { label: key, quantidade: 0 };
             map[key].quantidade += qtd;
         });
@@ -2171,6 +2177,7 @@ const abc = {
 
         this._items = items;
         this._setupCardClicks('abc');
+        this._updateCardStyles('abc');
         setTimeout(() => this.drawChart(items), 30);
         this.renderTable();
     },
@@ -2484,6 +2491,7 @@ const abcEstoque = {
 
         this._items = items;
         this._setupCardClicks();
+        this._updateCardStyles();
         setTimeout(() => this.drawChart(items), 30);
         this.renderTable();
     },
