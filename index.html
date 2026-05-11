@@ -270,7 +270,15 @@
         <!-- Data Section -->
         <div id="vendas-data">
 
-            <!-- Summary Cards -->
+            <!-- Toggle Cards + Chart -->
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+                <button id="btn-toggle-vendas-top" onclick="toggleVendasTop()" style="background:none;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#8b949e;font-size:0.75rem;padding:3px 10px;cursor:pointer;display:flex;align-items:center;gap:5px;">
+                    <span id="ico-toggle-vendas">▲</span> Recolher
+                </button>
+            </div>
+
+            <!-- Summary Cards + Chart (recolhível) -->
+            <div id="vendas-top-wrap">
             <div class="vendas-summary">
                 <div class="summary-card">
                     <span class="s-label">QUANTIDADE TOTAL</span>
@@ -294,6 +302,7 @@
                     <div class="year-tabs" id="year-tabs"></div>
                 </div>
                 <canvas id="vendas-chart"></canvas>
+            </div>
             </div>
 
             <!-- Filters Bar -->

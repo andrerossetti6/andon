@@ -493,6 +493,16 @@ function toggleHistorico(id) {
     chevron.style.transform = aberto ? 'rotate(0deg)' : 'rotate(90deg)';
 }
 
+function toggleVendasTop() {
+    const wrap = document.getElementById('vendas-top-wrap');
+    const ico  = document.getElementById('ico-toggle-vendas');
+    const btn  = document.getElementById('btn-toggle-vendas-top');
+    const collapsed = wrap.style.display === 'none';
+    wrap.style.display = collapsed ? '' : 'none';
+    ico.textContent   = collapsed ? '▲' : '▼';
+    btn.innerHTML     = `<span id="ico-toggle-vendas">${collapsed ? '▲' : '▼'}</span> ${collapsed ? 'Recolher' : 'Expandir'}`;
+}
+
 function navigateTo(viewName) {
     ['dashboard','vendas','estoque','op','ranking','vxe','abc','dist','dash-op','abc-cruzada','abc-estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
