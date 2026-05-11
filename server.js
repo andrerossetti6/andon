@@ -300,6 +300,28 @@ app.delete('/api/importacoes/:id', auth, adminOnly, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── Rota de emergência — acesso direto sem depender do JS ────────
+app.get('/emergencia', (_req, res) => {
+    res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>SIGS — Acesso de Emergência</title>
+    <style>body{background:#0D1117;color:#E6EDF3;font-family:Inter,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
+    .box{background:#161B22;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:40px;width:340px}
+    h2{margin:0 0 24px;font-size:1.3rem}input{width:100%;padding:10px;background:#0D1117;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#E6EDF3;font-size:0.9rem;margin-bottom:12px;box-sizing:border-box}
+    button{width:100%;padding:12px;background:#2F81F7;color:white;border:none;border-radius:6px;font-size:0.9rem;cursor:pointer}
+    #msg{margin-top:12px;font-size:0.8rem;color:#F85149}</style></head>
+    <body><div class="box"><h2>SIGS — Emergência</h2>
+    <form id="f"><input type="email" id="e" value="admin@stoll.com.br" required>
+    <input type="password" id="s" value="Admin@2025" required>
+    <button type="submit">Entrar</button></form>
+    <div id="msg"></div></div>
+    <script>document.getElementById('f').onsubmit=async e=>{e.preventDefault();
+    const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({email:document.getElementById('e').value,senha:document.getElementById('s').value})});
+    const d=await r.json();if(r.ok){localStorage.setItem('sigs_token',d.token);
+    localStorage.setItem('sigs_user',JSON.stringify(d.usuario));window.location='/';}
+    else document.getElementById('msg').textContent=d.erro||'Erro';}</script></body></html>`);
+});
+
 // ── Fallback para SPA ─────────────────────────────────────────
 app.get('/{*path}', (_req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
