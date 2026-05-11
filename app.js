@@ -417,7 +417,7 @@ function abrirDetalhe(descricao, segmento) {
         r,
         vendQtd: activeCols.reduce((s, c) => s + (r[c.key] || 0), 0),
         estQtd:  estMap[r.codigo] ?? null
-    })).sort((a, b) => a.vendQtd - b.vendQtd);
+    })).sort((a, b) => b.vendQtd - a.vendQtd);
 
     document.getElementById('detail-tbody').innerHTML = variantRows.map(({ r, vendQtd, estQtd }) => `<tr>
             <td class="td-code">${r.codigo}</td>
