@@ -939,10 +939,12 @@ const vendas = {
             const marcaKey = Object.keys(dados).find(k => normK(k) === 'marca');
             const extras = { ...dados };
             if (marcaKey) delete extras[marcaKey];
+            // r.marca vem da coluna DB; fallback para dados['Marca'] de imports antigos
+            const marca = r.marca || (marcaKey ? (dados[marcaKey] || '') : '');
             return {
                 _id: i, codigo: r.codigo || '', descricao: r.descricao || '',
                 modelo: r.modelo || '', segmento: r.segmento || '', tamanho: r.tamanho || '',
-                marca: marcaKey ? (dados[marcaKey] || '') : '',
+                marca,
                 _extras: extras,
                 ...(r.meses || {}),
                 quantidade: Number(r.quantidade) || 0, valor: Number(r.valor) || 0
