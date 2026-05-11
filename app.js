@@ -1246,6 +1246,7 @@ const vendas = {
             <th>DESCRIÇÃO</th>
             <th>MODELO</th>
             <th>SEGMENTO</th>
+            <th>MARCA</th>
             <th class="td-center">TAM.</th>
             ${extras.map(c => `<th>${c.toUpperCase()}</th>`).join('')}
             ${cols.map(c => {
@@ -1276,6 +1277,7 @@ const vendas = {
                 <td class="td-desc">${r.descricao}</td>
                 <td>${r.modelo}</td>
                 <td><span class="seg-badge">${r.segmento}</span></td>
+                <td>${r.marca || '<span style="opacity:.3">—</span>'}</td>
                 <td class="td-center">${r.tamanho}</td>
                 ${extras.map(c => {
                     const v = (r._extras || {})[c];
