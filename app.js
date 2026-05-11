@@ -60,8 +60,8 @@ const api = {
             const meses = {};
             monthCols.forEach(mc => { meses[mc.key] = r[mc.key] || 0; });
             return { codigo: r.codigo, descricao: r.descricao, modelo: r.modelo,
-                     segmento: r.segmento, tamanho: r.tamanho, meses,
-                     dados: r._extras || {},
+                     segmento: r.segmento, tamanho: r.tamanho, marca: r.marca || '',
+                     meses, dados: r._extras || {},
                      quantidade: r.quantidade, valor: r.valor };
         });
         return this.post('/api/vendas/import', { nomeArquivo, linhas, anos });
@@ -631,7 +631,7 @@ const vendas = {
     },
 
     setupFilters() {
-        ['filter-segmento', 'filter-modelo', 'filter-tamanho', 'filter-descricao'].forEach(id => {
+        ['filter-segmento', 'filter-marca', 'filter-modelo', 'filter-tamanho', 'filter-descricao'].forEach(id => {
             document.getElementById(id).addEventListener('change', () => this.applyFilters());
         });
         document.getElementById('search-input').addEventListener('input', () => this.applyFilters());
@@ -641,6 +641,7 @@ const vendas = {
         });
         document.getElementById('clear-filters-btn').addEventListener('click', () => {
             document.getElementById('filter-segmento').value  = '';
+            document.getElementById('filter-marca').value     = '';
             document.getElementById('filter-modelo').value    = '';
             document.getElementById('filter-tamanho').value   = '';
             document.getElementById('filter-descricao').value = '';
@@ -807,7 +808,7 @@ const vendas = {
         this.selectedYear = 'all';
 
         const monthOrigCols = new Set(this.monthCols.map(mc => mc.originalCol));
-        const KNOWN_NORM = new Set(['codigo', 'descricao', 'modelo', 'segmento', 'tamanho',
+        const KNOWN_NORM = new Set(['codigo', 'descricao', 'modelo', 'segmento', 'tamanho', 'marca',
             'quantidade', 'qtd', 'qty', 'qtde', 'valor', 'valorrs', 'valortotal', 'valorr']);
         this.extraCols = allHeaders.filter(h =>
             !monthOrigCols.has(h) && !KNOWN_NORM.has(this.normalizeKey(h))
@@ -833,6 +834,7 @@ const vendas = {
                 modelo:    get(row, 'modelo'),
                 segmento:  get(row, 'segmento'),
                 tamanho:   get(row, 'tamanho'),
+                marca:     get(row, 'marca'),
                 _extras: extras,
                 ...mData,
                 quantidade: toNum(get(row, 'quantidade', 'qtd', 'qty', 'qtde')),
@@ -925,16 +927,27 @@ const vendas = {
         this.selectedYear = this.years[0] || 'all';
         this._currentId   = id;
 
+        const normK = k => String(k).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+        const KNOWN_LOAD = new Set(['marca']);
         const firstWithDados = rows.find(r => r.dados && Object.keys(r.dados).length > 0);
-        this.extraCols = firstWithDados ? Object.keys(firstWithDados.dados) : [];
+        this.extraCols = firstWithDados
+            ? Object.keys(firstWithDados.dados).filter(k => !KNOWN_LOAD.has(normK(k)))
+            : [];
 
-        this.rawData  = rows.map((r, i) => ({
-            _id: i, codigo: r.codigo || '', descricao: r.descricao || '',
-            modelo: r.modelo || '', segmento: r.segmento || '', tamanho: r.tamanho || '',
-            _extras: r.dados || {},
-            ...(r.meses || {}),
-            quantidade: Number(r.quantidade) || 0, valor: Number(r.valor) || 0
-        }));
+        this.rawData  = rows.map((r, i) => {
+            const dados = r.dados || {};
+            const marcaKey = Object.keys(dados).find(k => normK(k) === 'marca');
+            const extras = { ...dados };
+            if (marcaKey) delete extras[marcaKey];
+            return {
+                _id: i, codigo: r.codigo || '', descricao: r.descricao || '',
+                modelo: r.modelo || '', segmento: r.segmento || '', tamanho: r.tamanho || '',
+                marca: marcaKey ? (dados[marcaKey] || '') : '',
+                _extras: extras,
+                ...(r.meses || {}),
+                quantidade: Number(r.quantidade) || 0, valor: Number(r.valor) || 0
+            };
+        });
         this.filtered = [...this.rawData];
         this.populateFilters();
         this.showDataSection();
@@ -996,6 +1009,7 @@ const vendas = {
     populateFilters() {
         const unique = key => [...new Set(this.rawData.map(r => r[key]).filter(Boolean))].sort();
         this.fillSelect('filter-segmento', unique('segmento'));
+        this.fillSelectLabel('filter-marca', unique('marca'), 'Todas');
         this.fillSelect('filter-modelo',   unique('modelo'));
         this.fillSelect('filter-tamanho',  unique('tamanho'));
         this.fillSelectLabel('filter-descricao', unique('descricao'), 'Todas');
@@ -1012,35 +1026,46 @@ const vendas = {
         }
     },
 
-    fillSelect(id, options) {
+    fillSelect(id, options, current) {
         const sel = document.getElementById(id);
         sel.innerHTML = '<option value="">Todos</option>' +
-            options.map(o => `<option value="${o}">${o}</option>`).join('');
+            options.map(o => `<option value="${o}"${o === current ? ' selected' : ''}>${o}</option>`).join('');
     },
 
-    fillSelectLabel(id, options, label) {
+    fillSelectLabel(id, options, label, current) {
         const sel = document.getElementById(id);
         sel.innerHTML = `<option value="">${label}</option>` +
-            options.map(o => `<option value="${o}">${o}</option>`).join('');
+            options.map(o => `<option value="${o}"${o === current ? ' selected' : ''}>${o}</option>`).join('');
     },
 
     applyFilters() {
-        const seg = document.getElementById('filter-segmento').value;
-        const mod = document.getElementById('filter-modelo').value;
-        const tam  = document.getElementById('filter-tamanho').value;
-        const desc = document.getElementById('filter-descricao').value;
-        const q    = document.getElementById('search-input').value.toLowerCase().trim();
+        const seg   = document.getElementById('filter-segmento').value;
+        const marca = document.getElementById('filter-marca').value;
+        const mod   = document.getElementById('filter-modelo').value;
+        const tam   = document.getElementById('filter-tamanho').value;
+        const desc  = document.getElementById('filter-descricao').value;
+        const q     = document.getElementById('search-input').value.toLowerCase().trim();
 
-        this.filtered = this.rawData.filter(r => {
-            // Segmento: traz TODOS os itens que pertencem ao segmento selecionado
-            if (seg  && r.segmento  !== seg)  return false;
-            if (mod  && r.modelo    !== mod)  return false;
-            if (tam  && r.tamanho   !== tam)  return false;
-            // Descrição: traz todas as peças com aquela descrição (todos os tamanhos)
-            if (desc && r.descricao !== desc) return false;
-            if (q    && !r.codigo.toLowerCase().includes(q)) return false;
+        const match = (r, skip) => {
+            if (skip !== 'seg'   && seg   && r.segmento  !== seg)   return false;
+            if (skip !== 'marca' && marca && r.marca      !== marca) return false;
+            if (skip !== 'mod'   && mod   && r.modelo     !== mod)   return false;
+            if (skip !== 'tam'   && tam   && r.tamanho    !== tam)   return false;
+            if (skip !== 'desc'  && desc  && r.descricao  !== desc)  return false;
+            if (q && !r.codigo.toLowerCase().includes(q)) return false;
             return true;
-        });
+        };
+
+        this.filtered = this.rawData.filter(r => match(r, null));
+
+        const uniq = (key, skip) =>
+            [...new Set(this.rawData.filter(r => match(r, skip)).map(r => r[key]).filter(Boolean))].sort();
+
+        this.fillSelect('filter-segmento',       uniq('segmento', 'seg'),   seg);
+        this.fillSelectLabel('filter-marca',     uniq('marca',  'marca'), 'Todas', marca);
+        this.fillSelect('filter-modelo',         uniq('modelo',   'mod'),   mod);
+        this.fillSelect('filter-tamanho',        uniq('tamanho',  'tam'),   tam);
+        this.fillSelectLabel('filter-descricao', uniq('descricao','desc'), 'Todas', desc);
 
         this.render();
     },

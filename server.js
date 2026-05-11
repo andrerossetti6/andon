@@ -156,6 +156,7 @@ app.post('/api/vendas/import', auth, async (req, res) => {
         modelo:    l.modelo    || '',
         segmento:  l.segmento  || '',
         tamanho:   l.tamanho   || '',
+        marca:     l.marca     || '',
         meses:     l.meses     || {},
         dados:     l.dados     || {},
         quantidade: Number(l.quantidade) || 0,
