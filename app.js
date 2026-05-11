@@ -412,19 +412,21 @@ function abrirDetalhe(descricao, segmento) {
     });
     setTimeout(() => drawDetailChart(monthTotals), 30);
 
-    // Tabela: Código | Modelo | Marca | Tamanho | Vendas | Estoque
-    document.getElementById('detail-tbody').innerHTML = variants.map(r => {
-        const vendQtd = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
-        const estQtd  = estMap[r.codigo] ?? null;
-        return `<tr>
+    // Tabela: Código | Modelo | Marca | Tamanho | Vendas | Estoque — ordem crescente por Vendas
+    const variantRows = variants.map(r => ({
+        r,
+        vendQtd: activeCols.reduce((s, c) => s + (r[c.key] || 0), 0),
+        estQtd:  estMap[r.codigo] ?? null
+    })).sort((a, b) => a.vendQtd - b.vendQtd);
+
+    document.getElementById('detail-tbody').innerHTML = variantRows.map(({ r, vendQtd, estQtd }) => `<tr>
             <td class="td-code">${r.codigo}</td>
             <td>${r.modelo || '<span style="opacity:.3">—</span>'}</td>
             <td>${r.marca  || '<span style="opacity:.3">—</span>'}</td>
             <td class="td-center"><strong>${r.tamanho}</strong></td>
             <td class="td-right">${vendQtd.toLocaleString('pt-BR')}</td>
             <td class="td-right">${estQtd !== null ? estQtd.toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>'}</td>
-        </tr>`;
-    }).join('');
+        </tr>`).join('');
 
     document.getElementById('detail-overlay').style.display = 'block';
     document.getElementById('detail-panel').classList.add('open');
