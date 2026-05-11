@@ -2268,11 +2268,20 @@ const abc = {
         vendas.rawData.forEach(r => {
             const key = this.selectedGrupo === 'descricao' ? r.descricao : r.codigo;
             const qtd = Math.round(activeCols.reduce((s, c) => s + (r[c.key] || 0), 0) / divisor);
-            if (!map[key]) map[key] = { label: key, quantidade: 0 };
+            if (!map[key]) map[key] = { label: key, quantidade: 0, _mods: new Set(), _marcas: new Set(), _tams: new Set() };
             map[key].quantidade += qtd;
+            if (r.modelo)   map[key]._mods.add(r.modelo);
+            if (r.marca)    map[key]._marcas.add(r.marca);
+            if (r.tamanho)  map[key]._tams.add(r.tamanho);
         });
 
+        const TAM_ORDER = ['PP','P','M','G','GG','XG','XXG','XGG'];
         const sorted = Object.values(map).filter(i => i.quantidade > 0).sort((a, b) => b.quantidade - a.quantidade);
+        sorted.forEach(it => {
+            it.modelo  = [...it._mods].join(' / ') || '—';
+            it.marca   = [...it._marcas].join(' / ') || '—';
+            it.tamanho = [...it._tams].sort((a,b) => (TAM_ORDER.indexOf(a)||99) - (TAM_ORDER.indexOf(b)||99)).join(' · ') || '—';
+        });
         if (!sorted.length) {
             countEl.textContent = 'Sem dados no período selecionado';
             ['a','b','c'].forEach(k => {
@@ -2435,7 +2444,10 @@ const abc = {
             : `${this._items.length.toLocaleString('pt-BR')} itens analisados`;
         document.querySelector('#abc-table thead tr').innerHTML = `
             <th style="width:40px;">#</th>
-            <th colspan="2">${isDesc ? 'DESCRIÇÃO' : 'CÓDIGO'}</th>
+            <th>${isDesc ? 'DESCRIÇÃO' : 'CÓDIGO'}</th>
+            <th>MODELO</th>
+            <th>MARCA</th>
+            <th>TAMANHO</th>
             <th class="td-right">VENDAS</th>
             <th class="td-right">% TOTAL</th>
             <th class="td-right">% ACUM.</th>
@@ -2446,7 +2458,10 @@ const abc = {
             const cellCls = isDesc ? 'td-desc' : 'td-code';
             return `<tr>
                 <td class="td-dim td-center">${i + 1}</td>
-                <td class="${cellCls}" colspan="2">${r.label}</td>
+                <td class="${cellCls}">${r.label}</td>
+                <td style="font-size:0.75rem;color:var(--text-dim)">${r.modelo || '—'}</td>
+                <td style="font-size:0.75rem;color:var(--text-dim)">${r.marca  || '—'}</td>
+                <td style="font-size:0.72rem;color:var(--text-dim)">${r.tamanho || '—'}</td>
                 <td class="td-qtd">${r.quantidade.toLocaleString('pt-BR')}</td>
                 <td class="td-right td-dim">${r.pct.toFixed(2)}%</td>
                 <td class="td-right td-dim">${r.cumPct.toFixed(1)}%</td>
