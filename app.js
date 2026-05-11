@@ -2520,9 +2520,24 @@ const abcMicro = {
     },
 
     async render() {
-        // Garante que o estoque está carregado
+        // Garante que o estoque está carregado antes de renderizar
         if (!estoque.rawData.length) {
             await estoque.carregarHistorico();
+            // Se ainda vazio (race condition), busca direto da API
+            if (!estoque.rawData.length) {
+                const imps = await api.get('/api/importacoes-estoque');
+                if (imps?.length) {
+                    const rows = await api.get(`/api/estoque?importacao_id=${imps[0].id}`);
+                    if (rows?.length) {
+                        estoque.rawData = rows.map((r, i) => ({
+                            _id: i,
+                            codigo: String(r.codigo || '').trim(),
+                            quantidade: Number(r.quantidade) || 0,
+                            dados: r.dados || {}
+                        }));
+                    }
+                }
+            }
         }
         const countEl = document.getElementById('abcm-count');
         if (!vendas.rawData.length) {
