@@ -1058,13 +1058,16 @@ const vendas = {
 
         this.filtered = this.rawData.filter(r => match(r, null));
 
+        // Segmento e Marca: sempre todos os valores do arquivo (não cross-filtram)
+        const uniqAll = key => [...new Set(this.rawData.map(r => r[key]).filter(Boolean))].sort();
+        // Modelo, Tamanho, Descrição: cross-filtram baseado nos filtros ativos
         const uniq = (key, skip) =>
             [...new Set(this.rawData.filter(r => match(r, skip)).map(r => r[key]).filter(Boolean))].sort();
 
-        this.fillSelect('filter-segmento',       uniq('segmento', 'seg'),   seg);
-        this.fillSelectLabel('filter-marca',     uniq('marca',  'marca'), 'Todas', marca);
-        this.fillSelect('filter-modelo',         uniq('modelo',   'mod'),   mod);
-        this.fillSelect('filter-tamanho',        uniq('tamanho',  'tam'),   tam);
+        this.fillSelect('filter-segmento',       uniqAll('segmento'),        seg);
+        this.fillSelectLabel('filter-marca',     uniqAll('marca'), 'Todas',  marca);
+        this.fillSelect('filter-modelo',         uniq('modelo',   'mod'),    mod);
+        this.fillSelect('filter-tamanho',        uniq('tamanho',  'tam'),    tam);
         this.fillSelectLabel('filter-descricao', uniq('descricao','desc'), 'Todas', desc);
 
         this.render();
