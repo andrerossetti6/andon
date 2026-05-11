@@ -1256,11 +1256,17 @@ const vendas = {
             <th class="td-right">VALOR R$</th>
         `;
 
-        // Filtra linhas pelo mês selecionado (só mostra quem tem valor naquele mês)
+        // Filtra e ordena pelo mês selecionado
         let displayRows = this.filtered;
         if (this.selectedMonth) {
             const mCols = cols.filter(c => c.abbr === this.selectedMonth);
-            displayRows = displayRows.filter(r => mCols.some(c => (r[c.key] || 0) > 0));
+            displayRows = displayRows
+                .filter(r => mCols.some(c => (r[c.key] || 0) > 0))
+                .sort((a, b) => {
+                    const va = mCols.reduce((s, c) => s + (a[c.key] || 0), 0);
+                    const vb = mCols.reduce((s, c) => s + (b[c.key] || 0), 0);
+                    return vb - va; // decrescente: maior venda primeiro
+                });
         }
 
         const rows = displayRows.slice(0, 500);
