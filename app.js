@@ -2456,9 +2456,13 @@ const abc = {
         document.querySelector('#abc-table tbody').innerHTML = visible.map((r, i) => {
             const cls     = `abc-${r.classe.toLowerCase()}`;
             const cellCls = isDesc ? 'td-desc' : 'td-code';
-            return `<tr>
+            const seg = vendas.rawData.find(v => (isDesc ? v.descricao : v.codigo) === r.label)?.segmento || '';
+            const clickAttr = isDesc
+                ? `onclick="abrirDetalhe('${r.label.replace(/'/g,"\\'")}','${seg.replace(/'/g,"\\'")}'); event.stopPropagation();" style="cursor:pointer;"`
+                : '';
+            return `<tr ${clickAttr} title="${isDesc ? 'Clique para ver detalhe' : ''}">
                 <td class="td-dim td-center">${i + 1}</td>
-                <td class="${cellCls}">${r.label}</td>
+                <td class="${cellCls}" style="${isDesc ? 'color:var(--indigo-primary);' : ''}">${r.label}</td>
                 <td style="font-size:0.75rem;color:var(--text-dim)">${r.modelo || '—'}</td>
                 <td style="font-size:0.75rem;color:var(--text-dim)">${r.marca  || '—'}</td>
                 <td style="font-size:0.72rem;color:var(--text-dim)">${r.tamanho || '—'}</td>
