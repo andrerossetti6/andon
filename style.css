@@ -704,6 +704,7 @@ input:checked + .chk {
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     padding: 20px;
+    overflow: hidden;
 }
 
 .s-label {
@@ -736,18 +737,21 @@ input:checked + .chk {
     flex-direction: column;
     gap: 8px;
     margin-top: 12px;
+    overflow-y: auto;
+    max-height: 180px;
 }
 
 .breakdown-item {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-shrink: 0;
 }
 
 .bd-label {
     font-size: 0.72rem;
     color: var(--text-dim);
-    width: 80px;
+    width: 130px;
     flex-shrink: 0;
     white-space: nowrap;
     overflow: hidden;
