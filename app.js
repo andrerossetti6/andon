@@ -2744,6 +2744,10 @@ const abcMicro = {
         if (countEl) countEl.textContent = this._selectedClasse
             ? `${visible.length} itens — Classe ${this._selectedClasse} (clique para ver todos)`
             : `${this._items.length.toLocaleString('pt-BR')} itens analisados`;
+        // Mapa de estoque por código
+        const estMap = {};
+        estoque.rawData.forEach(r => { estMap[r.codigo] = Number(r.quantidade) || 0; });
+
         document.querySelector('#abcm-table thead tr').innerHTML = `
             <th style="width:40px;">#</th>
             <th>${isDesc ? 'DESCRIÇÃO' : 'CÓDIGO'}</th>
@@ -2751,6 +2755,7 @@ const abcMicro = {
             <th>MARCA</th>
             <th>TAMANHO</th>
             <th class="td-right">VENDAS</th>
+            <th class="td-right">ESTOQUE</th>
             <th class="td-right">% TOTAL</th>
             <th class="td-right">% ACUM.</th>
             <th class="td-center" style="width:80px;">CLASSE</th>
@@ -2762,6 +2767,8 @@ const abcMicro = {
             const clickAttr = isDesc
                 ? `onclick="abrirDetalhe('${r.label.replace(/'/g,"\\'")}','${seg.replace(/'/g,"\\'")}'); event.stopPropagation();" style="cursor:pointer;"`
                 : '';
+            const estQtd  = estMap[r.label];
+            const estCell = estQtd !== undefined ? estQtd.toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>';
             return `<tr ${clickAttr} title="${isDesc ? 'Clique para ver detalhe' : ''}">
                 <td class="td-dim td-center">${i + 1}</td>
                 <td class="${cellCls}" style="${isDesc ? 'color:var(--indigo-primary);' : ''}">${r.label}</td>
@@ -2769,6 +2776,7 @@ const abcMicro = {
                 <td style="font-size:0.75rem;color:var(--text-dim)">${r.marca  || '—'}</td>
                 <td style="font-size:0.72rem;color:var(--text-dim)">${r.tamanho || '—'}</td>
                 <td class="td-qtd">${r.quantidade.toLocaleString('pt-BR')}</td>
+                <td class="td-right">${estCell}</td>
                 <td class="td-right td-dim">${r.pct.toFixed(2)}%</td>
                 <td class="td-right td-dim">${r.cumPct.toFixed(1)}%</td>
                 <td class="td-center"><span class="abc-badge ${cls}">${r.classe}</span></td>
