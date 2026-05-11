@@ -942,7 +942,7 @@ input:checked + .chk {
     border-radius: var(--radius-lg);
     overflow: auto;
     flex: 1;
-    min-height: 0;
+    min-height: 420px;
 }
 
 .vendas-table {
