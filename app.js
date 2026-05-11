@@ -2482,7 +2482,7 @@ const abcMicro = {
     selectedYear:       'all',
     selectedMonth:      '',
     selectedTrimestre:  '',
-    selectedGrupo:      'descricao',
+    selectedGrupo:      'codigo',
     _selectedClasse: null,
     _items:          [],
     _zonas:          {},
