@@ -61,6 +61,7 @@ const api = {
             monthCols.forEach(mc => { meses[mc.key] = r[mc.key] || 0; });
             return { codigo: r.codigo, descricao: r.descricao, modelo: r.modelo,
                      segmento: r.segmento, tamanho: r.tamanho, meses,
+                     dados: r._extras || {},
                      quantidade: r.quantidade, valor: r.valor };
         });
         return this.post('/api/vendas/import', { nomeArquivo, linhas, anos });
@@ -490,6 +491,7 @@ const vendas = {
     rawData: [],
     filtered: [],
     monthCols: [],      // [{ key, abbr, year, label, originalCol }]
+    extraCols: [],      // colunas extras do arquivo (não mapeadas)
     years: [],          // anos detectados no arquivo
     selectedYear: 'all',
     selectedMonth: null,
@@ -737,12 +739,24 @@ const vendas = {
         this.years        = [...new Set(this.monthCols.map(c => c.year).filter(Boolean))].sort();
         this.selectedYear = 'all';
 
+        const monthOrigCols = new Set(this.monthCols.map(mc => mc.originalCol));
+        const KNOWN_NORM = new Set(['codigo', 'descricao', 'modelo', 'segmento', 'tamanho',
+            'quantidade', 'qtd', 'qty', 'qtde', 'valor', 'valorrs', 'valortotal', 'valorr']);
+        this.extraCols = allHeaders.filter(h =>
+            !monthOrigCols.has(h) && !KNOWN_NORM.has(this.normalizeKey(h))
+        );
 
         this.rawData = rawRows.map((row, i) => {
             const mData = {};
             this.monthCols.forEach(mc => {
                 const val = row[mc.originalCol];
                 mData[mc.key] = val !== undefined && val !== null ? toNum(val) : 0;
+            });
+
+            const extras = {};
+            this.extraCols.forEach(col => {
+                const val = row[col];
+                extras[col] = val !== undefined && val !== null ? String(val) : '';
             });
 
             return {
@@ -752,6 +766,7 @@ const vendas = {
                 modelo:    get(row, 'modelo'),
                 segmento:  get(row, 'segmento'),
                 tamanho:   get(row, 'tamanho'),
+                _extras: extras,
                 ...mData,
                 quantidade: toNum(get(row, 'quantidade', 'qtd', 'qty', 'qtde')),
                 valor:      toNum(get(row, 'valor', 'valorrs', 'valortotal', 'valorr'))
@@ -843,9 +858,13 @@ const vendas = {
         this.selectedYear = this.years[0] || 'all';
         this._currentId   = id;
 
+        const firstWithDados = rows.find(r => r.dados && Object.keys(r.dados).length > 0);
+        this.extraCols = firstWithDados ? Object.keys(firstWithDados.dados) : [];
+
         this.rawData  = rows.map((r, i) => ({
             _id: i, codigo: r.codigo || '', descricao: r.descricao || '',
             modelo: r.modelo || '', segmento: r.segmento || '', tamanho: r.tamanho || '',
+            _extras: r.dados || {},
             ...(r.meses || {}),
             quantidade: Number(r.quantidade) || 0, valor: Number(r.valor) || 0
         }));
@@ -1126,12 +1145,14 @@ const vendas = {
         const table = document.getElementById('vendas-table');
 
         // Cabeçalho dinâmico — destaca coluna do mês selecionado
+        const extras = this.extraCols || [];
         table.querySelector('thead tr').innerHTML = `
             <th>CÓDIGO</th>
             <th>DESCRIÇÃO</th>
             <th>MODELO</th>
             <th>SEGMENTO</th>
             <th class="td-center">TAM.</th>
+            ${extras.map(c => `<th>${c.toUpperCase()}</th>`).join('')}
             ${cols.map(c => {
                 const sel = this.selectedMonth === c.abbr;
                 return `<th class="th-month${sel ? ' th-month-sel' : ''}">${c.label.toUpperCase()}</th>`;
@@ -1155,6 +1176,10 @@ const vendas = {
                 <td>${r.modelo}</td>
                 <td><span class="seg-badge">${r.segmento}</span></td>
                 <td class="td-center">${r.tamanho}</td>
+                ${extras.map(c => {
+                    const v = (r._extras || {})[c];
+                    return `<td>${v || '<span style="opacity:.3">—</span>'}</td>`;
+                }).join('')}
                 ${cols.map(c => {
                     const v   = r[c.key];
                     const sel = this.selectedMonth === c.abbr;
