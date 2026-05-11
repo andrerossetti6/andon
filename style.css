@@ -704,7 +704,6 @@ input:checked + .chk {
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
     padding: 20px;
-    overflow: hidden;
 }
 
 .s-label {
@@ -738,7 +737,8 @@ input:checked + .chk {
     gap: 8px;
     margin-top: 12px;
     overflow-y: auto;
-    max-height: 180px;
+    max-height: 220px;
+    padding-right: 4px;
 }
 
 .breakdown-item {
