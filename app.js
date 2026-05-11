@@ -104,19 +104,40 @@ async function bootstrap() {
         auth.sair();
     }
 
-    // Auto-login silencioso
-    try {
-        const res = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: 'admin@stoll.com.br', senha: 'Admin@2025' })
-        });
-        const data = await res.json();
-        if (res.ok) { auth.salvar(data.token, data.usuario); mostrarApp(); return; }
-    } catch { /* sem conexão */ }
+    // Mostra tela de carregamento enquanto tenta conectar
+    const loginView = document.getElementById('view-login');
+    loginView.style.display = 'flex';
+    const statusEl = document.getElementById('login-status');
 
-    // Fallback: mostra login manual
-    document.getElementById('view-login').style.display = 'flex';
+    // Auto-login com retry — Render pode demorar ~30s para acordar
+    const MAX = 8;
+    for (let i = 1; i <= MAX; i++) {
+        if (statusEl) statusEl.textContent = i === 1
+            ? 'Conectando ao servidor...'
+            : `Aguardando servidor... (${i}/${MAX})`;
+        try {
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email: 'admin@stoll.com.br', senha: 'Admin@2025' }),
+                signal: AbortSignal.timeout(10000)
+            });
+            const data = await res.json();
+            if (res.ok) {
+                auth.salvar(data.token, data.usuario);
+                loginView.style.display = 'none';
+                mostrarApp();
+                return;
+            }
+            break; // servidor respondeu mas login falhou — não adianta retry
+        } catch {
+            if (i < MAX) await new Promise(r => setTimeout(r, 5000));
+        }
+    }
+
+    // Fallback: exibe formulário manual
+    if (statusEl) statusEl.textContent = 'Servidor indisponível. Faça login manualmente.';
+    document.getElementById('login-form-wrap').style.display = 'block';
 }
 
 function mostrarApp() {
@@ -158,7 +179,43 @@ function mostrarApp() {
         .catch(() => {});
 }
 
-document.addEventListener('DOMContentLoaded', bootstrap);
+document.addEventListener('DOMContentLoaded', () => {
+    bootstrap();
+
+    // Handler do formulário manual (fallback quando auto-login falha)
+    document.getElementById('login-form').addEventListener('submit', async e => {
+        e.preventDefault();
+        const email    = document.getElementById('login-email').value;
+        const senha    = document.getElementById('login-senha').value;
+        const erroEl   = document.getElementById('login-erro');
+        const submitBtn = document.getElementById('login-submit');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Entrando...';
+        erroEl.style.display = 'none';
+        try {
+            const res  = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, senha })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                auth.salvar(data.token, data.usuario);
+                document.getElementById('view-login').style.display = 'none';
+                mostrarApp();
+            } else {
+                erroEl.textContent = data.erro || 'Credenciais inválidas';
+                erroEl.style.display = 'block';
+            }
+        } catch {
+            erroEl.textContent = 'Erro de conexão. Tente novamente.';
+            erroEl.style.display = 'block';
+        } finally {
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Entrar';
+        }
+    });
+});
 
 const state = {
     insights: [
