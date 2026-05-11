@@ -85,6 +85,7 @@
                         <div class="item-content">ABC Cruzada</div>
                         <ul class="sub-menu">
                             <li data-view="abc" onclick="event.stopPropagation(); navigateTo('abc')">ABC Vendas</li>
+                            <li data-view="abc-micro" onclick="event.stopPropagation(); navigateTo('abc-micro')">ABC Vendas Micro</li>
                             <li data-view="abc-estoque" onclick="event.stopPropagation(); navigateTo('abc-estoque')">ABC Estoque</li>
                             <li data-view="abc-cruzada" onclick="event.stopPropagation(); navigateTo('abc-cruzada')">ABC Cruzado</li>
                         </ul>
@@ -743,6 +744,81 @@
         </div>
     </main>
 
+
+    <!-- ── View ABC Vendas Micro ──────────────────────────── -->
+    <main class="content" id="view-abc-micro" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Curva <span>ABC Micro</span></h1>
+                <p class="page-subtitle">Análise micro — SKU por SKU com Modelo, Marca e Tamanho</p>
+            </div>
+        </header>
+        <div class="vendas-filters-bar" style="flex-shrink:0;">
+            <div id="abcm-year-tabs" class="year-tabs"></div>
+            <label>Trimestre</label>
+            <select class="sigs-select" id="abcm-tri-sel">
+                <option value="">Todos</option>
+                <option value="Q1">Q1 (Jan–Mar)</option>
+                <option value="Q2">Q2 (Abr–Jun)</option>
+                <option value="Q3">Q3 (Jul–Set)</option>
+                <option value="Q4">Q4 (Out–Dez)</option>
+            </select>
+            <label>Mês</label>
+            <select class="sigs-select" id="abcm-month-sel"><option value="">Todos</option></select>
+            <label>Agrupar</label>
+            <select class="sigs-select" id="abcm-grupo-sel">
+                <option value="descricao">Descrição</option>
+                <option value="codigo">Código</option>
+            </select>
+            <span class="table-count-label" id="abcm-count"></span>
+        </div>
+        <div class="vendas-summary">
+            <div class="summary-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <span class="s-label" style="margin:0;">CLASSE A</span>
+                    <span class="abc-badge abc-a">A</span>
+                </div>
+                <span class="s-value" id="abcm-a-count" style="color:#58A6FF;">0</span>
+                <span class="s-sub"><span id="abcm-a-qtd">—</span> · ~80% do total</span>
+            </div>
+            <div class="summary-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <span class="s-label" style="margin:0;">CLASSE B</span>
+                    <span class="abc-badge abc-b">B</span>
+                </div>
+                <span class="s-value" id="abcm-b-count" style="color:#D29922;">0</span>
+                <span class="s-sub"><span id="abcm-b-qtd">—</span> · ~15% do total</span>
+            </div>
+            <div class="summary-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                    <span class="s-label" style="margin:0;">CLASSE C</span>
+                    <span class="abc-badge abc-c">C</span>
+                </div>
+                <span class="s-value" id="abcm-c-count" style="color:#8B949E;">0</span>
+                <span class="s-sub"><span id="abcm-c-qtd">—</span> · ~5% do total</span>
+            </div>
+        </div>
+        <div class="chart-section" style="flex-shrink:0;">
+            <div class="chart-header">
+                <h3>CURVA PARETO — % ACUMULADO × NÚMERO DE ITENS</h3>
+            </div>
+            <canvas id="abcm-chart" style="width:100%;height:160px;display:block;"></canvas>
+        </div>
+        <div class="vendas-table-wrap" style="flex:1;min-height:0;">
+            <table class="vendas-table estoque-table-full" id="abcm-table">
+                <thead><tr>
+                    <th style="width:40px;">#</th>
+                    <th>CÓDIGO</th>
+                    <th>DESCRIÇÃO</th>
+                    <th class="td-right">QUANTIDADE</th>
+                    <th class="td-right">% TOTAL</th>
+                    <th class="td-right">% ACUM.</th>
+                    <th class="td-center" style="width:80px;">CLASSE</th>
+                </tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </main>
     <!-- ── Dashboard: Distribuição por Característica ──────── -->
     <main class="content" id="view-dist" style="display:none;">
         <header class="page-header">

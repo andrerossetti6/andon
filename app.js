@@ -172,6 +172,7 @@ function mostrarApp() {
     ranking.init();
     vxe.init();
     abc.init();
+    abcMicro.init();
     dist.init();
     vendas.carregarHistorico()
         .then(() => estoque.carregarHistorico())
@@ -503,7 +504,7 @@ function toggleVendasTop() {
 }
 
 function navigateTo(viewName) {
-    ['dashboard','vendas','estoque','op','ranking','vxe','abc','dist','dash-op','abc-cruzada','abc-estoque'].forEach(v => {
+    ['dashboard','vendas','estoque','op','ranking','vxe','abc','abc-micro','dist','dash-op','abc-cruzada','abc-estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -533,6 +534,8 @@ function navigateTo(viewName) {
         vxe.render();
     } else if (viewName === 'abc') {
         setTimeout(() => abc.render(), 50);
+    } else if (viewName === 'abc-micro') {
+        setTimeout(() => abcMicro.render(), 50);
     } else if (viewName === 'dist') {
         setTimeout(() => dist.render(), 50);
     } else if (viewName === 'dash-op') {
@@ -2473,6 +2476,307 @@ const abc = {
         }).join('');
     }
 };
+
+// ====== DASHBOARD: ABC VENDAS MICRO ======
+const abcMicro = {
+    selectedYear:       'all',
+    selectedMonth:      '',
+    selectedTrimestre:  '',
+    selectedGrupo:      'descricao',
+    _selectedClasse: null,
+    _items:          [],
+    _zonas:          {},
+
+    init() {
+        document.getElementById('abcm-year-tabs').addEventListener('click', e => {
+            const btn = e.target.closest('.year-tab');
+            if (!btn) return;
+            document.querySelectorAll('#abcm-year-tabs .year-tab').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            this.selectedYear      = btn.dataset.year;
+            this.selectedMonth     = '';
+            this.selectedTrimestre = '';
+            this._selectedClasse   = null;
+            document.getElementById('abcm-month-sel').value = '';
+            document.getElementById('abcm-tri-sel').value   = '';
+            this.render();
+        });
+        document.getElementById('abcm-month-sel').addEventListener('change', e => {
+            this.selectedMonth = e.target.value;
+            this._selectedClasse = null;
+            if (e.target.value) { this.selectedTrimestre = ''; document.getElementById('abcm-tri-sel').value = ''; }
+            this.render();
+        });
+        document.getElementById('abcm-tri-sel').addEventListener('change', e => {
+            this.selectedTrimestre = e.target.value;
+            this._selectedClasse = null;
+            if (e.target.value) { this.selectedMonth = ''; document.getElementById('abcm-month-sel').value = ''; }
+            this.render();
+        });
+        document.getElementById('abcm-grupo-sel').addEventListener('change', e => {
+            this.selectedGrupo = e.target.value;
+            this.render();
+        });
+    },
+
+    render() {
+        const countEl = document.getElementById('abcm-count');
+        if (!vendas.rawData.length) {
+            countEl.textContent = 'Importe dados de Vendas primeiro';
+            ['a','b','c'].forEach(k => {
+                document.getElementById(`abcm-${k}-count`).textContent = '0';
+                document.getElementById(`abcm-${k}-qtd`).textContent = '—';
+            });
+            document.querySelector('#abcm-table tbody').innerHTML = '';
+            return;
+        }
+
+        // Year tabs
+        const tabsEl = document.getElementById('abcm-year-tabs');
+        if (vendas.years.length === 1) this.selectedYear = vendas.years[0];
+        tabsEl.innerHTML = vendas.years.map(y =>
+            `<button class="year-tab${this.selectedYear === y ? ' active' : ''}" data-year="${y}">${y}</button>`
+        ).join('') + (vendas.years.length > 1
+            ? `<button class="year-tab${this.selectedYear === 'all' ? ' active' : ''}" data-year="all">Todos</button>`
+            : '');
+
+        // Active columns for selected period
+        const allCols = this.selectedYear === 'all' ? vendas.monthCols : vendas.monthCols.filter(c => c.year === this.selectedYear);
+
+        // Trimestre ou mês
+        let activeCols, divisor;
+        if (this.selectedTrimestre && TRIMESTRES[this.selectedTrimestre]) {
+            const triMeses = TRIMESTRES[this.selectedTrimestre];
+            activeCols = allCols.filter(c => triMeses.includes(c.abbr));
+            divisor    = 3;
+        } else if (this.selectedMonth) {
+            activeCols = allCols.filter(c => c.abbr === this.selectedMonth);
+            divisor    = 1;
+        } else {
+            activeCols = allCols;
+            divisor    = 1;
+        }
+
+        // Month selector
+        const monthSel    = document.getElementById('abcm-month-sel');
+        const uniqueAbbrs = [...new Set(allCols.map(c => c.abbr))];
+        monthSel.innerHTML = '<option value="">Todos</option>' +
+            MONTHS.filter(m => uniqueAbbrs.includes(m))
+                  .map(m => `<option value="${m}" ${this.selectedMonth === m ? 'selected' : ''}>${m.charAt(0).toUpperCase() + m.slice(1)}</option>`)
+                  .join('');
+
+        // Aggregate vendas by grupo (com divisão por 3 se trimestre)
+        const map = {};
+        vendas.rawData.forEach(r => {
+            const key = this.selectedGrupo === 'descricao' ? r.descricao : r.codigo;
+            const qtd = Math.round(activeCols.reduce((s, c) => s + (r[c.key] || 0), 0) / divisor);
+            if (!map[key]) map[key] = { label: key, quantidade: 0, _mods: new Set(), _marcas: new Set(), _tams: new Set() };
+            map[key].quantidade += qtd;
+            if (r.modelo)   map[key]._mods.add(r.modelo);
+            if (r.marca)    map[key]._marcas.add(r.marca);
+            if (r.tamanho)  map[key]._tams.add(r.tamanho);
+        });
+
+        const TAM_ORDER = ['PP','P','M','G','GG','XG','XXG','XGG'];
+        const sorted = Object.values(map).filter(i => i.quantidade > 0).sort((a, b) => b.quantidade - a.quantidade);
+        sorted.forEach(it => {
+            it.modelo  = [...it._mods].join(' / ') || '—';
+            it.marca   = [...it._marcas].join(' / ') || '—';
+            it.tamanho = [...it._tams].sort((a,b) => (TAM_ORDER.indexOf(a)||99) - (TAM_ORDER.indexOf(b)||99)).join(' · ') || '—';
+        });
+        if (!sorted.length) {
+            countEl.textContent = 'Sem dados no período selecionado';
+            ['a','b','c'].forEach(k => {
+                document.getElementById(`abcm-${k}-count`).textContent = '0';
+                document.getElementById(`abcm-${k}-qtd`).textContent = '—';
+            });
+            document.querySelector('#abcm-table tbody').innerHTML = '';
+            return;
+        }
+
+        const total = sorted.reduce((s, i) => s + i.quantidade, 0);
+        let cumQtd = 0;
+        const items = sorted.map(r => {
+            cumQtd += r.quantidade;
+            const cumPct = cumQtd / total * 100;
+            return { ...r, pct: r.quantidade / total * 100, cumPct,
+                     classe: cumPct <= 80 ? 'A' : cumPct <= 95 ? 'B' : 'C' };
+        });
+
+        const cA = items.filter(i => i.classe === 'A');
+        const cB = items.filter(i => i.classe === 'B');
+        const cC = items.filter(i => i.classe === 'C');
+        const fmtQ = q => q.toLocaleString('pt-BR') + ' un';
+
+        document.getElementById('abcm-a-count').textContent = cA.length;
+        document.getElementById('abcm-b-count').textContent = cB.length;
+        document.getElementById('abcm-c-count').textContent = cC.length;
+        document.getElementById('abcm-a-qtd').textContent = fmtQ(cA.reduce((s,i) => s + i.quantidade, 0));
+        document.getElementById('abcm-b-qtd').textContent = fmtQ(cB.reduce((s,i) => s + i.quantidade, 0));
+        document.getElementById('abcm-c-qtd').textContent = fmtQ(cC.reduce((s,i) => s + i.quantidade, 0));
+        countEl.textContent = `${items.length.toLocaleString('pt-BR')} itens analisados`;
+
+        this._items = items;
+        this._setupCardClicks('abcm');
+        this._updateCardStyles('abcm');
+        setTimeout(() => this.drawChart(items), 30);
+        this.renderTable();
+    },
+
+    drawChart(items) {
+        const canvas = document.getElementById('abcm-chart');
+        if (!canvas || !items.length) return;
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width  = canvas.offsetWidth || 800;
+        const h = canvas.height = 160;
+        ctx.clearRect(0, 0, w, h);
+
+        const padL = 8, padR = 42, padT = 18, padB = 20;
+        const n      = items.length;
+        const chartW = w - padL - padR;
+        const chartH = h - padT - padB;
+
+        const iA = items.findIndex(i => i.classe !== 'A');
+        const iB = items.findIndex(i => i.classe === 'C');
+        const bA = iA < 0 ? n : iA;
+        const bB = iB < 0 ? n : iB;
+        const xA = padL + (bA / n) * chartW;
+        const xB = padL + (bB / n) * chartW;
+
+        ctx.fillStyle = 'rgba(88,166,255,0.07)';
+        ctx.fillRect(padL, padT, xA - padL, chartH);
+        ctx.fillStyle = 'rgba(210,153,34,0.07)';
+        ctx.fillRect(xA, padT, xB - xA, chartH);
+        ctx.fillStyle = 'rgba(139,148,158,0.05)';
+        ctx.fillRect(xB, padT, w - padR - xB, chartH);
+
+        ctx.font = 'bold 10px Inter'; ctx.textAlign = 'center';
+        if (bA > 0) {
+            ctx.fillStyle = 'rgba(88,166,255,0.65)';
+            ctx.fillText('A', padL + (xA - padL) / 2, padT + 11);
+        }
+        if (bB > bA) {
+            ctx.fillStyle = 'rgba(210,153,34,0.65)';
+            ctx.fillText('B', xA + (xB - xA) / 2, padT + 11);
+        }
+        if (n > bB) {
+            ctx.fillStyle = 'rgba(139,148,158,0.6)';
+            ctx.fillText('C', xB + (w - padR - xB) / 2, padT + 11);
+        }
+
+        [80, 95].forEach(pct => {
+            const y = padT + chartH * (1 - pct / 100);
+            ctx.setLineDash([4, 4]);
+            ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+            ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(w - padR, y); ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(255,255,255,0.35)';
+            ctx.font = '8px Inter'; ctx.textAlign = 'left';
+            ctx.fillText(`${pct}%`, w - padR + 4, y + 3);
+        });
+
+        ctx.beginPath();
+        ctx.strokeStyle = 'rgba(88,166,255,0.85)';
+        ctx.lineWidth = 2;
+        items.forEach((item, i) => {
+            const x = padL + (i / Math.max(n - 1, 1)) * chartW;
+            const y = padT + chartH * (1 - item.cumPct / 100);
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+        const lastX = padL + chartW;
+        ctx.lineTo(lastX, padT + chartH);
+        ctx.lineTo(padL, padT + chartH);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(88,166,255,0.05)';
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(139,148,158,0.5)';
+        ctx.font = '8px Inter'; ctx.textAlign = 'left';
+        [0, 50, 100].forEach(pct => {
+            ctx.fillText(`${pct}%`, w - padR + 4, padT + chartH * (1 - pct / 100) + 3);
+        });
+
+        // Salva zonas e adiciona clique no gráfico
+        this._zonas = { padL, chartW, n, bA, bB, canvas };
+        canvas.style.cursor = 'pointer';
+        canvas.onclick = e => {
+            const rect = canvas.getBoundingClientRect();
+            const mx   = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const xAc  = padL + (bA / n) * chartW;
+            const xBc  = padL + (bB / n) * chartW;
+            const zona  = mx < xAc ? 'A' : mx < xBc ? 'B' : 'C';
+            this.filtrarClasse(zona, 'abcm');
+        };
+    },
+
+    filtrarClasse(classe, prefix) {
+        this._selectedClasse = this._selectedClasse === classe ? null : classe;
+        this._updateCardStyles(prefix || 'abcm');
+        this.renderTable();
+    },
+
+    _setupCardClicks(prefix) {
+        ['A','B','C'].forEach(c => {
+            const card = document.getElementById(`${prefix}-${c.toLowerCase()}-count`)?.closest('.summary-card');
+            if (card) { card.style.cursor = 'pointer'; card.onclick = () => this.filtrarClasse(c, prefix); }
+        });
+    },
+
+    _updateCardStyles(prefix) {
+        ['A','B','C'].forEach(c => {
+            const card = document.getElementById(`${prefix}-${c.toLowerCase()}-count`)?.closest('.summary-card');
+            if (!card) return;
+            const ativo = this._selectedClasse === c;
+            card.style.outline     = ativo ? `2px solid var(--indigo-primary)` : '';
+            card.style.opacity     = (!this._selectedClasse || ativo) ? '1' : '0.4';
+        });
+    },
+
+    renderTable() {
+        const isDesc  = this.selectedGrupo === 'descricao';
+        const visible = this._selectedClasse
+            ? this._items.filter(i => i.classe === this._selectedClasse)
+            : this._items;
+        const countEl = document.getElementById('abcm-count');
+        if (countEl) countEl.textContent = this._selectedClasse
+            ? `${visible.length} itens — Classe ${this._selectedClasse} (clique para ver todos)`
+            : `${this._items.length.toLocaleString('pt-BR')} itens analisados`;
+        document.querySelector('#abcm-table thead tr').innerHTML = `
+            <th style="width:40px;">#</th>
+            <th>${isDesc ? 'DESCRIÇÃO' : 'CÓDIGO'}</th>
+            <th>MODELO</th>
+            <th>MARCA</th>
+            <th>TAMANHO</th>
+            <th class="td-right">VENDAS</th>
+            <th class="td-right">% TOTAL</th>
+            <th class="td-right">% ACUM.</th>
+            <th class="td-center" style="width:80px;">CLASSE</th>
+        `;
+        document.querySelector('#abcm-table tbody').innerHTML = visible.map((r, i) => {
+            const cls     = `abc-${r.classe.toLowerCase()}`;
+            const cellCls = isDesc ? 'td-desc' : 'td-code';
+            const seg = vendas.rawData.find(v => (isDesc ? v.descricao : v.codigo) === r.label)?.segmento || '';
+            const clickAttr = isDesc
+                ? `onclick="abrirDetalhe('${r.label.replace(/'/g,"\\'")}','${seg.replace(/'/g,"\\'")}'); event.stopPropagation();" style="cursor:pointer;"`
+                : '';
+            return `<tr ${clickAttr} title="${isDesc ? 'Clique para ver detalhe' : ''}">
+                <td class="td-dim td-center">${i + 1}</td>
+                <td class="${cellCls}" style="${isDesc ? 'color:var(--indigo-primary);' : ''}">${r.label}</td>
+                <td style="font-size:0.75rem;color:var(--text-dim)">${r.modelo || '—'}</td>
+                <td style="font-size:0.75rem;color:var(--text-dim)">${r.marca  || '—'}</td>
+                <td style="font-size:0.72rem;color:var(--text-dim)">${r.tamanho || '—'}</td>
+                <td class="td-qtd">${r.quantidade.toLocaleString('pt-BR')}</td>
+                <td class="td-right td-dim">${r.pct.toFixed(2)}%</td>
+                <td class="td-right td-dim">${r.cumPct.toFixed(1)}%</td>
+                <td class="td-center"><span class="abc-badge ${cls}">${r.classe}</span></td>
+            </tr>`;
+        }).join('');
+    }
+};
+
 
 // ====== DASHBOARD: DISTRIBUIÇÃO POR CARACTERÍSTICA ======
 
