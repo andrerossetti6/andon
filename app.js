@@ -2519,7 +2519,11 @@ const abcMicro = {
         });
     },
 
-    render() {
+    async render() {
+        // Garante que o estoque está carregado
+        if (!estoque.rawData.length) {
+            await estoque.carregarHistorico();
+        }
         const countEl = document.getElementById('abcm-count');
         if (!vendas.rawData.length) {
             countEl.textContent = 'Importe dados de Vendas primeiro';
@@ -2744,9 +2748,12 @@ const abcMicro = {
         if (countEl) countEl.textContent = this._selectedClasse
             ? `${visible.length} itens — Classe ${this._selectedClasse} (clique para ver todos)`
             : `${this._items.length.toLocaleString('pt-BR')} itens analisados`;
-        // Mapa de estoque por código
+        // Mapa de estoque por código (normalizado para garantir match)
         const estMap = {};
-        estoque.rawData.forEach(r => { estMap[r.codigo] = Number(r.quantidade) || 0; });
+        estoque.rawData.forEach(r => {
+            const k = String(r.codigo || '').trim();
+            estMap[k] = (estMap[k] || 0) + (Number(r.quantidade) || 0);
+        });
 
         document.querySelector('#abcm-table thead tr').innerHTML = `
             <th style="width:40px;">#</th>
@@ -2767,7 +2774,7 @@ const abcMicro = {
             const clickAttr = isDesc
                 ? `onclick="abrirDetalhe('${r.label.replace(/'/g,"\\'")}','${seg.replace(/'/g,"\\'")}'); event.stopPropagation();" style="cursor:pointer;"`
                 : '';
-            const estQtd  = estMap[r.label];
+            const estQtd  = estMap[String(r.label || '').trim()];
             const estCell = estQtd !== undefined ? estQtd.toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>';
             return `<tr ${clickAttr} title="${isDesc ? 'Clique para ver detalhe' : ''}">
                 <td class="td-dim td-center">${i + 1}</td>
