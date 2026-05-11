@@ -270,6 +270,24 @@
         <!-- Data Section -->
         <div id="vendas-data">
 
+            <!-- Filters Bar — fixo no topo, abaixo de Importações Salvas -->
+            <div class="vendas-filters-bar" style="flex-shrink:0;">
+                <label>Segmento</label>
+                <select class="sigs-select" id="filter-segmento"><option value="">Todos</option></select>
+                <label>Marca</label>
+                <select class="sigs-select" id="filter-marca"><option value="">Todas</option></select>
+                <label>Modelo</label>
+                <select class="sigs-select" id="filter-modelo"><option value="">Todos</option></select>
+                <label>Tamanho</label>
+                <select class="sigs-select" id="filter-tamanho"><option value="">Todos</option></select>
+                <label>Descrição</label>
+                <select class="sigs-select" id="filter-descricao"><option value="">Todas</option></select>
+                <select class="sigs-select" id="filter-year" style="display:none;"></select>
+                <input type="text" class="sigs-input" id="search-input" placeholder="Buscar por código...">
+                <span class="table-count-label" id="table-count"></span>
+                <button class="btn secondary" id="clear-filters-btn">Limpar</button>
+            </div>
+
             <!-- Toggle Cards + Chart -->
             <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
                 <button id="btn-toggle-vendas-top" onclick="toggleVendasTop()" style="background:none;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#8b949e;font-size:0.75rem;padding:3px 10px;cursor:pointer;display:flex;align-items:center;gap:5px;">
@@ -303,24 +321,6 @@
                 </div>
                 <canvas id="vendas-chart"></canvas>
             </div>
-            </div>
-
-            <!-- Filters Bar -->
-            <div class="vendas-filters-bar">
-                <label>Segmento</label>
-                <select class="sigs-select" id="filter-segmento"><option value="">Todos</option></select>
-                <label>Marca</label>
-                <select class="sigs-select" id="filter-marca"><option value="">Todas</option></select>
-                <label>Modelo</label>
-                <select class="sigs-select" id="filter-modelo"><option value="">Todos</option></select>
-                <label>Tamanho</label>
-                <select class="sigs-select" id="filter-tamanho"><option value="">Todos</option></select>
-                <label>Descrição</label>
-                <select class="sigs-select" id="filter-descricao"><option value="">Todas</option></select>
-                <select class="sigs-select" id="filter-year" style="display:none;"></select>
-                <input type="text" class="sigs-input" id="search-input" placeholder="Buscar por código...">
-                <span class="table-count-label" id="table-count"></span>
-                <button class="btn secondary" id="clear-filters-btn">Limpar</button>
             </div>
 
             <!-- Data Table -->
