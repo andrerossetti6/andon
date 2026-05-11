@@ -412,20 +412,17 @@ function abrirDetalhe(descricao, segmento) {
     });
     setTimeout(() => drawDetailChart(monthTotals), 30);
 
-    // Tabela de tamanhos
+    // Tabela: Código | Modelo | Marca | Tamanho | Vendas | Estoque
     document.getElementById('detail-tbody').innerHTML = variants.map(r => {
         const vendQtd = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
         const estQtd  = estMap[r.codigo] ?? null;
-        let st, stCls;
-        if (estQtd === null)   { st = '—';           stCls = 'vxe-nd'; }
-        else if (estQtd === 0) { st = 'SEM ESTOQUE'; stCls = 'vxe-zero'; }
-        else if (vendQtd > 0 && estQtd / vendQtd < 0.2) { st = 'BAIXO'; stCls = 'vxe-baixo'; }
-        else                   { st = 'OK';          stCls = 'vxe-ok'; }
         return `<tr>
+            <td class="td-code">${r.codigo}</td>
+            <td>${r.modelo || '<span style="opacity:.3">—</span>'}</td>
+            <td>${r.marca  || '<span style="opacity:.3">—</span>'}</td>
             <td class="td-center"><strong>${r.tamanho}</strong></td>
             <td class="td-right">${vendQtd.toLocaleString('pt-BR')}</td>
-            <td class="td-right">${estQtd !== null ? estQtd.toLocaleString('pt-BR') : '—'}</td>
-            <td class="td-center"><span class="vxe-badge ${stCls}">${st}</span></td>
+            <td class="td-right">${estQtd !== null ? estQtd.toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>'}</td>
         </tr>`;
     }).join('');
 
