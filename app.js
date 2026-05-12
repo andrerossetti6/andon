@@ -1307,7 +1307,7 @@ const vendas = {
                 });
         }
 
-        const rows = displayRows.slice(0, 500);
+        const rows = displayRows.slice(0, 2000);
         table.querySelector('tbody').innerHTML = rows.map(r => `
             <tr onclick="abrirDetalhe('${r.descricao.replace(/'/g, "\\'")}','${r.segmento}')">
                 <td class="td-code">${r.codigo}</td>
@@ -1331,7 +1331,7 @@ const vendas = {
         `).join('');
 
         const total  = displayRows.length;
-        const suffix = total > 500 ? ' (exibindo 500)' : '';
+        const suffix = total > 2000 ? ' (exibindo 2.000)' : '';
         const mLabel = this.selectedMonth ? ` · ${this.selectedMonth.charAt(0).toUpperCase() + this.selectedMonth.slice(1)}` : '';
         document.getElementById('table-count').textContent =
             `${total.toLocaleString('pt-BR')} ${total === 1 ? 'item' : 'itens'}${mLabel}${suffix}`;
@@ -1587,7 +1587,7 @@ const estoque = {
             '<th class="td-right">QUANTIDADE</th>';
 
         // Linhas
-        const rows = this.filtered.slice(0, 500);
+        const rows = this.filtered.slice(0, 2000);
         table.querySelector('tbody').innerHTML = rows.map(r => {
             const zero = r.quantidade === 0;
             const cells = extraCols.map(h => {
@@ -1993,12 +1993,12 @@ const op = {
         document.getElementById('op-total').textContent     = total.toLocaleString('pt-BR');
         document.getElementById('op-qtd').textContent       = this._colQtd ? qtd.toLocaleString('pt-BR') : '—';
         document.getElementById('op-filtrados').textContent = filt.toLocaleString('pt-BR');
-        document.getElementById('op-count').textContent     = `${filt.toLocaleString('pt-BR')} ordens${filt > 500 ? ' (exibindo 500)' : ''}`;
+        document.getElementById('op-count').textContent     = `${filt.toLocaleString('pt-BR')} ordens${filt > 2000 ? ' (exibindo 2000)' : ''}`;
 
         const table = document.getElementById('op-table');
         table.querySelector('thead tr').innerHTML =
             this.colunas.map(h => `<th>${h.toUpperCase()}</th>`).join('');
-        table.querySelector('tbody').innerHTML = this.filtered.slice(0, 500).map(r => {
+        table.querySelector('tbody').innerHTML = this.filtered.slice(0, 2000).map(r => {
             const cells = this.colunas.map(h => {
                 const v = r.dados?.[h];
                 return `<td>${v !== undefined && v !== '' ? v : '<span style="opacity:.3">—</span>'}</td>`;
@@ -3044,14 +3044,15 @@ const vxe = {
         const periodoLabel = this.selectedTri
             ? this.selectedTri
             : this.selectedMes ? this.selectedMes.charAt(0).toUpperCase()+this.selectedMes.slice(1) : 'período';
+        const vxeTrunc = rows.length > 2000 ? ' (exibindo 2.000)' : '';
         document.getElementById('vxe-count').textContent =
-            `${rows.length.toLocaleString('pt-BR')} itens · média por ${periodoLabel}`;
+            `${rows.length.toLocaleString('pt-BR')} itens · média por ${periodoLabel}${vxeTrunc}`;
 
         const labels  = { ok: 'EQUILÍBRIO', critico: 'CRÍTICO', excesso: 'EXCESSO', 'sem-dados': '—' };
         const classes = { ok: 'vxe-ok', critico: 'vxe-zero', excesso: 'vxe-baixo', 'sem-dados': 'vxe-nd' };
 
         this._lastRows = rows;
-        document.querySelector('#vxe-table tbody').innerHTML = rows.slice(0, 500).map(r => `
+        document.querySelector('#vxe-table tbody').innerHTML = rows.slice(0, 2000).map(r => `
             <tr onclick="abrirDetalheVxe('${r.descricao.replace(/'/g,"\\'")}');" style="cursor:pointer;">
                 <td class="td-code" style="color:var(--indigo-primary);">${r.codigo}</td>
                 <td class="td-desc">${r.descricao}</td>
