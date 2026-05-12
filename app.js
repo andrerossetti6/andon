@@ -3210,12 +3210,7 @@ const abcCruzada = {
         }).sort((a, b) => b.vendasQty - a.vendasQty);
 
         document.getElementById('abcx-count').textContent = `${this._data.length.toLocaleString('pt-BR')} códigos analisados`;
-        this._renderCards();
         this._renderTable();
-        setTimeout(() => {
-            this._renderPareto('abcx-cv', vendasABC, vendasMap, 'Vendas');
-            this._renderPareto('abcx-ce', estoqABC,  estoqMap,  'Estoque');
-        }, 30);
     },
 
     _renderTable() {
