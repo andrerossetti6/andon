@@ -3061,8 +3061,8 @@ const vxe = {
             })
             .filter(r => !status || r.st === status)
             .sort((a, b) => {
-                const order = { critico: 0, ok: 1, excesso: 2, 'sem-dados': 3 };
-                return (order[a.st] ?? 9) - (order[b.st] ?? 9) || b.vendMedia - a.vendMedia;
+                const cob = r => r.vendMedia > 0 ? r.estProcesso / r.vendMedia : Infinity;
+                return cob(a) - cob(b);
             });
 
         const periodoLabel = this.selectedTri
