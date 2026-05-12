@@ -3468,7 +3468,31 @@ const ranking = {
 // ====== DASHBOARD: VENDAS × ESTOQUE ======
 
 const vxe = {
+    selectedYear: 'all',
+    selectedTri:  '',
+    selectedMes:  '',
+
     init() {
+        document.getElementById('vxe-year-tabs').addEventListener('click', e => {
+            const btn = e.target.closest('.year-tab');
+            if (!btn) return;
+            document.querySelectorAll('#vxe-year-tabs .year-tab').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            this.selectedYear = btn.dataset.year;
+            this.selectedTri  = ''; document.getElementById('vxe-tri').value = '';
+            this.selectedMes  = ''; document.getElementById('vxe-mes').value = '';
+            this.render();
+        });
+        document.getElementById('vxe-tri').addEventListener('change', e => {
+            this.selectedTri = e.target.value;
+            if (e.target.value) { this.selectedMes = ''; document.getElementById('vxe-mes').value = ''; }
+            this.render();
+        });
+        document.getElementById('vxe-mes').addEventListener('change', e => {
+            this.selectedMes = e.target.value;
+            if (e.target.value) { this.selectedTri = ''; document.getElementById('vxe-tri').value = ''; }
+            this.render();
+        });
         document.getElementById('vxe-seg').addEventListener('change',    () => this.render());
         document.getElementById('vxe-status').addEventListener('change', () => this.render());
     },
@@ -3479,11 +3503,41 @@ const vxe = {
             return;
         }
 
-        const activeCols = vendas.getActiveCols();
+        // Year tabs
+        const tabsEl = document.getElementById('vxe-year-tabs');
+        if (vendas.years.length === 1) this.selectedYear = vendas.years[0];
+        tabsEl.innerHTML = vendas.years.map(y =>
+            `<button class="year-tab${this.selectedYear === y ? ' active' : ''}" data-year="${y}">${y}</button>`
+        ).join('') + (vendas.years.length > 1
+            ? `<button class="year-tab${this.selectedYear === 'all' ? ' active' : ''}" data-year="all">Todos</button>` : '');
+
+        // Cols do período selecionado
+        const allCols = this.selectedYear === 'all' ? vendas.monthCols : vendas.monthCols.filter(c => c.year === this.selectedYear);
+        let activeCols, divisor;
+        if (this.selectedTri && TRIMESTRES[this.selectedTri]) {
+            activeCols = allCols.filter(c => TRIMESTRES[this.selectedTri].includes(c.abbr));
+            divisor = 3;
+        } else if (this.selectedMes) {
+            activeCols = allCols.filter(c => c.abbr === this.selectedMes);
+            divisor = 1;
+        } else {
+            activeCols = allCols;
+            divisor = activeCols.length || 1;
+        }
+
+        // Mês selector
+        const uniqueAbbrs = [...new Set(allCols.map(c => c.abbr))];
+        const mesEl = document.getElementById('vxe-mes');
+        const curMes = this.selectedMes;
+        mesEl.innerHTML = '<option value="">Todos</option>' +
+            MONTHS.filter(m => uniqueAbbrs.includes(m))
+                  .map(m => `<option value="${m}"${m === curMes ? ' selected' : ''}>${m.charAt(0).toUpperCase()+m.slice(1)}</option>`)
+                  .join('');
+
         const seg    = document.getElementById('vxe-seg').value;
         const status = document.getElementById('vxe-status').value;
 
-        // Preenche filtro de segmento
+        // Segmento
         const segs = [...new Set(vendas.rawData.map(r => r.segmento).filter(Boolean))].sort();
         const segEl = document.getElementById('vxe-seg');
         const cur = segEl.value;
@@ -3492,30 +3546,35 @@ const vxe = {
 
         // Mapa de estoque por código
         const estMap = {};
-        estoque.rawData.forEach(r => { estMap[r.codigo] = Number(r.quantidade) || 0; });
+        estoque.rawData.forEach(r => { estMap[String(r.codigo||'').trim()] = Number(r.quantidade) || 0; });
 
         const rows = vendas.rawData
             .filter(r => !seg || r.segmento === seg)
             .map(r => {
-                const vendQtd = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
-                const estQtd  = estMap[r.codigo] ?? null;
+                const vendTotal = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
+                const vendMedia = Math.round(vendTotal / divisor);
+                const estQtd   = estMap[String(r.codigo||'').trim()] ?? null;
                 let st = 'sem-dados';
                 if (estQtd !== null) {
-                    if (estQtd === 0)                                st = 'zero';
-                    else if (vendQtd > 0 && estQtd / vendQtd < 0.2) st = 'baixo';
-                    else                                              st = 'ok';
+                    if (estQtd === 0)                                    st = 'zero';
+                    else if (vendMedia > 0 && estQtd / vendMedia < 0.2) st = 'baixo';
+                    else                                                  st = 'ok';
                 }
-                return { ...r, vendQtd, estQtd, st };
+                return { ...r, vendTotal, vendMedia, estQtd, st };
             })
             .filter(r => !status || r.st === status)
             .sort((a, b) => {
                 const order = { zero: 0, baixo: 1, ok: 2, 'sem-dados': 3 };
-                return (order[a.st] ?? 9) - (order[b.st] ?? 9) || b.vendQtd - a.vendQtd;
+                return (order[a.st] ?? 9) - (order[b.st] ?? 9) || b.vendMedia - a.vendMedia;
             });
 
-        document.getElementById('vxe-count').textContent = `${rows.length.toLocaleString('pt-BR')} itens`;
+        const periodoLabel = this.selectedTri
+            ? this.selectedTri
+            : this.selectedMes ? this.selectedMes.charAt(0).toUpperCase()+this.selectedMes.slice(1) : 'período';
+        document.getElementById('vxe-count').textContent =
+            `${rows.length.toLocaleString('pt-BR')} itens · média por ${periodoLabel}`;
 
-        const labels = { ok: 'OK', baixo: 'BAIXO', zero: 'SEM ESTOQUE', 'sem-dados': '—' };
+        const labels  = { ok: 'OK', baixo: 'BAIXO', zero: 'SEM ESTOQUE', 'sem-dados': '—' };
         const classes = { ok: 'vxe-ok', baixo: 'vxe-baixo', zero: 'vxe-zero', 'sem-dados': 'vxe-nd' };
 
         document.querySelector('#vxe-table tbody').innerHTML = rows.slice(0, 500).map(r => `
@@ -3524,7 +3583,8 @@ const vxe = {
                 <td class="td-desc">${r.descricao}</td>
                 <td><span class="seg-badge">${r.segmento}</span></td>
                 <td class="td-center">${r.tamanho}</td>
-                <td class="td-qtd">${r.vendQtd.toLocaleString('pt-BR')}</td>
+                <td class="td-qtd">${r.vendTotal.toLocaleString('pt-BR')}</td>
+                <td class="td-qtd" style="color:var(--indigo-primary);">${r.vendMedia.toLocaleString('pt-BR')}</td>
                 <td class="td-qtd">${r.estQtd !== null ? r.estQtd.toLocaleString('pt-BR') : '—'}</td>
                 <td class="td-center"><span class="vxe-badge ${classes[r.st]}">${labels[r.st]}</span></td>
             </tr>`).join('');

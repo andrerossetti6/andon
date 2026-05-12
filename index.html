@@ -655,6 +655,17 @@
             </div>
         </header>
         <div class="vendas-filters-bar" style="flex-shrink:0;">
+            <div id="vxe-year-tabs" class="year-tabs"></div>
+            <label>Trimestre</label>
+            <select class="sigs-select" id="vxe-tri">
+                <option value="">Todos</option>
+                <option value="Q1">Q1 (Jan–Mar)</option>
+                <option value="Q2">Q2 (Abr–Jun)</option>
+                <option value="Q3">Q3 (Jul–Set)</option>
+                <option value="Q4">Q4 (Out–Dez)</option>
+            </select>
+            <label>Mês</label>
+            <select class="sigs-select" id="vxe-mes"><option value="">Todos</option></select>
             <label>Segmento</label>
             <select class="sigs-select" id="vxe-seg"><option value="">Todos</option></select>
             <label>Status</label>
@@ -673,7 +684,8 @@
                     <th>DESCRIÇÃO</th>
                     <th>SEGMENTO</th>
                     <th class="td-center">TAM.</th>
-                    <th class="td-right">VENDAS</th>
+                    <th class="td-right">TOTAL VENDAS</th>
+                    <th class="td-right">MÉDIA VENDAS</th>
                     <th class="td-right">ESTOQUE</th>
                     <th class="td-center">STATUS</th>
                 </tr></thead>
