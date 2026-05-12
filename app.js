@@ -716,9 +716,22 @@ const vendas = {
     parseXLS(file) {
         const reader = new FileReader();
         reader.onload = e => {
-            const workbook = XLSX.read(e.target.result, { type: 'array' });
+            const workbook = XLSX.read(e.target.result, { type: 'array', cellDates: true });
             const sheet = workbook.Sheets[workbook.SheetNames[0]];
-            const data = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+            // Converte cabeçalhos de data para ISO (ex: 2026-05-01) p/ detectMonthCols
+            const raw  = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
+            const fmt  = XLSX.utils.sheet_to_json(sheet, { defval: '', dateNF: 'yyyy-mm-dd', raw: false });
+            // Usa keys do fmt (datas formatadas) e valores do raw para colunas numéricas
+            if (!raw.length) { this.processData([]); return; }
+            const rawKeys = Object.keys(raw[0]);
+            const fmtKeys = Object.keys(fmt[0]);
+            const keyMap  = {};
+            rawKeys.forEach((k, i) => { keyMap[k] = fmtKeys[i] || k; });
+            const data = raw.map(row => {
+                const out = {};
+                Object.keys(row).forEach(k => { out[keyMap[k] || k] = row[k]; });
+                return out;
+            });
             this.processData(data);
         };
         reader.readAsArrayBuffer(file);
@@ -801,6 +814,19 @@ const vendas = {
                 if (m && BY_NUM[m[2]]) {
                     year = m[1];
                     abbr = BY_NUM[m[2]];
+                }
+            }
+
+            // 5) número serial do Excel (ex: 46017 = 2026-05-01)
+            if (!abbr && /^\d{4,6}$/.test(norm)) {
+                const serial = parseInt(norm);
+                if (serial > 40000 && serial < 60000) {
+                    const d = new Date(Math.round((serial - 25569) * 86400 * 1000));
+                    const y = d.getUTCFullYear(), mo = String(d.getUTCMonth() + 1).padStart(2,'0');
+                    if (y >= 2020 && y <= 2035 && BY_NUM[mo]) {
+                        year = String(y);
+                        abbr = BY_NUM[mo];
+                    }
                 }
             }
 
