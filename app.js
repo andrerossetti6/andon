@@ -3548,12 +3548,32 @@ const vxe = {
         const estMap = {};
         estoque.rawData.forEach(r => { estMap[String(r.codigo||'').trim()] = Number(r.quantidade) || 0; });
 
+        // Mapa de OP por código (soma quantidades em produção por código)
+        const opMap = {};
+        if (op.rawData.length && op.colunas.length) {
+            const normK = k => String(k).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+            const COD_KEYS = ['codigo','cod','codigodoproduto','cdproduto','cdprod','codprod'];
+            const QTD_KEYS = ['producao','quantidade','qtd','qty','qtde','aproduzir','pecas'];
+            const codCol = op.colunas.find(c => COD_KEYS.includes(normK(c)));
+            const qtdCol = op._colQtd || op.colunas.find(c => QTD_KEYS.includes(normK(c)));
+            if (codCol && qtdCol) {
+                op.rawData.forEach(r => {
+                    const cod = String(r.dados?.[codCol] || '').trim();
+                    const qty = Number(String(r.dados?.[qtdCol] || '').replace(/[^\d.-]/g,'')) || 0;
+                    if (cod) opMap[cod] = (opMap[cod] || 0) + qty;
+                });
+            }
+        }
+
         const rows = vendas.rawData
             .filter(r => !seg || r.segmento === seg)
             .map(r => {
-                const vendTotal = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
-                const vendMedia = Math.round(vendTotal / divisor);
-                const estQtd   = estMap[String(r.codigo||'').trim()] ?? null;
+                const vendTotal  = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
+                const vendMedia  = Math.round(vendTotal / divisor);
+                const cod        = String(r.codigo||'').trim();
+                const estQtd     = estMap[cod] ?? null;
+                const opQtd      = opMap[cod]  || 0;
+                const estProcesso = (estQtd || 0) + opQtd;
                 let st = 'sem-dados';
                 if (estQtd !== null) {
                     if (estQtd === 0)                                    st = 'zero';
@@ -3586,6 +3606,7 @@ const vxe = {
                 <td class="td-qtd">${r.vendTotal.toLocaleString('pt-BR')}</td>
                 <td class="td-qtd" style="color:var(--indigo-primary);">${r.vendMedia.toLocaleString('pt-BR')}</td>
                 <td class="td-qtd">${r.estQtd !== null ? r.estQtd.toLocaleString('pt-BR') : '—'}</td>
+                <td class="td-qtd" style="color:#2ea043;">${r.estProcesso.toLocaleString('pt-BR')}</td>
                 <td class="td-center"><span class="vxe-badge ${classes[r.st]}">${labels[r.st]}</span></td>
             </tr>`).join('');
     }
