@@ -3580,7 +3580,7 @@ const vxe = {
                     else if (vendMedia > 0 && estQtd / vendMedia < 0.2) st = 'baixo';
                     else                                                  st = 'ok';
                 }
-                return { ...r, vendTotal, vendMedia, estQtd, st };
+                return { ...r, vendTotal, vendMedia, estQtd, estProcesso, st };
             })
             .filter(r => !status || r.st === status)
             .sort((a, b) => {
