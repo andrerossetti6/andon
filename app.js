@@ -1141,6 +1141,26 @@ const vendas = {
     showDataSection() {
         document.getElementById('drop-zone').style.display = 'none';
         document.getElementById('vendas-data').classList.add('visible');
+        const btnSalvar = document.getElementById('btn-salvar-vendas');
+        if (btnSalvar) btnSalvar.style.display = '';
+    },
+
+    async salvarManual() {
+        if (!this.rawData.length) return;
+        const btn = document.getElementById('btn-salvar-vendas');
+        if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
+        try {
+            const lista = await api.listarImportacoes();
+            if (lista?.length) {
+                document.getElementById('modal-arquivo').textContent = this._nomeArquivoAtual || 'importacao';
+                document.getElementById('import-modal').dataset.modulo = 'vendas';
+                document.getElementById('import-modal').style.display = 'flex';
+            } else {
+                await this.salvarImportacao('nova');
+            }
+        } finally {
+            if (btn) { btn.disabled = false; btn.textContent = 'Salvar'; }
+        }
     },
 
     render() {
