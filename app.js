@@ -716,22 +716,30 @@ const vendas = {
     parseXLS(file) {
         const reader = new FileReader();
         reader.onload = e => {
-            const workbook = XLSX.read(e.target.result, { type: 'array', cellDates: true });
+            const workbook = XLSX.read(e.target.result, { type: 'array' });
             const sheet = workbook.Sheets[workbook.SheetNames[0]];
-            // Converte cabeçalhos de data para ISO (ex: 2026-05-01) p/ detectMonthCols
-            const raw  = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: true });
-            const fmt  = XLSX.utils.sheet_to_json(sheet, { defval: '', dateNF: 'yyyy-mm-dd', raw: false });
-            // Usa keys do fmt (datas formatadas) e valores do raw para colunas numéricas
-            if (!raw.length) { this.processData([]); return; }
-            const rawKeys = Object.keys(raw[0]);
-            const fmtKeys = Object.keys(fmt[0]);
-            const keyMap  = {};
-            rawKeys.forEach((k, i) => { keyMap[k] = fmtKeys[i] || k; });
-            const data = raw.map(row => {
-                const out = {};
-                Object.keys(row).forEach(k => { out[keyMap[k] || k] = row[k]; });
-                return out;
+
+            // header:1 retorna arrays → sem reordenação de chaves numéricas pelo JS
+            const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true,  defval: '' });
+            const fmtRows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '', dateNF: 'yyyy-mm-dd' });
+            if (rawRows.length < 2) { this.processData([]); return; }
+
+            const rawH = rawRows[0]; // [val1, val2, ...] em ordem de coluna
+            const fmtH = fmtRows[0];
+
+            // keyMap: valor raw do cabeçalho → chave formatada (datas viram "2026-05-01")
+            const keyMap = {};
+            rawH.forEach((rv, i) => { keyMap[String(rv ?? '')] = String(fmtH[i] ?? rv ?? ''); });
+
+            const data = rawRows.slice(1).map(arr => {
+                const obj = {};
+                rawH.forEach((rv, i) => {
+                    const k = keyMap[String(rv ?? '')] || String(rv ?? '');
+                    if (k) obj[k] = arr[i] ?? '';
+                });
+                return obj;
             });
+
             this.processData(data);
         };
         reader.readAsArrayBuffer(file);
