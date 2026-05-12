@@ -3397,7 +3397,7 @@ const ranking = {
 
         // Agrega por grupo escolhido
         const map = {};
-        vendas.rawData.filter(r => !seg || r.segmento === seg).forEach(r => {
+        vendas.rawData.filter(r => (!seg || r.segmento === seg) && (!search || r.codigo.toLowerCase().includes(search))).forEach(r => {
             const key   = r[grupo] || r.codigo;
             const label = grupo === 'descricao' ? (r.descricao || r.codigo) : r.codigo;
             const qtd   = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
@@ -3495,6 +3495,7 @@ const vxe = {
         });
         document.getElementById('vxe-seg').addEventListener('change',    () => this.render());
         document.getElementById('vxe-status').addEventListener('change', () => this.render());
+        document.getElementById('vxe-search').addEventListener('input', () => this.render());
     },
 
     render() {
@@ -3536,6 +3537,7 @@ const vxe = {
 
         const seg    = document.getElementById('vxe-seg').value;
         const status = document.getElementById('vxe-status').value;
+        const search = document.getElementById('vxe-search').value.toLowerCase().trim();
 
         // Segmento
         const segs = [...new Set(vendas.rawData.map(r => r.segmento).filter(Boolean))].sort();
