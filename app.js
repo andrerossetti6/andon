@@ -3044,7 +3044,7 @@ const vxe = {
         }
 
         const rows = vendas.rawData
-            .filter(r => (!marca || _getMarca(r) === marca) && (!seg || r.segmento === seg) && (!search || String(r.codigo||"").toLowerCase().includes(search)))
+            .filter(r => (!marca || _getMarca(r) === marca) && (!modelo || String(r.modelo||"").trim() === modelo) && (!seg || r.segmento === seg) && (!search || String(r.codigo||"").toLowerCase().includes(search)))
             .map(r => {
                 const vendTotal  = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
                 const vendMedia  = Math.round(vendTotal / divisor);
