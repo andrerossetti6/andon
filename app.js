@@ -551,10 +551,14 @@ function navigateTo(viewName) {
     document.querySelectorAll('.sub-menu li').forEach(li => li.classList.remove('sub-active'));
 
     const navMap = {
-        vendas: 'nav-analise', estoque: 'nav-analise', op: 'nav-analise',
-        ranking: 'nav-ranking', vxe: 'nav-vxe', dashboard: 'nav-analise',
-        abc: 'nav-abc-cruzada', dist: 'nav-dist', 'dash-op': 'nav-dash-op',
-        'abc-cruzada': 'nav-abc-cruzada', 'abc-estoque': 'nav-abc-cruzada'
+        vendas:        'nav-analise',
+        estoque:       'nav-analise',
+        op:            'nav-analise',
+        vxe:           'nav-vxe',
+        dashboard:     'nav-analise',
+        abc:           'nav-abc-cruzada',
+        'abc-micro':   'nav-abc-cruzada',
+        'abc-estoque': 'nav-abc-cruzada'
     };
     const navEl = document.getElementById(navMap[viewName]);
     if (navEl) navEl.classList.add('active');
