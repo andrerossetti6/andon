@@ -585,6 +585,18 @@
             <input type="text" class="sigs-input" id="vxe-search" placeholder="Buscar por código..." style="width:220px;">
             <span class="table-count-label" id="vxe-count"></span>
         </div>
+        <!-- Cards resumo -->
+        <div style="display:flex;gap:12px;flex-shrink:0;">
+            <div class="summary-card" style="flex:1;padding:14px 20px;">
+                <span class="s-label" style="margin-bottom:6px;">TOTAL VENDAS</span>
+                <span class="s-value" style="font-size:1.4rem;" id="vxe-card-vendas">—</span>
+            </div>
+            <div class="summary-card" style="flex:1;padding:14px 20px;">
+                <span class="s-label" style="margin-bottom:6px;">EST. + PROCESSO</span>
+                <span class="s-value" style="font-size:1.4rem;color:#2ea043;" id="vxe-card-estprocesso">—</span>
+            </div>
+        </div>
+
         <div class="vendas-table-wrap" style="flex:1;min-height:0;">
             <table class="vendas-table estoque-table-full" id="vxe-table">
                 <thead><tr>

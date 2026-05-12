@@ -3067,6 +3067,12 @@ const vxe = {
         const labels  = { ok: 'EQUILÍBRIO', critico: 'CRÍTICO', excesso: 'EXCESSO', 'sem-dados': '—' };
         const classes = { ok: 'vxe-ok', critico: 'vxe-zero', excesso: 'vxe-baixo', 'sem-dados': 'vxe-nd' };
 
+        // Atualiza cards de resumo
+        const totalVendas   = rows.reduce((s, r) => s + r.vendTotal, 0);
+        const totalEstProc  = rows.reduce((s, r) => s + r.estProcesso, 0);
+        document.getElementById('vxe-card-vendas').textContent      = totalVendas.toLocaleString('pt-BR');
+        document.getElementById('vxe-card-estprocesso').textContent = totalEstProc.toLocaleString('pt-BR');
+
         this._lastRows = rows;
         document.querySelector('#vxe-table tbody').innerHTML = rows.slice(0, 2000).map(r => `
             <tr onclick="abrirDetalheVxe('${r.descricao.replace(/'/g,"\\'")}');" style="cursor:pointer;">
