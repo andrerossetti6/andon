@@ -793,6 +793,17 @@ const vendas = {
                 }
             }
 
+            // 4) formato data ISO: yyyymmdd ou yyyy-mm (ex: "20260501", "2026-05")
+            if (!abbr) {
+                const isoFull  = norm.match(/^(20\d{2})(\d{2})\d{2}$/);
+                const isoShort = norm.match(/^(20\d{2})[-\/]?(\d{2})$/);
+                const m = isoFull || isoShort;
+                if (m && BY_NUM[m[2]]) {
+                    year = m[1];
+                    abbr = BY_NUM[m[2]];
+                }
+            }
+
             if (abbr) {
                 const key   = year ? `${abbr}_${year}` : abbr;
                 const mLbl  = abbr.charAt(0).toUpperCase() + abbr.slice(1);
