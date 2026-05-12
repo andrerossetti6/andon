@@ -3101,8 +3101,33 @@ const abcCruzada = {
     _data: [],
     _scatterPts: [],
 
+    selectedYear:  'all',
+    selectedTri:   '',
+    selectedMes:   '',
+
     init() {
-        document.getElementById('abcx-year').addEventListener('change', () => this.render());
+        document.getElementById('abcx-year-tabs').addEventListener('click', e => {
+            const btn = e.target.closest('.year-tab');
+            if (!btn) return;
+            document.querySelectorAll('#abcx-year-tabs .year-tab').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            this.selectedYear = btn.dataset.year;
+            this.selectedTri  = '';
+            this.selectedMes  = '';
+            document.getElementById('abcx-tri').value = '';
+            document.getElementById('abcx-mes').value = '';
+            this.render();
+        });
+        document.getElementById('abcx-tri').addEventListener('change', e => {
+            this.selectedTri = e.target.value;
+            if (e.target.value) { this.selectedMes = ''; document.getElementById('abcx-mes').value = ''; }
+            this.render();
+        });
+        document.getElementById('abcx-mes').addEventListener('change', e => {
+            this.selectedMes = e.target.value;
+            if (e.target.value) { this.selectedTri = ''; document.getElementById('abcx-tri').value = ''; }
+            this.render();
+        });
     },
 
     render() {
@@ -3116,18 +3141,42 @@ const abcCruzada = {
         }
         document.getElementById('abcx-aviso').style.display = 'none';
 
-        this._populaAno();
-        const yearSel = document.getElementById('abcx-year').value || 'all';
+        // Year tabs
+        const tabsEl = document.getElementById('abcx-year-tabs');
+        if (vendas.years.length === 1) this.selectedYear = vendas.years[0];
+        tabsEl.innerHTML = vendas.years.map(y =>
+            `<button class="year-tab${this.selectedYear === y ? ' active' : ''}" data-year="${y}">${y}</button>`
+        ).join('') + (vendas.years.length > 1
+            ? `<button class="year-tab${this.selectedYear === 'all' ? ' active' : ''}" data-year="all">Todos</button>` : '');
+
+        // Mês selector
+        const allCols = this.selectedYear === 'all' ? vendas.monthCols : vendas.monthCols.filter(c => c.year === this.selectedYear);
+        const uniqueAbbrs = [...new Set(allCols.map(c => c.abbr))];
+        document.getElementById('abcx-mes').innerHTML = '<option value="">Todos</option>' +
+            MONTHS.filter(m => uniqueAbbrs.includes(m))
+                  .map(m => `<option value="${m}"${this.selectedMes === m ? ' selected' : ''}>${m.charAt(0).toUpperCase()+m.slice(1)}</option>`)
+                  .join('');
+
+        // Active cols com filtro
+        let activeCols, divisor;
+        if (this.selectedTri && TRIMESTRES[this.selectedTri]) {
+            activeCols = allCols.filter(c => TRIMESTRES[this.selectedTri].includes(c.abbr));
+            divisor = 3;
+        } else if (this.selectedMes) {
+            activeCols = allCols.filter(c => c.abbr === this.selectedMes);
+            divisor = 1;
+        } else {
+            activeCols = allCols;
+            divisor = 1;
+        }
 
         // Agrupa vendas por código
         const vendasMap = {};
-        const descMap   = {};
+        const metaMap   = {}; // codigo → { descricao, modelo, marca, tamanho }
         vendas.rawData.forEach(r => {
-            const qty = yearSel === 'all'
-                ? vendas.monthCols.reduce((s, c) => s + (r[c.key] || 0), 0)
-                : vendas.monthCols.filter(c => c.year === yearSel).reduce((s, c) => s + (r[c.key] || 0), 0);
+            const qty = Math.round(activeCols.reduce((s, c) => s + (r[c.key] || 0), 0) / divisor);
             vendasMap[r.codigo] = (vendasMap[r.codigo] || 0) + qty;
-            if (!descMap[r.codigo]) descMap[r.codigo] = r.descricao || r.codigo;
+            if (!metaMap[r.codigo]) metaMap[r.codigo] = { descricao: r.descricao || '', modelo: r.modelo || '', marca: r.marca || '', tamanho: r.tamanho || '' };
         });
 
         // Agrupa estoque por código
@@ -3139,14 +3188,18 @@ const abcCruzada = {
         const vendasABC = this._calcABC(vendasMap);
         const estoqABC  = this._calcABC(estoqMap);
 
-        // Cruza apenas produtos em ambas as bases
+        // Cruza produtos em ambas as bases
         const codes = [...new Set([...Object.keys(vendasMap), ...Object.keys(estoqMap)])].filter(c => c);
         this._data = codes.map(codigo => {
-            const v = vendasABC[codigo] || { cumPct: 100, classe: 'C', valor: 0 };
-            const e = estoqABC[codigo]  || { cumPct: 100, classe: 'C', valor: 0 };
+            const v   = vendasABC[codigo] || { cumPct: 100, classe: 'C', valor: 0 };
+            const e   = estoqABC[codigo]  || { cumPct: 100, classe: 'C', valor: 0 };
+            const meta = metaMap[codigo] || {};
             return {
                 codigo,
-                descricao:   descMap[codigo] || codigo,
+                descricao:   meta.descricao || codigo,
+                modelo:      meta.modelo    || '',
+                marca:       meta.marca     || '',
+                tamanho:     meta.tamanho   || '',
                 vendasQty:   vendasMap[codigo] || 0,
                 estoqQty:    estoqMap[codigo]  || 0,
                 vendaClass:  v.classe,
@@ -3154,14 +3207,48 @@ const abcCruzada = {
                 vendaCumPct: v.cumPct,
                 estoqCumPct: e.cumPct,
             };
-        });
+        }).sort((a, b) => b.vendasQty - a.vendasQty);
 
+        document.getElementById('abcx-count').textContent = `${this._data.length.toLocaleString('pt-BR')} códigos analisados`;
         this._renderCards();
+        this._renderTable();
         setTimeout(() => {
             this._renderPareto('abcx-cv', vendasABC, vendasMap, 'Vendas');
             this._renderPareto('abcx-ce', estoqABC,  estoqMap,  'Estoque');
             this._renderScatter();
         }, 30);
+    },
+
+    _renderTable() {
+        const QUAD = {
+            'AA': { label: 'Equilíbrio',      color: '#2ea043' },
+            'AB': { label: 'Atenção Estoque',  color: '#d29922' },
+            'AC': { label: 'Risco Ruptura',    color: '#f85149' },
+            'BA': { label: 'Estoque Alto',     color: '#d29922' },
+            'BB': { label: 'Normal',           color: '#8b949e' },
+            'BC': { label: 'Estoque Baixo',    color: '#8b949e' },
+            'CA': { label: 'Estoque Parado',   color: '#d29922' },
+            'CB': { label: 'Normal',           color: '#8b949e' },
+            'CC': { label: 'Baixo Giro',       color: '#8b949e' },
+        };
+        document.querySelector('#abcx-table tbody').innerHTML = this._data.map(r => {
+            const q    = r.vendaClass + r.estoqClass;
+            const quad = QUAD[q] || { label: q, color: '#8b949e' };
+            const vcls = `abc-${r.vendaClass.toLowerCase()}`;
+            const ecls = `abc-${r.estoqClass.toLowerCase()}`;
+            return `<tr>
+                <td class="td-code">${r.codigo}</td>
+                <td class="td-desc">${r.descricao}</td>
+                <td style="font-size:0.75rem;color:var(--text-dim)">${r.modelo || '—'}</td>
+                <td style="font-size:0.75rem;color:var(--text-dim)">${r.marca  || '—'}</td>
+                <td class="td-center" style="font-size:0.75rem;">${r.tamanho || '—'}</td>
+                <td class="td-qtd">${r.vendasQty.toLocaleString('pt-BR')}</td>
+                <td class="td-center"><span class="abc-badge ${vcls}">${r.vendaClass}</span></td>
+                <td class="td-right">${r.estoqQty.toLocaleString('pt-BR')}</td>
+                <td class="td-center"><span class="abc-badge ${ecls}">${r.estoqClass}</span></td>
+                <td class="td-center"><span style="font-size:0.72rem;color:${quad.color};font-weight:600;">${quad.label}</span></td>
+            </tr>`;
+        }).join('');
     },
 
     _calcABC(map) {
@@ -3177,13 +3264,7 @@ const abcCruzada = {
         return result;
     },
 
-    _populaAno() {
-        const sel = document.getElementById('abcx-year');
-        if (sel.dataset.loaded === 'yes') return;
-        sel.innerHTML = (vendas.years.length > 1 ? '<option value="all">Todos os anos</option>' : '') +
-            vendas.years.map(y => `<option value="${y}">${y}</option>`).join('');
-        sel.dataset.loaded = 'yes';
-    },
+
 
     _renderCards() {
         let AA = 0, AC = 0, CA = 0, CC = 0;

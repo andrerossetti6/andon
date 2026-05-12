@@ -580,12 +580,25 @@
         <header class="page-header">
             <div class="page-header-text">
                 <h1 class="page-title">ABC <span>Cruzada</span></h1>
-                <p class="page-subtitle">Vendas × Estoque — análise de portfólio por produto</p>
-            </div>
-            <div class="page-header-actions">
-                <select class="sigs-select" id="abcx-year"></select>
+                <p class="page-subtitle">Vendas × Estoque — análise de portfólio por produto (código a código)</p>
             </div>
         </header>
+
+        <!-- Filtros -->
+        <div class="vendas-filters-bar" style="flex-shrink:0;">
+            <div id="abcx-year-tabs" class="year-tabs"></div>
+            <label>Trimestre</label>
+            <select class="sigs-select" id="abcx-tri">
+                <option value="">Todos</option>
+                <option value="Q1">Q1 (Jan–Mar)</option>
+                <option value="Q2">Q2 (Abr–Jun)</option>
+                <option value="Q3">Q3 (Jul–Set)</option>
+                <option value="Q4">Q4 (Out–Dez)</option>
+            </select>
+            <label>Mês</label>
+            <select class="sigs-select" id="abcx-mes"><option value="">Todos</option></select>
+            <span class="table-count-label" id="abcx-count"></span>
+        </div>
 
         <p id="abcx-aviso" style="color:var(--text-dim);padding:20px;display:none;"></p>
 
@@ -593,7 +606,7 @@
         <div class="vendas-summary" id="abcx-cards" style="flex-shrink:0;"></div>
 
         <!-- Dois paretos lado a lado -->
-        <div style="display:flex;gap:16px;flex-shrink:0;height:240px;">
+        <div style="display:flex;gap:16px;flex-shrink:0;height:220px;">
             <div class="chart-card" style="flex:1;min-height:0;padding:0 12px 12px;">
                 <canvas id="abcx-cv" style="width:100%;height:100%;display:block;"></canvas>
             </div>
@@ -603,9 +616,28 @@
         </div>
 
         <!-- Scatter plot -->
-        <div class="chart-card" style="flex:1;min-height:240px;position:relative;padding:0 12px 12px;">
+        <div class="chart-card" style="flex-shrink:0;height:220px;position:relative;padding:0 12px 12px;">
             <canvas id="abcx-scatter" style="width:100%;height:100%;display:block;"></canvas>
             <div id="abcx-tip" style="position:absolute;display:none;background:#1c2128;border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:8px 12px;font-size:0.75rem;color:var(--text-main);pointer-events:none;z-index:10;max-width:280px;line-height:1.5;"></div>
+        </div>
+
+        <!-- Tabela cruzada -->
+        <div class="vendas-table-wrap" style="flex:1;min-height:0;">
+            <table class="vendas-table" id="abcx-table">
+                <thead><tr>
+                    <th>CÓDIGO</th>
+                    <th>DESCRIÇÃO</th>
+                    <th>MODELO</th>
+                    <th>MARCA</th>
+                    <th class="td-center">TAM.</th>
+                    <th class="td-right">VENDAS</th>
+                    <th class="td-center">ABC VENDAS</th>
+                    <th class="td-right">ESTOQUE</th>
+                    <th class="td-center">ABC ESTOQUE</th>
+                    <th class="td-center">QUADRANTE</th>
+                </tr></thead>
+                <tbody></tbody>
+            </table>
         </div>
     </main>
 
