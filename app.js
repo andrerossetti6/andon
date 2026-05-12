@@ -3609,7 +3609,12 @@ const vxe = {
                 <td class="td-qtd" style="color:var(--indigo-primary);">${r.vendMedia.toLocaleString('pt-BR')}</td>
                 <td class="td-qtd">${r.estQtd !== null ? r.estQtd.toLocaleString('pt-BR') : '—'}</td>
                 <td class="td-qtd" style="color:#2ea043;">${r.estProcesso.toLocaleString('pt-BR')}</td>
-                <td class="td-right">${r.vendMedia > 0 ? (r.estProcesso / r.vendMedia).toFixed(1) + ' meses' : '—'}</td>
+                <td class="td-right">${(() => {
+                    if (r.vendMedia <= 0) return '—';
+                    const cob = r.estProcesso / r.vendMedia;
+                    const cor = cob < 1 ? '#f85149' : cob <= 3 ? '#2ea043' : '#d29922';
+                    return `<span style="color:${cor};font-weight:600;">${cob.toFixed(1)} meses</span>`;
+                })()}</td>
                 <td class="td-center"><span class="vxe-badge ${classes[r.st]}">${labels[r.st]}</span></td>
             </tr>`).join('');
     }
