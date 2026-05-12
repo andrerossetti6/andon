@@ -670,6 +670,10 @@ const vendas = {
             document.getElementById(id).addEventListener('change', () => this.applyFilters());
         });
         document.getElementById('search-input').addEventListener('input', () => this.applyFilters());
+        document.getElementById('filter-mes').addEventListener('change', e => {
+            this.selectedMonth = e.target.value || null;
+            this.render();
+        });
         document.getElementById('filter-year').addEventListener('change', e => {
             this.selectedYear = e.target.value;
             this.render();
@@ -680,9 +684,11 @@ const vendas = {
             document.getElementById('filter-modelo').value    = '';
             document.getElementById('filter-tamanho').value   = '';
             document.getElementById('filter-descricao').value = '';
+            document.getElementById('filter-mes').value       = '';
             document.getElementById('search-input').value     = '';
             document.getElementById('filter-year').value      = 'all';
-            this.selectedYear = 'all';
+            this.selectedYear  = 'all';
+            this.selectedMonth = null;
             this.applyFilters();
         });
     },
@@ -1051,6 +1057,15 @@ const vendas = {
         this.fillSelect('filter-modelo',   unique('modelo'));
         this.fillSelect('filter-tamanho',  unique('tamanho'));
         this.fillSelectLabel('filter-descricao', unique('descricao'), 'Todas');
+
+        // Popula filtro de mês
+        const mesEl = document.getElementById('filter-mes');
+        const curMes = this.selectedMonth || '';
+        const uniqueAbbrs = [...new Set(this.monthCols.map(c => c.abbr))];
+        mesEl.innerHTML = '<option value="">Todos</option>' +
+            MONTHS.filter(m => uniqueAbbrs.includes(m))
+                  .map(m => `<option value="${m}"${m === curMes ? ' selected' : ''}>${m.charAt(0).toUpperCase()+m.slice(1)}</option>`)
+                  .join('');
 
         const tabs = document.getElementById('year-tabs');
         if (this.years.length > 0) {
