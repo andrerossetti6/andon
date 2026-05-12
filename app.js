@@ -3056,6 +3056,7 @@ const vxe = {
             <tr onclick="abrirDetalheVxe('${r.descricao.replace(/'/g,"\\'")}');" style="cursor:pointer;">
                 <td class="td-code" style="color:var(--indigo-primary);">${r.codigo}</td>
                 <td class="td-desc">${r.descricao}</td>
+                <td style="font-size:0.75rem;">${r.marca || '<span style="opacity:.3">—</span>'}</td>
                 <td><span class="seg-badge">${r.segmento}</span></td>
                 <td class="td-center">${r.tamanho}</td>
                 <td class="td-qtd">${r.vendTotal.toLocaleString('pt-BR')}</td>
