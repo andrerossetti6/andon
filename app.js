@@ -3076,8 +3076,10 @@ const vxe = {
         const classes = { ok: 'vxe-ok', critico: 'vxe-zero', excesso: 'vxe-baixo', 'sem-dados': 'vxe-nd' };
 
         // Atualiza cards de resumo
+        const totalSkus     = rows.length;
         const totalVendas   = rows.reduce((s, r) => s + r.vendTotal, 0);
         const totalEstProc  = rows.reduce((s, r) => s + r.estProcesso, 0);
+        document.getElementById('vxe-card-skus').textContent        = totalSkus.toLocaleString('pt-BR');
         document.getElementById('vxe-card-vendas').textContent      = totalVendas.toLocaleString('pt-BR');
         document.getElementById('vxe-card-estprocesso').textContent = totalEstProc.toLocaleString('pt-BR');
 
