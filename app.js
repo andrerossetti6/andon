@@ -3215,7 +3215,6 @@ const abcCruzada = {
         setTimeout(() => {
             this._renderPareto('abcx-cv', vendasABC, vendasMap, 'Vendas');
             this._renderPareto('abcx-ce', estoqABC,  estoqMap,  'Estoque');
-            this._renderScatter();
         }, 30);
     },
 
@@ -3369,101 +3368,6 @@ const abcCruzada = {
         });
     },
 
-    _renderScatter() {
-        const canvas = document.getElementById('abcx-scatter');
-        if (!canvas || !this._data.length) return;
-        const ctx = canvas.getContext('2d');
-        canvas.width  = canvas.offsetWidth  || 700;
-        canvas.height = canvas.offsetHeight || 340;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        const W = canvas.width, H = canvas.height;
-        const padL = 60, padR = 20, padT = 30, padB = 50;
-        const chartW = W - padL - padR, chartH = H - padT - padB;
-
-        // Título
-        ctx.fillStyle = 'rgba(230,237,243,0.8)';
-        ctx.font = 'bold 12px Inter';
-        ctx.textAlign = 'center';
-        ctx.fillText('Dispersão: Rank Vendas × Rank Estoque', padL + chartW / 2, 16);
-
-        // Linha de corte dos quadrantes (80%)
-        const xCut = padL + chartW * 0.80;
-        const yCut = padT + chartH * (1 - 0.80); // y invertido
-
-        // Quadrantes coloridos
-        const zones = [
-            { x: padL,  y: padT,    w: xCut - padL,          h: yCut - padT,           fill: 'rgba(248,81,73,0.08)',   label: '🚨 Ruptura',    lx: padL + 4,    ly: padT + 14,   align: 'left'  },
-            { x: padL,  y: yCut,    w: xCut - padL,           h: chartH - (yCut - padT), fill: 'rgba(46,160,67,0.08)',  label: '✅ Equilíbrio', lx: padL + 4,    ly: padT + chartH - 6, align: 'left'  },
-            { x: xCut,  y: padT,    w: chartW - (xCut - padL), h: yCut - padT,           fill: 'rgba(139,148,158,0.05)', label: '⚪ Normal',   lx: padL + chartW - 4, ly: padT + 14,  align: 'right' },
-            { x: xCut,  y: yCut,    w: chartW - (xCut - padL), h: chartH - (yCut - padT), fill: 'rgba(210,153,34,0.08)', label: '⚠️ Parado',  lx: padL + chartW - 4, ly: padT + chartH - 6, align: 'right' },
-        ];
-        zones.forEach(z => {
-            ctx.fillStyle = z.fill;
-            ctx.fillRect(z.x, z.y, z.w, z.h);
-            ctx.fillStyle = z.fill.replace('0.08', '0.7').replace('0.05', '0.4');
-            ctx.font = '11px Inter';
-            ctx.textAlign = z.align;
-            ctx.fillText(z.label, z.lx, z.ly);
-        });
-
-        // Linhas de corte
-        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath();
-        ctx.moveTo(xCut, padT); ctx.lineTo(xCut, padT + chartH);
-        ctx.moveTo(padL, yCut); ctx.lineTo(padL + chartW, yCut);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Eixos labels
-        ctx.fillStyle = 'rgba(139,148,158,0.7)';
-        ctx.font = '11px Inter';
-        ctx.textAlign = 'center';
-        ctx.fillText('← Melhor Venda (A)          Rank Vendas          Pior Venda (C) →', padL + chartW / 2, padT + chartH + 38);
-        ctx.save();
-        ctx.translate(16, padT + chartH / 2);
-        ctx.rotate(-Math.PI / 2);
-        ctx.fillText('← Maior Estoque (A)   Rank Estoque   Menor Estoque (C) →', 0, 0);
-        ctx.restore();
-
-        // Pontos
-        this._scatterPts = [];
-        this._data.forEach(d => {
-            const x = padL + (d.vendaCumPct / 100) * chartW;
-            const y = padT + chartH * (1 - d.estoqCumPct / 100);
-            const color = d.vendaClass === 'A' && d.estoqClass === 'A' ? '#2ea043'
-                        : d.vendaClass === 'A'                          ? '#f85149'
-                        : d.estoqClass === 'A'                          ? '#d29922'
-                        : '#8b949e';
-            ctx.beginPath();
-            ctx.arc(x, y, 4, 0, Math.PI * 2);
-            ctx.fillStyle = color + 'bb';
-            ctx.fill();
-            this._scatterPts.push({ x, y, ...d });
-        });
-
-        // Tooltip handler
-        canvas.onmousemove = e => {
-            const rect = canvas.getBoundingClientRect();
-            const mx = (e.clientX - rect.left) * (canvas.width / rect.width);
-            const my = (e.clientY - rect.top)  * (canvas.height / rect.height);
-            const tip = document.getElementById('abcx-tip');
-            const pt  = this._scatterPts.find(p => Math.hypot(p.x - mx, p.y - my) < 7);
-            if (pt) {
-                tip.style.display = 'block';
-                tip.style.left = (e.clientX - canvas.getBoundingClientRect().left + 12) + 'px';
-                tip.style.top  = (e.clientY - canvas.getBoundingClientRect().top  - 10) + 'px';
-                tip.innerHTML  = `<strong>${pt.codigo}</strong> — ${pt.descricao}<br>
-                    Vendas: <b>${pt.vendasQty.toLocaleString('pt-BR')}</b> (${pt.vendaClass}) &nbsp;
-                    Estoque: <b>${pt.estoqQty.toLocaleString('pt-BR')}</b> (${pt.estoqClass})`;
-            } else {
-                tip.style.display = 'none';
-            }
-        };
-        canvas.onmouseleave = () => { document.getElementById('abcx-tip').style.display = 'none'; };
-    }
 };
 
 // ====== DASHBOARD: RANKING DE VENDAS ======
