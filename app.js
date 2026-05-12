@@ -2994,8 +2994,15 @@ const vxe = {
         const status = document.getElementById('vxe-status').value;
         const search = document.getElementById('vxe-search').value.toLowerCase().trim();
 
-        // Marca
-        const marcas = [...new Set(vendas.rawData.map(r => String(r.marca||'').trim()).filter(Boolean))].sort();
+        // Marca — lê r.marca; fallback para _extras/dados se a coluna DB ainda não foi migrada
+        const _normMarca = k => String(k).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+        const _getMarca = r => {
+            const m = String(r.marca||'').trim();
+            if (m) return m;
+            const extKey = Object.keys(r._extras||{}).find(k => _normMarca(k) === 'marca');
+            return extKey ? String(r._extras[extKey]||'').trim() : '';
+        };
+        const marcas = [...new Set(vendas.rawData.map(r => _getMarca(r)).filter(Boolean))].sort();
         const marcaEl = document.getElementById('vxe-marca');
         const curMarca = marcaEl.value;
         marcaEl.innerHTML = '<option value="">Todas</option>' + marcas.map(m => `<option value="${m}"${m===curMarca?' selected':''}>${m}</option>`).join('');
@@ -3029,7 +3036,7 @@ const vxe = {
         }
 
         const rows = vendas.rawData
-            .filter(r => (!seg || r.segmento === seg) && (!search || String(r.codigo||"").toLowerCase().includes(search)))
+            .filter(r => (!marca || _getMarca(r) === marca) && (!seg || r.segmento === seg) && (!search || String(r.codigo||"").toLowerCase().includes(search)))
             .map(r => {
                 const vendTotal  = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
                 const vendMedia  = Math.round(vendTotal / divisor);
