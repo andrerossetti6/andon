@@ -543,6 +543,8 @@ function fecharDetalheVxe() {
 }
 
 function navigateTo(viewName) {
+    fecharDetalhe();
+    fecharDetalheVxe();
     ['dashboard','vendas','estoque','op','ranking','vxe','abc','abc-micro','dist','dash-op','abc-cruzada','abc-estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
