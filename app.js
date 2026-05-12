@@ -3599,8 +3599,8 @@ const vxe = {
         const classes = { ok: 'vxe-ok', critico: 'vxe-zero', excesso: 'vxe-baixo', 'sem-dados': 'vxe-nd' };
 
         document.querySelector('#vxe-table tbody').innerHTML = rows.slice(0, 500).map(r => `
-            <tr>
-                <td class="td-code">${r.codigo}</td>
+            <tr onclick="abrirDetalhe('${r.descricao.replace(/'/g,"\\'")}','${r.segmento.replace(/'/g,"\\'")}');" style="cursor:pointer;">
+                <td class="td-code" style="color:var(--indigo-primary);">${r.codigo}</td>
                 <td class="td-desc">${r.descricao}</td>
                 <td><span class="seg-badge">${r.segmento}</span></td>
                 <td class="td-center">${r.tamanho}</td>
