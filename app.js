@@ -61,7 +61,7 @@ const api = {
             monthCols.forEach(mc => { meses[mc.key] = r[mc.key] || 0; });
             return { codigo: r.codigo, descricao: r.descricao, modelo: r.modelo,
                      segmento: r.segmento, tamanho: r.tamanho, marca: (r.marca || '').trim(),
-                     meses, dados: r._extras || {},
+                     meses, dados: { ...(r._extras || {}), ...(r.marca ? { _marca: r.marca.trim() } : {}) },
                      quantidade: r.quantidade, valor: r.valor };
         });
         return this.post('/api/vendas/import', { nomeArquivo, linhas, anos });
@@ -976,7 +976,7 @@ const vendas = {
             const extras = { ...dados };
             if (marcaKey) delete extras[marcaKey];
             // r.marca vem da coluna DB; fallback para dados['Marca'] de imports antigos
-            const marca = (r.marca || (marcaKey ? (dados[marcaKey] || '') : '')).trim();
+            const marca = (r.marca || (marcaKey ? (dados[marcaKey] || '') : '') || (dados['_marca'] || '')).trim();
             return {
                 _id: i, codigo: r.codigo || '', descricao: r.descricao || '',
                 modelo: r.modelo || '', segmento: r.segmento || '', tamanho: r.tamanho || '',
