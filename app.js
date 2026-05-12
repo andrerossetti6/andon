@@ -543,7 +543,7 @@ function fecharDetalheVxe() {
 function navigateTo(viewName) {
     fecharDetalhe();
     fecharDetalheVxe();
-    ['dashboard','vendas','estoque','op','vxe','abc','abc-micro','dash-op','abc-cruzada','abc-estoque'].forEach(v => {
+    ['dashboard','vendas','estoque','op','vxe','abc','abc-micro','abc-cruzada','abc-estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -2105,102 +2105,6 @@ const op = {
             this._currentId = null;
         }
         await this.carregarHistorico();
-    }
-};
-
-// ====== DASHBOARD: ORDENS DE PRODUÇÃO ======
-
-const dashOp = {
-    render() {
-        if (!op.rawData.length) {
-            document.getElementById('dash-op-cards').innerHTML =
-                '<p style="color:var(--text-dim);padding:20px;">Importe dados de Ordens de Produção primeiro.</p>';
-            return;
-        }
-
-        // Detecta melhor coluna categórica para o gráfico
-        const catCols = op.colunas.filter(c => {
-            const QTD = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs','id','codigo','cod','numero','num'];
-            return !QTD.includes(op.normalizeKey(c));
-        });
-
-        const sel = document.getElementById('dash-op-col-sel');
-        if (!sel.options.length || sel.dataset.loaded !== 'yes') {
-            sel.innerHTML = catCols.map(c => `<option value="${c}">${c}</option>`).join('');
-            sel.dataset.loaded = 'yes';
-            sel.addEventListener('change', () => this.renderChart(sel.value));
-        }
-
-        const colAtiva = sel.value || catCols[0];
-
-        // Cards dinâmicos — top 3 valores da coluna principal
-        const counts = {};
-        op.rawData.forEach(r => {
-            const v = String(r.dados?.[colAtiva] ?? '—');
-            counts[v] = (counts[v] || 0) + 1;
-        });
-        const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]);
-        const cardsEl = document.getElementById('dash-op-cards');
-        cardsEl.innerHTML = `
-            <div class="summary-card">
-                <span class="s-label">TOTAL ORDENS</span>
-                <span class="s-value">${op.rawData.length.toLocaleString('pt-BR')}</span>
-                <span class="s-sub">ordens importadas</span>
-            </div>` +
-            sorted.slice(0,3).map(([v,n]) => `
-            <div class="summary-card">
-                <span class="s-label">${colAtiva.toUpperCase()}</span>
-                <span class="s-value" style="font-size:1.6rem;">${n.toLocaleString('pt-BR')}</span>
-                <span class="s-sub">${v}</span>
-            </div>`).join('');
-
-        this.renderChart(colAtiva);
-    },
-
-    renderChart(col) {
-        const canvas = document.getElementById('dash-op-chart');
-        const ctx    = canvas.getContext('2d');
-        canvas.width  = canvas.offsetWidth  || 600;
-        canvas.height = canvas.offsetHeight || 280;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        const counts = {};
-        op.rawData.forEach(r => {
-            const v = String(r.dados?.[col] ?? '—');
-            counts[v] = (counts[v] || 0) + 1;
-        });
-        const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0, 15);
-        if (!sorted.length) return;
-
-        const W = canvas.width, H = canvas.height;
-        const padL = 180, padR = 20, padT = 20, padB = 30;
-        const chartW = W - padL - padR;
-        const chartH = H - padT - padB;
-        const max = sorted[0][1];
-        const barH = Math.max(12, (chartH / sorted.length) - 4);
-
-        ctx.font = '11px Inter';
-        ctx.fillStyle = 'rgba(255,255,255,0.06)';
-        ctx.fillRect(padL, padT, chartW, chartH);
-
-        sorted.forEach(([label, val], i) => {
-            const y = padT + i * (chartH / sorted.length) + (chartH / sorted.length - barH) / 2;
-            const w = (val / max) * chartW;
-            const grad = ctx.createLinearGradient(padL, 0, padL + w, 0);
-            grad.addColorStop(0, 'rgba(88,166,255,0.9)');
-            grad.addColorStop(1, 'rgba(88,166,255,0.3)');
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.roundRect(padL, y, w, barH, 4);
-            ctx.fill();
-            ctx.fillStyle = 'rgba(230,237,243,0.75)';
-            const lbl = label.length > 22 ? label.slice(0,20)+'…' : label;
-            ctx.textAlign = 'right';
-            ctx.fillText(lbl, padL - 8, y + barH / 2 + 4);
-            ctx.fillStyle = 'rgba(230,237,243,0.5)';
-            ctx.textAlign = 'left';
-            ctx.fillText(val.toLocaleString('pt-BR'), padL + w + 6, y + barH / 2 + 4);
-        });
     }
 };
 

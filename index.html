@@ -72,9 +72,6 @@
                     <li id="nav-vxe" onclick="navigateTo('vxe')">
                         <div class="item-content">Vendas × Estoque</div>
                     </li>
-                    <li id="nav-dash-op" onclick="navigateTo('dash-op')">
-                        <div class="item-content">Ordens de Produção</div>
-                    </li>
                     <li class="has-sub" id="nav-abc-cruzada" onclick="navigateTo('abc')">
                         <div class="item-content">ABC Cruzada</div>
                         <ul class="sub-menu">
@@ -493,22 +490,6 @@
         </div>
     </main>
 
-    <!-- ── Dashboard: Ordens de Produção ─────────────────────── -->
-    <main class="content" id="view-dash-op" style="display:none;">
-        <header class="page-header">
-            <div class="page-header-text">
-                <h1 class="page-title">Dashboard <span>Ordens de Produção</span></h1>
-                <p class="page-subtitle">Visão consolidada das ordens importadas</p>
-            </div>
-        </header>
-        <div class="vendas-filters-bar" style="flex-shrink:0;">
-            <select class="sigs-select" id="dash-op-col-sel"></select>
-        </div>
-        <div class="vendas-summary" id="dash-op-cards" style="flex-shrink:0;"></div>
-        <div class="chart-card" style="flex:1;min-height:0;">
-            <canvas id="dash-op-chart" style="width:100%;height:100%;display:block;"></canvas>
-        </div>
-    </main>
 
     <!-- ── Dashboard: ABC Estoque ───────────────────────────── -->
     <main class="content" id="view-abc-estoque" style="display:none;">
