@@ -1255,6 +1255,9 @@ input:checked + .chk {
 
 .detail-panel.open { right: 0; }
 
+#vxe-detail-panel { right: -800px; }
+#vxe-detail-panel.open { right: 0; }
+
 .detail-header {
     display: flex;
     justify-content: space-between;
