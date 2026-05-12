@@ -567,13 +567,13 @@ function navigateTo(viewName) {
         document.querySelector('[data-view="estoque"]').classList.add('sub-active');
     } else if (viewName === 'op') {
         document.querySelector('[data-view="op"]').classList.add('sub-active');
- else if (viewName === 'vxe') {
+    } else if (viewName === 'vxe') {
         vxe.render();
     } else if (viewName === 'abc') {
         setTimeout(() => abc.render(), 50);
     } else if (viewName === 'abc-micro') {
         setTimeout(() => abcMicro.render(), 50);
- else if (viewName === 'dash-op') {
+    } else if (viewName === 'dash-op') {
         setTimeout(() => dashOp.render(), 50);
     } else if (viewName === 'abc-cruzada') {
         document.querySelector('[data-view="abc-cruzada"]')?.classList.add('sub-active');
