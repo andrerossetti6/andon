@@ -3568,7 +3568,7 @@ const vxe = {
         }
 
         const rows = vendas.rawData
-            .filter(r => !seg || r.segmento === seg)
+            .filter(r => (!seg || r.segmento === seg) && (!search || String(r.codigo||"").toLowerCase().includes(search)))
             .map(r => {
                 const vendTotal  = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
                 const vendMedia  = Math.round(vendTotal / divisor);
