@@ -3576,17 +3576,16 @@ const vxe = {
                 const estQtd     = estMap[cod] ?? null;
                 const opQtd      = opMap[cod]  || 0;
                 const estProcesso = (estQtd || 0) + opQtd;
-                let st = 'sem-dados';
-                if (estQtd !== null) {
-                    if (estQtd === 0)                                    st = 'zero';
-                    else if (vendMedia > 0 && estQtd / vendMedia < 0.2) st = 'baixo';
-                    else                                                  st = 'ok';
-                }
+                const cob = vendMedia > 0 ? estProcesso / vendMedia : null;
+                const st  = cob === null ? 'sem-dados'
+                          : cob < 1     ? 'critico'
+                          : cob <= 3    ? 'ok'
+                          :               'excesso';
                 return { ...r, vendTotal, vendMedia, estQtd, estProcesso, st };
             })
             .filter(r => !status || r.st === status)
             .sort((a, b) => {
-                const order = { zero: 0, baixo: 1, ok: 2, 'sem-dados': 3 };
+                const order = { critico: 0, ok: 1, excesso: 2, 'sem-dados': 3 };
                 return (order[a.st] ?? 9) - (order[b.st] ?? 9) || b.vendMedia - a.vendMedia;
             });
 
@@ -3596,8 +3595,8 @@ const vxe = {
         document.getElementById('vxe-count').textContent =
             `${rows.length.toLocaleString('pt-BR')} itens · média por ${periodoLabel}`;
 
-        const labels  = { ok: 'OK', baixo: 'BAIXO', zero: 'SEM ESTOQUE', 'sem-dados': '—' };
-        const classes = { ok: 'vxe-ok', baixo: 'vxe-baixo', zero: 'vxe-zero', 'sem-dados': 'vxe-nd' };
+        const labels  = { ok: 'EQUILÍBRIO', critico: 'CRÍTICO', excesso: 'EXCESSO', 'sem-dados': '—' };
+        const classes = { ok: 'vxe-ok', critico: 'vxe-zero', excesso: 'vxe-baixo', 'sem-dados': 'vxe-nd' };
 
         document.querySelector('#vxe-table tbody').innerHTML = rows.slice(0, 500).map(r => `
             <tr>
