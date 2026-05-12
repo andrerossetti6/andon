@@ -169,11 +169,9 @@ function mostrarApp() {
     estoque.init();
     op.init();
     abcCruzada.init();
-    ranking.init();
     vxe.init();
     abc.init();
     abcMicro.init();
-    dist.init();
     vendas.carregarHistorico()
         .then(() => estoque.carregarHistorico())
         .then(() => op.carregarHistorico())
@@ -545,7 +543,7 @@ function fecharDetalheVxe() {
 function navigateTo(viewName) {
     fecharDetalhe();
     fecharDetalheVxe();
-    ['dashboard','vendas','estoque','op','ranking','vxe','abc','abc-micro','dist','dash-op','abc-cruzada','abc-estoque'].forEach(v => {
+    ['dashboard','vendas','estoque','op','vxe','abc','abc-micro','dash-op','abc-cruzada','abc-estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -569,17 +567,13 @@ function navigateTo(viewName) {
         document.querySelector('[data-view="estoque"]').classList.add('sub-active');
     } else if (viewName === 'op') {
         document.querySelector('[data-view="op"]').classList.add('sub-active');
-    } else if (viewName === 'ranking') {
-        setTimeout(() => ranking.render(), 50);
-    } else if (viewName === 'vxe') {
+ else if (viewName === 'vxe') {
         vxe.render();
     } else if (viewName === 'abc') {
         setTimeout(() => abc.render(), 50);
     } else if (viewName === 'abc-micro') {
         setTimeout(() => abcMicro.render(), 50);
-    } else if (viewName === 'dist') {
-        setTimeout(() => dist.render(), 50);
-    } else if (viewName === 'dash-op') {
+ else if (viewName === 'dash-op') {
         setTimeout(() => dashOp.render(), 50);
     } else if (viewName === 'abc-cruzada') {
         document.querySelector('[data-view="abc-cruzada"]')?.classList.add('sub-active');
@@ -2849,121 +2843,6 @@ const abcMicro = {
 };
 
 
-// ====== DASHBOARD: DISTRIBUIÇÃO POR CARACTERÍSTICA ======
-
-const dist = {
-    colAtiva: '',
-
-    init() {
-        document.getElementById('dist-col-sel').addEventListener('change', e => {
-            this.colAtiva = e.target.value;
-            this.renderGrafico();
-        });
-    },
-
-    render() {
-        const infoEl = document.getElementById('dist-info');
-        if (!estoque.rawData.length) {
-            infoEl.textContent = 'Importe dados de Estoque primeiro';
-            document.getElementById('dist-breakdown').innerHTML = '';
-            return;
-        }
-
-        const QTD_NORMS = ['quantidade','qtd','qty','qtde','estoque','saldo','codigo','cod','code','cdproduto','cdprod'];
-        const cols = estoque.colunas.filter(c => {
-            const n = estoque.normalizeKey(c);
-            return !QTD_NORMS.includes(n) && !n.startsWith('__');
-        });
-
-        if (!cols.length) { infoEl.textContent = 'Nenhuma coluna de categoria encontrada'; return; }
-
-        const sel = document.getElementById('dist-col-sel');
-        const cur = this.colAtiva;
-        sel.innerHTML = cols.map(c => `<option value="${c}">${c}</option>`).join('');
-
-        const caract = cols.find(c => estoque.normalizeKey(c).includes('caracter')) || cols[0];
-        this.colAtiva = (cur && cols.includes(cur)) ? cur : caract;
-        sel.value = this.colAtiva;
-
-        this.renderGrafico();
-    },
-
-    renderGrafico() {
-        if (!this.colAtiva || !estoque.rawData.length) return;
-
-        const map = {};
-        estoque.rawData.forEach(r => {
-            const val = String(r.dados?.[this.colAtiva] ?? '—').trim() || '—';
-            if (!map[val]) map[val] = { count: 0, qtd: 0 };
-            map[val].count++;
-            map[val].qtd += r.quantidade;
-        });
-
-        const total  = Object.values(map).reduce((s, v) => s + v.qtd, 0);
-        const sorted = Object.entries(map)
-            .map(([label, v]) => ({ label, ...v, pct: total > 0 ? v.qtd / total * 100 : 0 }))
-            .sort((a, b) => b.qtd - a.qtd);
-
-        document.getElementById('dist-info').textContent =
-            `${sorted.length} categorias · ${estoque.rawData.length.toLocaleString('pt-BR')} itens`;
-
-        document.getElementById('dist-breakdown').innerHTML = sorted.map(item => `
-            <div class="breakdown-item">
-                <span class="bd-label" title="${item.label}">${item.label}</span>
-                <div class="bd-bar-wrap"><div class="bd-bar" style="width:${item.pct}%"></div></div>
-                <span class="bd-val">${item.qtd.toLocaleString('pt-BR')}</span>
-            </div>
-        `).join('');
-
-        setTimeout(() => this.drawChart(sorted.slice(0, 15)), 30);
-    },
-
-    drawChart(items) {
-        const canvas = document.getElementById('dist-chart');
-        if (!canvas || !items.length) return;
-        const ctx = canvas.getContext('2d');
-        const rowH = 36, padL = 200, padR = 120, padT = 8, padB = 8;
-        const w = canvas.width  = canvas.offsetWidth || 700;
-        const h = canvas.height = items.length * rowH + padT + padB;
-        ctx.clearRect(0, 0, w, h);
-
-        const max  = items[0].qtd || 1;
-        const barW = w - padL - padR;
-
-        items.forEach((item, i) => {
-            const y  = padT + i * rowH;
-            const bw = Math.max((item.qtd / max) * barW, 2);
-
-            const grad = ctx.createLinearGradient(padL, 0, padL + bw, 0);
-            grad.addColorStop(0, 'rgba(88,166,255,0.85)');
-            grad.addColorStop(1, 'rgba(88,166,255,0.25)');
-            ctx.fillStyle = grad;
-            const r2 = 4, bx = padL, by = y + 5, bh = rowH - 10;
-            ctx.beginPath();
-            ctx.moveTo(bx + r2, by);
-            ctx.lineTo(bx + bw - r2, by);
-            ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + r2);
-            ctx.lineTo(bx + bw, by + bh - r2);
-            ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - r2, by + bh);
-            ctx.lineTo(bx, by + bh);
-            ctx.lineTo(bx, by);
-            ctx.closePath();
-            ctx.fill();
-
-            ctx.fillStyle = 'rgba(230,237,243,0.75)';
-            ctx.font = '10px Inter';
-            ctx.textAlign = 'right';
-            const lbl = item.label.length > 26 ? item.label.substring(0, 26) + '…' : item.label;
-            ctx.fillText(lbl, padL - 10, y + rowH / 2 + 4);
-
-            ctx.fillStyle = 'rgba(230,237,243,0.9)';
-            ctx.font = 'bold 10px Inter';
-            ctx.textAlign = 'left';
-            ctx.fillText(`${item.qtd.toLocaleString('pt-BR')} (${item.pct.toFixed(1)}%)`, padL + bw + 8, y + rowH / 2 + 4);
-        });
-    }
-};
-
 // ====== DASHBOARD: ABC ESTOQUE ======
 
 const abcEstoque = {
@@ -3404,106 +3283,6 @@ const abcCruzada = {
         });
     },
 
-};
-
-// ====== DASHBOARD: RANKING DE VENDAS ======
-
-const ranking = {
-    init() {
-        document.getElementById('rank-seg').addEventListener('change',   () => this.render());
-        document.getElementById('rank-grupo').addEventListener('change', () => this.render());
-    },
-
-    render() {
-        if (!vendas.rawData.length) {
-            document.getElementById('rank-count').textContent = 'Importe dados de Vendas primeiro';
-            return;
-        }
-        const activeCols = vendas.getActiveCols();
-        const seg   = document.getElementById('rank-seg').value;
-        const grupo = document.getElementById('rank-grupo').value;
-
-        // Preenche filtro de segmento
-        const segs = [...new Set(vendas.rawData.map(r => r.segmento).filter(Boolean))].sort();
-        const segEl = document.getElementById('rank-seg');
-        const cur = segEl.value;
-        segEl.innerHTML = '<option value="">Todos</option>' + segs.map(s => `<option value="${s}">${s}</option>`).join('');
-        segEl.value = cur;
-
-        // Tabs de ano
-        const tabsEl = document.getElementById('rank-year-tabs');
-        tabsEl.innerHTML = vendas.years.map(y =>
-            `<button class="year-tab${vendas.selectedYear === y ? ' active' : ''}" onclick="vendas.selectedYear='${y}';ranking.render()">${y}</button>`
-        ).join('');
-
-        // Agrega por grupo escolhido
-        const map = {};
-        vendas.rawData.filter(r => (!seg || r.segmento === seg) && (!search || r.codigo.toLowerCase().includes(search))).forEach(r => {
-            const key   = r[grupo] || r.codigo;
-            const label = grupo === 'descricao' ? (r.descricao || r.codigo) : r.codigo;
-            const qtd   = activeCols.reduce((s, c) => s + (r[c.key] || 0), 0);
-            if (!map[key]) map[key] = { label, segmento: r.segmento, total: 0 };
-            map[key].total += qtd;
-        });
-
-        const sorted = Object.values(map).sort((a, b) => b.total - a.total).slice(0, 20);
-        document.getElementById('rank-count').textContent = `Top ${sorted.length} de ${Object.keys(map).length}`;
-        this.drawChart(sorted);
-    },
-
-    drawChart(items) {
-        const canvas = document.getElementById('rank-chart');
-        if (!canvas || !items.length) return;
-
-        const rowH = 38, padL = 200, padR = 90, padT = 10, padB = 10;
-        const w = canvas.width  = canvas.offsetWidth || 800;
-        const h = canvas.height = items.length * rowH + padT + padB;
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, w, h);
-
-        const max  = items[0].total || 1;
-        const barW = w - padL - padR;
-
-        items.forEach((item, i) => {
-            const y  = padT + i * rowH;
-            const bw = Math.max((item.total / max) * barW, 2);
-
-            const grad = ctx.createLinearGradient(padL, 0, padL + bw, 0);
-            grad.addColorStop(0, 'rgba(88,166,255,0.9)');
-            grad.addColorStop(1, 'rgba(88,166,255,0.3)');
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            const r2 = 4, bx = padL, by = y + 5, bh = rowH - 10;
-            ctx.moveTo(bx + r2, by);
-            ctx.lineTo(bx + bw - r2, by);
-            ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + r2);
-            ctx.lineTo(bx + bw, by + bh - r2);
-            ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - r2, by + bh);
-            ctx.lineTo(bx, by + bh);
-            ctx.lineTo(bx, by);
-            ctx.closePath();
-            ctx.fill();
-
-            // Rank number
-            ctx.fillStyle = 'rgba(88,166,255,0.5)';
-            ctx.font = 'bold 10px Inter';
-            ctx.textAlign = 'right';
-            ctx.fillText(`#${i + 1}`, padL - 110, y + rowH / 2 + 4);
-
-            // Label
-            ctx.fillStyle = 'rgba(230,237,243,0.85)';
-            ctx.font = '11px Inter';
-            ctx.textAlign = 'right';
-            const lbl = item.label.length > 22 ? item.label.substring(0, 22) + '…' : item.label;
-            ctx.fillText(lbl, padL - 10, y + rowH / 2 + 4);
-
-            // Value
-            ctx.fillStyle = 'rgba(230,237,243,0.9)';
-            ctx.font = 'bold 11px Inter';
-            ctx.textAlign = 'left';
-            ctx.fillText(item.total.toLocaleString('pt-BR'), padL + bw + 8, y + rowH / 2 + 4);
-        });
-    }
 };
 
 // ====== DASHBOARD: VENDAS × ESTOQUE ======

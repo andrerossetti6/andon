@@ -69,14 +69,8 @@
             <nav class="nav-section">
                 <h3>DASHBOARDS</h3>
                 <ul>
-                    <li id="nav-ranking" onclick="navigateTo('ranking')">
-                        <div class="item-content">Ranking Vendas</div>
-                    </li>
                     <li id="nav-vxe" onclick="navigateTo('vxe')">
                         <div class="item-content">Vendas × Estoque</div>
-                    </li>
-                    <li id="nav-dist" onclick="navigateTo('dist')">
-                        <div class="item-content">Distribuição</div>
                     </li>
                     <li id="nav-dash-op" onclick="navigateTo('dash-op')">
                         <div class="item-content">Ordens de Produção</div>
@@ -622,29 +616,6 @@
         </div>
     </main>
 
-    <!-- ── Dashboard: Ranking de Vendas ─────────────────────── -->
-    <main class="content" id="view-ranking" style="display:none;">
-        <header class="page-header">
-            <div class="page-header-text">
-                <h1 class="page-title">Ranking de <span>Vendas</span></h1>
-                <p class="page-subtitle">Top produtos por quantidade vendida no período</p>
-            </div>
-        </header>
-        <div class="vendas-filters-bar" style="flex-shrink:0;">
-            <label>Segmento</label>
-            <select class="sigs-select" id="rank-seg"><option value="">Todos</option></select>
-            <label>Agrupar por</label>
-            <select class="sigs-select" id="rank-grupo">
-                <option value="descricao">Descrição</option>
-                <option value="codigo">Código</option>
-            </select>
-            <div id="rank-year-tabs" class="year-tabs"></div>
-            <span class="table-count-label" id="rank-count"></span>
-        </div>
-        <div class="rank-wrap">
-            <canvas id="rank-chart"></canvas>
-        </div>
-    </main>
 
     <!-- ── Dashboard: Vendas × Estoque ───────────────────────── -->
     <main class="content" id="view-vxe" style="display:none;">
@@ -845,29 +816,6 @@
                 </tr></thead>
                 <tbody></tbody>
             </table>
-        </div>
-    </main>
-    <!-- ── Dashboard: Distribuição por Característica ──────── -->
-    <main class="content" id="view-dist" style="display:none;">
-        <header class="page-header">
-            <div class="page-header-text">
-                <h1 class="page-title">Distribuição por <span>Característica</span></h1>
-                <p class="page-subtitle">Análise de quantidade em estoque por categoria</p>
-            </div>
-            <span class="table-count-label" id="dist-info"></span>
-        </header>
-        <div class="vendas-filters-bar" style="flex-shrink:0;">
-            <label>Analisar por</label>
-            <select class="sigs-select" id="dist-col-sel"></select>
-        </div>
-        <div class="dist-layout">
-            <div class="dist-panel">
-                <span class="s-label">POR QUANTIDADE</span>
-                <div id="dist-breakdown" class="dist-breakdown"></div>
-            </div>
-            <div class="dist-chart-panel">
-                <canvas id="dist-chart"></canvas>
-            </div>
         </div>
     </main>
 
