@@ -60,7 +60,7 @@ const api = {
             const meses = {};
             monthCols.forEach(mc => { meses[mc.key] = r[mc.key] || 0; });
             return { codigo: r.codigo, descricao: r.descricao, modelo: r.modelo,
-                     segmento: r.segmento, tamanho: r.tamanho, marca: r.marca || '',
+                     segmento: r.segmento, tamanho: r.tamanho, marca: (r.marca || '').trim(),
                      meses, dados: r._extras || {},
                      quantidade: r.quantidade, valor: r.valor };
         });
@@ -836,7 +836,7 @@ const vendas = {
                 modelo:    get(row, 'modelo'),
                 segmento:  get(row, 'segmento'),
                 tamanho:   get(row, 'tamanho'),
-                marca:     get(row, 'marca'),
+                marca:     get(row, 'marca').trim(),
                 _extras: extras,
                 ...mData,
                 quantidade: toNum(get(row, 'quantidade', 'qtd', 'qty', 'qtde')),
@@ -942,7 +942,7 @@ const vendas = {
             const extras = { ...dados };
             if (marcaKey) delete extras[marcaKey];
             // r.marca vem da coluna DB; fallback para dados['Marca'] de imports antigos
-            const marca = r.marca || (marcaKey ? (dados[marcaKey] || '') : '');
+            const marca = (r.marca || (marcaKey ? (dados[marcaKey] || '') : '')).trim();
             return {
                 _id: i, codigo: r.codigo || '', descricao: r.descricao || '',
                 modelo: r.modelo || '', segmento: r.segmento || '', tamanho: r.tamanho || '',
@@ -1011,7 +1011,7 @@ const vendas = {
     },
 
     populateFilters() {
-        const unique = key => [...new Set(this.rawData.map(r => r[key]).filter(Boolean))].sort();
+        const unique = key => [...new Set(this.rawData.map(r => String(r[key]||'').trim()).filter(Boolean))].sort();
         this.fillSelect('filter-segmento', unique('segmento'));
         this.fillSelectLabel('filter-marca', unique('marca'), 'Todas');
         this.fillSelect('filter-modelo',   unique('modelo'));
@@ -1063,7 +1063,7 @@ const vendas = {
         this.filtered = this.rawData.filter(r => match(r, null));
 
         // Segmento e Marca: sempre todos os valores do arquivo (não cross-filtram)
-        const uniqAll = key => [...new Set(this.rawData.map(r => r[key]).filter(Boolean))].sort();
+        const uniqAll = key => [...new Set(this.rawData.map(r => String(r[key]||'').trim()).filter(Boolean))].sort();
         // Modelo, Tamanho, Descrição: cross-filtram baseado nos filtros ativos
         const uniq = (key, skip) =>
             [...new Set(this.rawData.filter(r => match(r, skip)).map(r => r[key]).filter(Boolean))].sort();
@@ -3176,7 +3176,7 @@ const abcCruzada = {
         vendas.rawData.forEach(r => {
             const qty = Math.round(activeCols.reduce((s, c) => s + (r[c.key] || 0), 0) / divisor);
             vendasMap[r.codigo] = (vendasMap[r.codigo] || 0) + qty;
-            if (!metaMap[r.codigo]) metaMap[r.codigo] = { descricao: r.descricao || '', modelo: r.modelo || '', marca: r.marca || '', tamanho: r.tamanho || '' };
+            if (!metaMap[r.codigo]) metaMap[r.codigo] = { descricao: r.descricao || '', modelo: r.modelo || '', marca: (r.marca || '').trim(), tamanho: r.tamanho || '' };
         });
 
         // Agrupa estoque por código
