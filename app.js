@@ -2946,7 +2946,8 @@ const vxe = {
             if (e.target.value) { this.selectedTri = ''; document.getElementById('vxe-tri').value = ''; }
             this.render();
         });
-        document.getElementById('vxe-marca').addEventListener('change', () => this.render());
+        document.getElementById('vxe-marca').addEventListener('change',  () => this.render());
+        document.getElementById('vxe-modelo').addEventListener('change', () => this.render());
         document.getElementById('vxe-seg').addEventListener('change',    () => this.render());
         document.getElementById('vxe-status').addEventListener('change', () => this.render());
         document.getElementById('vxe-search').addEventListener('input', () => this.render());
@@ -2990,6 +2991,7 @@ const vxe = {
                   .join('');
 
         const marca  = document.getElementById('vxe-marca').value;
+        const modelo = document.getElementById('vxe-modelo').value;
         const seg    = document.getElementById('vxe-seg').value;
         const status = document.getElementById('vxe-status').value;
         const search = document.getElementById('vxe-search').value.toLowerCase().trim();
@@ -3006,6 +3008,12 @@ const vxe = {
         const marcaEl = document.getElementById('vxe-marca');
         const curMarca = marcaEl.value;
         marcaEl.innerHTML = '<option value="">Todas</option>' + marcas.map(m => `<option value="${m}"${m===curMarca?' selected':''}>${m}</option>`).join('');
+
+        // Modelo
+        const modelos  = [...new Set(vendas.rawData.map(r => String(r.modelo||'').trim()).filter(Boolean))].sort();
+        const modeloEl = document.getElementById('vxe-modelo');
+        const curMod   = modeloEl.value;
+        modeloEl.innerHTML = '<option value="">Todos</option>' + modelos.map(m => `<option value="${m}"${m===curMod?' selected':''}>${m}</option>`).join('');
 
         // Segmento
         const segs = [...new Set(vendas.rawData.map(r => r.segmento).filter(Boolean))].sort();
