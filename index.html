@@ -78,7 +78,6 @@
                             <li data-view="abc" onclick="event.stopPropagation(); navigateTo('abc')">ABC Vendas</li>
                             <li data-view="abc-micro" onclick="event.stopPropagation(); navigateTo('abc-micro')">ABC Vendas Micro</li>
                             <li data-view="abc-estoque" onclick="event.stopPropagation(); navigateTo('abc-estoque')">ABC Estoque</li>
-                            <li data-view="abc-cruzada" onclick="event.stopPropagation(); navigateTo('abc-cruzada')">ABC Cruzado</li>
                         </ul>
                     </li>
                 </ul>
@@ -550,52 +549,6 @@
         </div>
     </main>
 
-    <!-- ── Dashboard: ABC Cruzada ───────────────────────────── -->
-    <main class="content" id="view-abc-cruzada" style="display:none;">
-        <header class="page-header">
-            <div class="page-header-text">
-                <h1 class="page-title">ABC <span>Cruzada</span></h1>
-                <p class="page-subtitle">Vendas × Estoque — análise de portfólio por produto (código a código)</p>
-            </div>
-        </header>
-
-        <!-- Filtros -->
-        <div class="vendas-filters-bar" style="flex-shrink:0;">
-            <div id="abcx-year-tabs" class="year-tabs"></div>
-            <label>Trimestre</label>
-            <select class="sigs-select" id="abcx-tri">
-                <option value="">Todos</option>
-                <option value="Q1">Q1 (Jan–Mar)</option>
-                <option value="Q2">Q2 (Abr–Jun)</option>
-                <option value="Q3">Q3 (Jul–Set)</option>
-                <option value="Q4">Q4 (Out–Dez)</option>
-            </select>
-            <label>Mês</label>
-            <select class="sigs-select" id="abcx-mes"><option value="">Todos</option></select>
-            <span class="table-count-label" id="abcx-count"></span>
-        </div>
-
-        <p id="abcx-aviso" style="color:var(--text-dim);padding:20px;display:none;"></p>
-
-        <!-- Tabela cruzada -->
-        <div class="vendas-table-wrap" style="flex:1;min-height:0;">
-            <table class="vendas-table" id="abcx-table">
-                <thead><tr>
-                    <th>CÓDIGO</th>
-                    <th>DESCRIÇÃO</th>
-                    <th>MODELO</th>
-                    <th>MARCA</th>
-                    <th class="td-center">TAM.</th>
-                    <th class="td-right">VENDAS</th>
-                    <th class="td-center">ABC VENDAS</th>
-                    <th class="td-right">ESTOQUE</th>
-                    <th class="td-center">ABC ESTOQUE</th>
-                    <th class="td-center">QUADRANTE</th>
-                </tr></thead>
-                <tbody></tbody>
-            </table>
-        </div>
-    </main>
 
 
     <!-- ── Dashboard: Vendas × Estoque ───────────────────────── -->
