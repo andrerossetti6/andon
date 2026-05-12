@@ -503,6 +503,45 @@ function toggleVendasTop() {
     btn.innerHTML     = `<span id="ico-toggle-vendas">${collapsed ? '▲' : '▼'}</span> ${collapsed ? 'Recolher' : 'Expandir'}`;
 }
 
+
+function abrirDetalheVxe(descricao) {
+    // Pega todos os itens com a mesma descrição da última renderização do vxe
+    const rows = vxe._lastRows ? vxe._lastRows.filter(r => r.descricao === descricao) : [];
+    if (!rows.length) return;
+
+    document.getElementById('vxe-detail-nome').textContent = descricao;
+    document.getElementById('vxe-detail-seg').textContent  = rows[0]?.segmento || '';
+
+    const labels  = { ok: 'EQUILÍBRIO', critico: 'CRÍTICO', excesso: 'EXCESSO', 'sem-dados': '—' };
+    const cores   = { ok: '#2ea043',     critico: '#f85149',  excesso: '#d29922', 'sem-dados': '#8b949e' };
+
+    document.getElementById('vxe-detail-tbody').innerHTML = rows.map(r => {
+        const cob = r.vendMedia > 0 ? (r.estProcesso / r.vendMedia) : null;
+        const cobTxt = cob !== null
+            ? `<span style="color:${cob < 1 ? '#f85149' : cob <= 3 ? '#2ea043' : '#d29922'};font-weight:600;">${cob.toFixed(1)} meses</span>`
+            : '—';
+        const stColor = cores[r.st] || '#8b949e';
+        return `<tr>
+            <td class="td-code">${r.codigo}</td>
+            <td class="td-center"><strong>${r.tamanho}</strong></td>
+            <td class="td-right">${r.vendTotal.toLocaleString('pt-BR')}</td>
+            <td class="td-right" style="color:var(--indigo-primary);">${r.vendMedia.toLocaleString('pt-BR')}</td>
+            <td class="td-right">${r.estQtd !== null ? r.estQtd.toLocaleString('pt-BR') : '—'}</td>
+            <td class="td-right" style="color:#2ea043;">${r.estProcesso.toLocaleString('pt-BR')}</td>
+            <td class="td-right">${cobTxt}</td>
+            <td class="td-center"><span style="color:${stColor};font-weight:600;font-size:0.7rem;">${labels[r.st]}</span></td>
+        </tr>`;
+    }).join('');
+
+    document.getElementById('vxe-detail-overlay').style.display = 'block';
+    document.getElementById('vxe-detail-panel').classList.add('open');
+}
+
+function fecharDetalheVxe() {
+    document.getElementById('vxe-detail-overlay').style.display = 'none';
+    document.getElementById('vxe-detail-panel').classList.remove('open');
+}
+
 function navigateTo(viewName) {
     ['dashboard','vendas','estoque','op','ranking','vxe','abc','abc-micro','dist','dash-op','abc-cruzada','abc-estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
@@ -3598,8 +3637,9 @@ const vxe = {
         const labels  = { ok: 'EQUILÍBRIO', critico: 'CRÍTICO', excesso: 'EXCESSO', 'sem-dados': '—' };
         const classes = { ok: 'vxe-ok', critico: 'vxe-zero', excesso: 'vxe-baixo', 'sem-dados': 'vxe-nd' };
 
+        this._lastRows = rows;
         document.querySelector('#vxe-table tbody').innerHTML = rows.slice(0, 500).map(r => `
-            <tr onclick="abrirDetalhe('${r.descricao.replace(/'/g,"\\'")}','${r.segmento.replace(/'/g,"\\'")}');" style="cursor:pointer;">
+            <tr onclick="abrirDetalheVxe('${r.descricao.replace(/'/g,"\\'")}');" style="cursor:pointer;">
                 <td class="td-code" style="color:var(--indigo-primary);">${r.codigo}</td>
                 <td class="td-desc">${r.descricao}</td>
                 <td><span class="seg-badge">${r.segmento}</span></td>

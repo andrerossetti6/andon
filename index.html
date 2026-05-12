@@ -918,5 +918,33 @@
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5/papaparse.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
     <script src="app.js"></script>
+
+    <!-- Modal detalhe VxE -->
+    <div id="vxe-detail-overlay" class="detail-overlay" onclick="fecharDetalheVxe()" style="display:none;"></div>
+    <div id="vxe-detail-panel" class="detail-panel" style="width:780px;max-width:95vw;">
+        <div class="detail-header">
+            <div>
+                <h3 id="vxe-detail-nome"></h3>
+                <span id="vxe-detail-seg" class="seg-badge" style="margin-top:6px;display:inline-block;"></span>
+            </div>
+            <button class="detail-close" onclick="fecharDetalheVxe()">×</button>
+        </div>
+        <div style="overflow-x:auto;margin-top:12px;">
+            <table class="detail-table" id="vxe-detail-table" style="width:100%;font-size:0.78rem;">
+                <thead><tr>
+                    <th>CÓD.</th>
+                    <th class="td-center">TAM.</th>
+                    <th class="td-right">TOTAL VENDAS</th>
+                    <th class="td-right">MÉDIA VENDAS</th>
+                    <th class="td-right">ESTOQUE</th>
+                    <th class="td-right">EST. + PROCESSO</th>
+                    <th class="td-right">COBERTURA</th>
+                    <th class="td-center">STATUS</th>
+                </tr></thead>
+                <tbody id="vxe-detail-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+
 </body>
 </html>
