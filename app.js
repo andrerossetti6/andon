@@ -3607,6 +3607,7 @@ const vxe = {
                 <td class="td-qtd" style="color:var(--indigo-primary);">${r.vendMedia.toLocaleString('pt-BR')}</td>
                 <td class="td-qtd">${r.estQtd !== null ? r.estQtd.toLocaleString('pt-BR') : '—'}</td>
                 <td class="td-qtd" style="color:#2ea043;">${r.estProcesso.toLocaleString('pt-BR')}</td>
+                <td class="td-right">${r.vendMedia > 0 ? (r.estProcesso / r.vendMedia).toFixed(1) + ' meses' : '—'}</td>
                 <td class="td-center"><span class="vxe-badge ${classes[r.st]}">${labels[r.st]}</span></td>
             </tr>`).join('');
     }
