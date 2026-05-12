@@ -892,6 +892,7 @@ const vendas = {
             await this.salvarImportacao('nova');
         } else {
             document.getElementById('modal-arquivo').textContent = nomeArquivo;
+            document.getElementById('import-modal').dataset.modulo = 'vendas';
             document.getElementById('import-modal').style.display = 'flex';
         }
     },
