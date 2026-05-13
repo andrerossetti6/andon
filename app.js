@@ -573,26 +573,25 @@ function navigateTo(viewName) {
     if (navEl) navEl.classList.add('active');
 
     if (viewName === 'vendas') {
-        document.querySelector('[data-view="vendas"]').classList.add('sub-active');
+        document.querySelector('[data-view="vendas"]')?.classList.add('sub-active');
         setTimeout(() => { if (vendas.rawData.length) vendas.render(); }, 50);
     } else if (viewName === 'estoque') {
-        document.querySelector('[data-view="estoque"]').classList.add('sub-active');
+        document.querySelector('[data-view="estoque"]')?.classList.add('sub-active');
     } else if (viewName === 'op') {
-        document.querySelector('[data-view="op"]').classList.add('sub-active');
+        document.querySelector('[data-view="op"]')?.classList.add('sub-active');
     } else if (viewName === 'costura') {
-        document.querySelector('[data-view="costura"]').classList.add('sub-active');
+        document.querySelector('[data-view="costura"]')?.classList.add('sub-active');
     } else if (viewName === 'vxe') {
         vxe.render();
     } else if (viewName === 'abc') {
+        document.querySelector('[data-view="abc"]')?.classList.add('sub-active');
         setTimeout(() => abc.render(), 50);
     } else if (viewName === 'abc-micro') {
+        document.querySelector('[data-view="abc-micro"]')?.classList.add('sub-active');
         setTimeout(() => abcMicro.render(), 50);
     } else if (viewName === 'abc-estoque') {
         document.querySelector('[data-view="abc-estoque"]')?.classList.add('sub-active');
         setTimeout(() => abcEstoque.render(), 50);
-    } else if (viewName === 'abc') {
-        document.querySelector('[data-view="abc"]')?.classList.add('sub-active');
-        setTimeout(() => abc.render(), 50);
     }
 }
 
