@@ -2312,9 +2312,15 @@ const costura = {
 
     processData(rows) {
         if (!rows?.length) return;
+        const IGNORAR = new Set([
+            'lote','codrastreabilidade','codigorastreabilidade','rastreabilidade',
+            'validade','caracteristica','caracteristicas','almoxarifado',
+            'divisaodoproduto','divisao','linhadoproduto','linha',
+            'marcadoproduto','marca'
+        ]);
         const allHeaders = Object.keys(rows[0]).filter(h => {
             const n = this.normalizeKey(h);
-            return n && !n.startsWith('__');
+            return n && !n.startsWith('__') && !IGNORAR.has(n);
         });
         const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs','aproduzir'];
         const qtdNorm  = allHeaders.find(h => QTD_KEYS.includes(this.normalizeKey(h)));
@@ -2452,7 +2458,13 @@ const costura = {
         const rows = await api.get(`/api/costura?importacao_id=${id}`);
         if (!rows?.length) return;
         this._currentId = id;
-        this.colunas  = Object.keys(rows[0].dados || {});
+        const IGNORAR = new Set([
+            'lote','codrastreabilidade','codigorastreabilidade','rastreabilidade',
+            'validade','caracteristica','caracteristicas','almoxarifado',
+            'divisaodoproduto','divisao','linhadoproduto','linha',
+            'marcadoproduto','marca'
+        ]);
+        this.colunas  = Object.keys(rows[0].dados || {}).filter(h => !IGNORAR.has(this.normalizeKey(h)));
         this.rawData  = rows.map((r, i) => ({ _id: i, dados: r.dados }));
         const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs','aproduzir'];
         this._colQtd = this.colunas.find(h => QTD_KEYS.includes(this.normalizeKey(h))) || null;
