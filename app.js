@@ -3424,10 +3424,30 @@ const pesquisa = {
         if (inp) inp.addEventListener('input', e => { this._query = e.target.value.trim(); this.render(); });
     },
 
+    // Popula selects de Ano e Modelo com base nos dados de vendas carregados
+    populateFiltros() {
+        const anoEl    = document.getElementById('pesquisa-ano');
+        const modeloEl = document.getElementById('pesquisa-modelo');
+        if (!anoEl || !modeloEl) return;
+
+        const anos    = [...new Set(vendas.monthCols.map(c => c.year).filter(Boolean))].sort();
+        const modelos = [...new Set(vendas.rawData.map(r => r.modelo).filter(Boolean))].sort();
+
+        const curAno    = anoEl.value;
+        const curModelo = modeloEl.value;
+
+        anoEl.innerHTML    = '<option value="">Todos</option>' + anos.map(a => `<option value="${a}"${a===curAno?' selected':''}>${a}</option>`).join('');
+        modeloEl.innerHTML = '<option value="">Todos</option>' + modelos.map(m => `<option value="${m}"${m===curModelo?' selected':''}>${m}</option>`).join('');
+    },
+
     limpar() {
         this._query = '';
         const inp = document.getElementById('pesquisa-input');
         if (inp) inp.value = '';
+        const anoEl = document.getElementById('pesquisa-ano');
+        const modEl = document.getElementById('pesquisa-modelo');
+        if (anoEl) anoEl.value = '';
+        if (modEl) modEl.value = '';
         this.render();
     },
 
@@ -3470,7 +3490,11 @@ const pesquisa = {
         const cards   = document.getElementById('pesquisa-cards');
         if (!tbody) return;
 
-        const q = this._query.toUpperCase();
+        this.populateFiltros();
+
+        const q      = this._query.toUpperCase();
+        const anoSel = document.getElementById('pesquisa-ano')?.value    || '';
+        const modSel = document.getElementById('pesquisa-modelo')?.value || '';
 
         if (!q) {
             tbody.innerHTML = '';
@@ -3481,8 +3505,9 @@ const pesquisa = {
         }
         if (empty) empty.style.display = 'none';
 
-        // Filtrar vendas por código (contém o termo)
-        const rows = vendas.rawData.filter(r => String(r.codigo || '').toUpperCase().includes(q));
+        // Filtrar vendas por código + modelo
+        let rows = vendas.rawData.filter(r => String(r.codigo || '').toUpperCase().includes(q));
+        if (modSel) rows = rows.filter(r => r.modelo === modSel);
 
         if (!rows.length) {
             tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:24px;color:#8b949e;">Nenhum resultado para "${this._query}"</td></tr>`;
@@ -3491,18 +3516,30 @@ const pesquisa = {
             return;
         }
 
+        // Colunas do ano selecionado (afeta TOTAL VENDAS e MÉDIA VENDAS)
+        const allCols  = anoSel
+            ? vendas.monthCols.filter(c => c.year === anoSel)
+            : vendas.monthCols;
+        const nMeses   = allCols.length || 1;
+
         // Mapas dos módulos
         const estMap  = this._buildEstoqueMap();
         const opMap   = this._buildOPMap();
         const cosMap  = this._buildCosturaMap();
 
-        // Calcular TOTAL VENDAS e MÉDIA por linha
-        const allCols = vendas.monthCols;
-        const nMeses  = allCols.length || 1;
-
         const fmt = v => v != null && v > 0 ? Math.round(v).toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>';
 
         let sumVendas = 0, sumMedia = 0, sumEst = 0, sumOP = 0, sumCos = 0;
+
+        const anoLabel = anoSel ? ` · ${anoSel}` : '';
+        document.querySelector('#pesquisa-table thead tr').innerHTML = `
+            <th>CÓDIGO</th><th>DESCRIÇÃO</th><th>MARCA</th><th>SEGMENTO</th>
+            <th class="td-center">TAM.</th>
+            <th class="td-right">TOTAL VENDAS${anoLabel}</th>
+            <th class="td-right" style="color:#58a6ff;">MÉDIA VENDAS${anoLabel}</th>
+            <th class="td-right" style="color:#2ea043;">ESTOQUE</th>
+            <th class="td-right" style="color:#d29922;">PROCESSO (OP)</th>
+            <th class="td-right" style="color:#a371f7;">COSTURA</th>`;
 
         tbody.innerHTML = rows.map(r => {
             const totalV = allCols.reduce((s, c) => s + (r[c.key] || 0), 0);
