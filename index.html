@@ -265,6 +265,17 @@
                 <select class="sigs-select" id="filter-year" style="display:none;"></select>
                 <label>Mês</label>
                 <select class="sigs-select" id="filter-mes"><option value="">Todos</option></select>
+                <label>Média</label>
+                <div style="position:relative;" id="media-wrap">
+                    <button class="sigs-select" id="media-btn" style="cursor:pointer;min-width:130px;text-align:left;padding-right:24px;">Selecionar meses</button>
+                    <span style="position:absolute;right:8px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:0.7rem;opacity:.5;">▼</span>
+                    <div id="media-dropdown" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:200;background:#1c2128;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:8px 0;min-width:170px;box-shadow:0 8px 24px rgba(0,0,0,.5);">
+                        <div id="media-checks" style="padding:4px 12px 4px;max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;"></div>
+                        <div style="border-top:1px solid rgba(255,255,255,0.08);margin-top:6px;padding:6px 12px 2px;display:flex;gap:6px;">
+                            <button onclick="vendas.limparMedia()" style="flex:1;background:none;border:1px solid rgba(255,255,255,0.15);border-radius:5px;color:#8b949e;font-size:0.72rem;padding:3px 0;cursor:pointer;">Limpar</button>
+                        </div>
+                    </div>
+                </div>
                 <input type="text" class="sigs-input" id="search-input" placeholder="Buscar por código...">
                 <span class="table-count-label" id="table-count"></span>
                 <button class="btn secondary" id="clear-filters-btn">Limpar</button>
@@ -292,6 +303,11 @@
                 <div class="summary-card">
                     <span class="s-label">POR TAMANHO</span>
                     <div id="summary-tamanho" class="summary-breakdown"></div>
+                </div>
+                <div class="summary-card" id="card-media" style="display:none;">
+                    <span class="s-label" id="card-media-label">MÉDIA MESES</span>
+                    <span class="s-value" id="card-media-valor" style="color:#58a6ff;">0</span>
+                    <span class="s-sub" id="card-media-sub">unid./mês · 0 itens</span>
                 </div>
             </div>
 

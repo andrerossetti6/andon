@@ -607,14 +607,69 @@ const vendas = {
     years: [],          // anos detectados no arquivo
     selectedYear: 'all',
     selectedMonth: null,
+    mediaMeses: [],     // keys selecionados para cálculo de média
 
     init() {
         this.setupDropZone();
+        this.setupMediaFilter();
         this.setupFileInput();
         this.setupFilters();
         this.setupYearTabs();
         this.setupChartClick();
         this.setupModal();
+    },
+
+    setupMediaFilter() {
+        const btn  = document.getElementById('media-btn');
+        const drop = document.getElementById('media-dropdown');
+        if (!btn || !drop) return;
+        btn.addEventListener('click', e => {
+            e.stopPropagation();
+            drop.style.display = drop.style.display === 'none' ? 'block' : 'none';
+        });
+        document.addEventListener('mousedown', e => {
+            if (!e.target.closest('#media-wrap')) drop.style.display = 'none';
+        });
+    },
+
+    populateMediaFilter() {
+        const checks = document.getElementById('media-checks');
+        if (!checks) return;
+        const activeCols = this.getActiveCols();
+        checks.innerHTML = activeCols.map(c =>
+            `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.8rem;color:#e6edf3;padding:2px 0;">
+                <input type="checkbox" data-key="${c.key}" ${this.mediaMeses.includes(c.key) ? 'checked' : ''}
+                    style="accent-color:#58a6ff;cursor:pointer;width:14px;height:14px;">
+                ${c.label}
+            </label>`
+        ).join('');
+        checks.querySelectorAll('input[type=checkbox]').forEach(cb => {
+            cb.addEventListener('change', () => {
+                const key = cb.dataset.key;
+                if (cb.checked) { if (!this.mediaMeses.includes(key)) this.mediaMeses.push(key); }
+                else { this.mediaMeses = this.mediaMeses.filter(k => k !== key); }
+                this._updateMediaBtn();
+                this.render();
+            });
+        });
+    },
+
+    _updateMediaBtn() {
+        const btn = document.getElementById('media-btn');
+        if (!btn) return;
+        if (!this.mediaMeses.length) { btn.textContent = 'Selecionar meses'; return; }
+        const labels = this.mediaMeses.map(k => {
+            const c = this.monthCols.find(m => m.key === k);
+            return c ? c.label : k;
+        });
+        btn.textContent = labels.join('+') + ' (÷' + labels.length + ')';
+    },
+
+    limparMedia() {
+        this.mediaMeses = [];
+        this._updateMediaBtn();
+        this.populateMediaFilter();
+        this.render();
     },
 
     setupDropZone() {
@@ -939,7 +994,9 @@ const vendas = {
         });
 
         this.filtered = [...this.rawData];
+        this.mediaMeses = [];
         this.populateFilters();
+        this.populateMediaFilter();
         this.showDataSection();
         this.render();
         this.perguntarESalvar(this._nomeArquivo || 'importacao');
@@ -1048,7 +1105,9 @@ const vendas = {
             };
         });
         this.filtered = [...this.rawData];
+        this.mediaMeses = [];
         this.populateFilters();
+        this.populateMediaFilter();
         this.showDataSection();
         this.render();
         this.renderHistorico();
@@ -1256,6 +1315,26 @@ const vendas = {
         });
         document.getElementById('summary-tamanho').innerHTML =
             this.renderBreakdown(byTam, total, null, null);
+
+        // Card de média
+        const cardMedia = document.getElementById('card-media');
+        if (this.mediaMeses.length > 0) {
+            const n = this.mediaMeses.length;
+            const totalMedia = this.filtered.reduce((s, r) =>
+                s + this.mediaMeses.reduce((ms, k) => ms + (r[k] || 0), 0), 0);
+            const media = totalMedia / n;
+            const labels = this.mediaMeses.map(k => {
+                const c = this.monthCols.find(m => m.key === k);
+                return c ? c.label : k;
+            });
+            document.getElementById('card-media-label').textContent = labels.join(' + ') + ' ÷ ' + n;
+            document.getElementById('card-media-valor').textContent = Math.round(media).toLocaleString('pt-BR');
+            document.getElementById('card-media-sub').textContent =
+                `unid./mês · ${this.filtered.length.toLocaleString('pt-BR')} itens`;
+            if (cardMedia) cardMedia.style.display = '';
+        } else {
+            if (cardMedia) cardMedia.style.display = 'none';
+        }
     },
 
     clickBreakdown(campo, valor) {
@@ -1370,7 +1449,9 @@ const vendas = {
         const table = document.getElementById('vendas-table');
 
         // Cabeçalho dinâmico — destaca coluna do mês selecionado
-        const extras = this.extraCols || [];
+        const extras  = this.extraCols || [];
+        const temMedia = this.mediaMeses.length > 0;
+        const nMedia   = this.mediaMeses.length;
         table.querySelector('thead tr').innerHTML = `
             <th>CÓDIGO</th>
             <th>DESCRIÇÃO</th>
@@ -1383,6 +1464,7 @@ const vendas = {
                 const sel = this.selectedMonth === c.abbr;
                 return `<th class="th-month${sel ? ' th-month-sel' : ''}">${c.label.toUpperCase()}</th>`;
             }).join('')}
+            ${temMedia ? `<th class="th-month th-month-sel" style="color:#58a6ff;">MÉDIA (÷${nMedia})</th>` : ''}
             <th class="td-right">QTDE</th>
             <th class="td-right">VALOR R$</th>
         `;
@@ -1396,12 +1478,16 @@ const vendas = {
                 .sort((a, b) => {
                     const va = mCols.reduce((s, c) => s + (a[c.key] || 0), 0);
                     const vb = mCols.reduce((s, c) => s + (b[c.key] || 0), 0);
-                    return vb - va; // decrescente: maior venda primeiro
+                    return vb - va;
                 });
         }
 
         const rows = displayRows.slice(0, 2000);
-        table.querySelector('tbody').innerHTML = rows.map(r => `
+        table.querySelector('tbody').innerHTML = rows.map(r => {
+            const mediaVal = temMedia
+                ? Math.round(this.mediaMeses.reduce((s, k) => s + (r[k] || 0), 0) / nMedia)
+                : null;
+            return `
             <tr onclick="abrirDetalhe('${r.descricao.replace(/'/g, "\\'")}','${r.segmento}')">
                 <td class="td-code">${r.codigo}</td>
                 <td class="td-desc">${r.descricao}</td>
@@ -1418,10 +1504,11 @@ const vendas = {
                     const sel = this.selectedMonth === c.abbr;
                     return `<td class="td-month${sel ? ' td-month-sel' : ''}">${v ? v.toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>'}</td>`;
                 }).join('')}
+                ${temMedia ? `<td class="td-month td-month-sel" style="color:#58a6ff;font-weight:600;">${mediaVal ? mediaVal.toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>'}</td>` : ''}
                 <td class="td-qtd">${r.quantidade.toLocaleString('pt-BR')}</td>
                 <td class="td-valor">${r.valor ? 'R$ ' + r.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '<span style="opacity:.3">—</span>'}</td>
-            </tr>
-        `).join('');
+            </tr>`;
+        }).join('');
 
         const total  = displayRows.length;
         const suffix = total > 2000 ? ' (exibindo 2.000)' : '';
