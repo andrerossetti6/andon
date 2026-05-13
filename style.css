@@ -805,6 +805,7 @@ input:checked + .chk {
     border-radius: var(--radius-lg);
     padding: 20px;
     flex-shrink: 0;
+    margin-top: 8px;
 }
 
 .chart-header {
