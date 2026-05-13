@@ -2326,10 +2326,12 @@ const costura = {
         const qtdNorm  = allHeaders.find(h => QTD_KEYS.includes(this.normalizeKey(h)));
         this._colQtd   = qtdNorm || null;
         this.colunas   = allHeaders;
-        this.rawData   = rows.map((r, i) => ({
-            _id: i,
-            dados: Object.fromEntries(allHeaders.map(h => [h, r[h] ?? '']))
-        }));
+        const refKey = allHeaders.find(h => this.normalizeKey(h) === 'referencia' || this.normalizeKey(h) === 'ref');
+        this.rawData   = rows.map((r, i) => {
+            const dados = Object.fromEntries(allHeaders.map(h => [h, r[h] ?? '']));
+            if (refKey && dados[refKey]) dados[refKey] = String(dados[refKey]).split(/[\s\-|]/)[0].trim();
+            return { _id: i, dados };
+        });
         this.filtered = [...this.rawData];
         this._finalizarImport();
     },
