@@ -175,6 +175,7 @@ function mostrarApp() {
     estoque.init();
     op.init();
     costura.init();
+    pesquisa.init();
     vxe.init();
     abc.init();
     abcMicro.init();
@@ -550,7 +551,7 @@ function fecharDetalheVxe() {
 function navigateTo(viewName) {
     fecharDetalhe();
     fecharDetalheVxe();
-    ['dashboard','vendas','estoque','op','costura','vxe','abc','abc-micro','abc-estoque'].forEach(v => {
+    ['dashboard','vendas','estoque','op','costura','pesquisa','vxe','abc','abc-micro','abc-estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -563,6 +564,7 @@ function navigateTo(viewName) {
         estoque:       'nav-analise',
         op:            'nav-analise',
         costura:       'nav-analise',
+        pesquisa:      'nav-pesquisa',
         vxe:           'nav-vxe',
         dashboard:     'nav-analise',
         abc:           'nav-abc-cruzada',
@@ -581,6 +583,8 @@ function navigateTo(viewName) {
         document.querySelector('[data-view="op"]')?.classList.add('sub-active');
     } else if (viewName === 'costura') {
         document.querySelector('[data-view="costura"]')?.classList.add('sub-active');
+    } else if (viewName === 'pesquisa') {
+        pesquisa.render();
     } else if (viewName === 'vxe') {
         vxe.render();
     } else if (viewName === 'abc') {
@@ -3407,6 +3411,134 @@ const abcEstoque = {
                 <td class="td-center"><span class="abc-badge ${cls}">${r.classe}</span></td>
             </tr>`;
         }).join('');
+    }
+};
+
+// ====== PESQUISA POR CÓDIGO ======
+
+const pesquisa = {
+    _query: '',
+
+    init() {
+        const inp = document.getElementById('pesquisa-input');
+        if (inp) inp.addEventListener('input', e => { this._query = e.target.value.trim(); this.render(); });
+    },
+
+    limpar() {
+        this._query = '';
+        const inp = document.getElementById('pesquisa-input');
+        if (inp) inp.value = '';
+        this.render();
+    },
+
+    // Mapa código → { estoque, op, costura } usando dados carregados
+    _buildEstoqueMap() {
+        const m = {};
+        estoque.rawData.forEach(r => {
+            const k = String(r.codigo || '').trim().toUpperCase();
+            if (k) m[k] = (m[k] || 0) + (Number(r.quantidade) || 0);
+        });
+        return m;
+    },
+
+    _buildOPMap() {
+        const m = {};
+        const qtdCol = op._colQtd;
+        op.rawData.forEach(r => {
+            const k = String(r.dados?.['Código'] || r.dados?.['codigo'] || r.dados?.['CÓDIGO'] || '').trim().toUpperCase();
+            const qty = qtdCol ? (parseFloat(String(r.dados?.[qtdCol] ?? '0').replace(',', '.')) || 0) : 0;
+            if (k) m[k] = (m[k] || 0) + qty;
+        });
+        return m;
+    },
+
+    _buildCosturaMap() {
+        const m = {};
+        const qtdCol = costura._colQtd;
+        costura.rawData.forEach(r => {
+            const k = String(r.dados?.['Referência'] || r.dados?.['Referencia'] || r.dados?.['referencia'] || r.dados?.['REFERÊNCIA'] || r.dados?.['Código'] || r.dados?.['codigo'] || '').trim().toUpperCase();
+            const qty = qtdCol ? (parseFloat(String(r.dados?.[qtdCol] ?? '0').replace(',', '.')) || 0) : 0;
+            if (k) m[k] = (m[k] || 0) + qty;
+        });
+        return m;
+    },
+
+    render() {
+        const tbody   = document.getElementById('pesquisa-tbody');
+        const countEl = document.getElementById('pesquisa-count');
+        const empty   = document.getElementById('pesquisa-empty');
+        const cards   = document.getElementById('pesquisa-cards');
+        if (!tbody) return;
+
+        const q = this._query.toUpperCase();
+
+        if (!q) {
+            tbody.innerHTML = '';
+            if (countEl) countEl.textContent = '';
+            if (empty) empty.style.display = 'block';
+            if (cards) cards.style.display = 'none';
+            return;
+        }
+        if (empty) empty.style.display = 'none';
+
+        // Filtrar vendas por código (contém o termo)
+        const rows = vendas.rawData.filter(r => String(r.codigo || '').toUpperCase().includes(q));
+
+        if (!rows.length) {
+            tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:24px;color:#8b949e;">Nenhum resultado para "${this._query}"</td></tr>`;
+            if (countEl) countEl.textContent = '0 resultados';
+            if (cards) cards.style.display = 'none';
+            return;
+        }
+
+        // Mapas dos módulos
+        const estMap  = this._buildEstoqueMap();
+        const opMap   = this._buildOPMap();
+        const cosMap  = this._buildCosturaMap();
+
+        // Calcular TOTAL VENDAS e MÉDIA por linha
+        const allCols = vendas.monthCols;
+        const nMeses  = allCols.length || 1;
+
+        const fmt = v => v != null && v > 0 ? Math.round(v).toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>';
+
+        let sumVendas = 0, sumMedia = 0, sumEst = 0, sumOP = 0, sumCos = 0;
+
+        tbody.innerHTML = rows.map(r => {
+            const totalV = allCols.reduce((s, c) => s + (r[c.key] || 0), 0);
+            const media  = totalV / nMeses;
+            const cod    = String(r.codigo || '').trim().toUpperCase();
+            const est    = estMap[cod]  || 0;
+            const opQty  = opMap[cod]   || 0;
+            const cosQty = cosMap[cod]  || 0;
+
+            sumVendas += totalV; sumMedia += media; sumEst += est; sumOP += opQty; sumCos += cosQty;
+
+            return `<tr>
+                <td class="td-code">${r.codigo}</td>
+                <td class="td-desc">${r.descricao}</td>
+                <td>${r.marca || '<span style="opacity:.3">—</span>'}</td>
+                <td><span class="seg-badge">${r.segmento}</span></td>
+                <td class="td-center">${r.tamanho}</td>
+                <td class="td-right">${fmt(totalV)}</td>
+                <td class="td-right" style="color:#58a6ff;font-weight:600;">${fmt(media)}</td>
+                <td class="td-right" style="color:#2ea043;font-weight:600;">${fmt(est)}</td>
+                <td class="td-right" style="color:#d29922;font-weight:600;">${fmt(opQty)}</td>
+                <td class="td-right" style="color:#a371f7;font-weight:600;">${fmt(cosQty)}</td>
+            </tr>`;
+        }).join('');
+
+        if (countEl) countEl.textContent = `${rows.length.toLocaleString('pt-BR')} ${rows.length === 1 ? 'resultado' : 'resultados'}`;
+
+        // Cards resumo
+        if (cards) {
+            cards.style.display = 'block';
+            document.getElementById('pc-vendas').textContent  = Math.round(sumVendas).toLocaleString('pt-BR');
+            document.getElementById('pc-media').textContent   = Math.round(sumMedia / rows.length).toLocaleString('pt-BR');
+            document.getElementById('pc-estoque').textContent = Math.round(sumEst).toLocaleString('pt-BR');
+            document.getElementById('pc-op').textContent      = Math.round(sumOP).toLocaleString('pt-BR');
+            document.getElementById('pc-costura').textContent = Math.round(sumCos).toLocaleString('pt-BR');
+        }
     }
 };
 

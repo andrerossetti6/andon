@@ -70,6 +70,9 @@
             <nav class="nav-section">
                 <h3>DASHBOARDS</h3>
                 <ul>
+                    <li id="nav-pesquisa" onclick="navigateTo('pesquisa')">
+                        <div class="item-content">Pesquisa por Código</div>
+                    </li>
                     <li id="nav-vxe" onclick="navigateTo('vxe')">
                         <div class="item-content">Vendas × Estoque</div>
                     </li>
@@ -429,6 +432,56 @@
                 </table>
             </div>
         </div>
+    </main>
+
+    <!-- ── Pesquisa por Código ──────────────────────────────── -->
+    <main class="content" id="view-pesquisa" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Pesquisa por <span>Código</span></h1>
+                <p class="page-subtitle">Consulta unificada de Vendas, Estoque, OP e Costura</p>
+            </div>
+        </header>
+
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <input type="text" class="sigs-input" id="pesquisa-input"
+                placeholder="Digite o código do produto..."
+                style="max-width:360px;font-size:1rem;padding:10px 14px;">
+            <span class="table-count-label" id="pesquisa-count"></span>
+            <button class="btn secondary" onclick="pesquisa.limpar()">Limpar</button>
+        </div>
+
+        <!-- Cards resumo -->
+        <div id="pesquisa-cards" style="display:none;gap:12px;margin-bottom:16px;display:none;">
+            <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;" id="pesquisa-cards-grid">
+                <div class="summary-card"><span class="s-label">TOTAL VENDAS</span><span class="s-value" id="pc-vendas">—</span></div>
+                <div class="summary-card"><span class="s-label">MÉDIA MENSAL</span><span class="s-value" id="pc-media" style="color:#58a6ff;">—</span></div>
+                <div class="summary-card"><span class="s-label">ESTOQUE</span><span class="s-value" id="pc-estoque" style="color:#2ea043;">—</span></div>
+                <div class="summary-card"><span class="s-label">EM PROCESSO (OP)</span><span class="s-value" id="pc-op" style="color:#d29922;">—</span></div>
+                <div class="summary-card"><span class="s-label">COSTURA</span><span class="s-value" id="pc-costura" style="color:#a371f7;">—</span></div>
+            </div>
+        </div>
+
+        <div class="vendas-table-wrap">
+            <table class="vendas-table" id="pesquisa-table">
+                <thead><tr>
+                    <th>CÓDIGO</th>
+                    <th>DESCRIÇÃO</th>
+                    <th>MARCA</th>
+                    <th>SEGMENTO</th>
+                    <th class="td-center">TAM.</th>
+                    <th class="td-right">TOTAL VENDAS</th>
+                    <th class="td-right" style="color:#58a6ff;">MÉDIA VENDAS</th>
+                    <th class="td-right" style="color:#2ea043;">ESTOQUE</th>
+                    <th class="td-right" style="color:#d29922;">PROCESSO (OP)</th>
+                    <th class="td-right" style="color:#a371f7;">COSTURA</th>
+                </tr></thead>
+                <tbody id="pesquisa-tbody"></tbody>
+            </table>
+        </div>
+        <p id="pesquisa-empty" style="color:#8b949e;text-align:center;padding:40px 0;display:none;">
+            Digite um código para pesquisar.
+        </p>
     </main>
 
     <!-- ── Importação: Ordens de Produção ───────────────────── -->
