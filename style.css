@@ -694,8 +694,8 @@ input:checked + .chk {
 /* Summary Cards */
 .vendas-summary {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 15px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
     flex-shrink: 0;
 }
 
@@ -703,7 +703,7 @@ input:checked + .chk {
     background: var(--bg-card);
     border: 1px solid var(--border-color);
     border-radius: var(--radius-lg);
-    padding: 20px;
+    padding: 14px 18px;
 }
 
 .s-label {
@@ -712,32 +712,32 @@ input:checked + .chk {
     color: var(--text-dim);
     letter-spacing: 0.1em;
     font-weight: 600;
-    margin-bottom: 12px;
+    margin-bottom: 8px;
 }
 
 .s-value {
     display: block;
     font-family: 'Outfit';
-    font-size: 2rem;
+    font-size: 1.65rem;
     font-weight: 700;
     line-height: 1;
 }
 
 .s-sub {
     display: block;
-    font-size: 0.75rem;
+    font-size: 0.72rem;
     color: var(--text-dim);
-    margin-top: 6px;
+    margin-top: 4px;
 }
 
 /* Breakdown nos cards de summary */
 .summary-breakdown {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin-top: 12px;
+    gap: 5px;
+    margin-top: 8px;
     overflow-y: auto;
-    max-height: 220px;
+    max-height: 160px;
     padding-right: 4px;
 }
 
@@ -1592,7 +1592,7 @@ input:checked + .chk {
     .filters-column { display: flex; flex-wrap: wrap; gap: 20px; }
     .filter-group   { margin-bottom: 0; min-width: 140px; }
 
-    .vendas-summary { grid-template-columns: repeat(3, 1fr); }
+    .vendas-summary { grid-template-columns: repeat(4, 1fr); }
 }
 
 @media (max-width: 900px) {
