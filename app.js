@@ -2430,6 +2430,14 @@ const cliente = {
 
     processData(rows) {
         if (!rows?.length) return;
+
+        // Detecta relatório ERP: alguma linha contém padrão "NÚMERO - NOME"
+        const isERP = rows.some(r =>
+            Object.values(r).some(v => /^\d{3,6}\s*-\s*[A-ZÁÀÃÂÉÊÍÓÔÕÚÇ]/.test(String(v ?? '')))
+        );
+        if (isERP) { this._parseERPCliente(rows); return; }
+
+        // Formato tabular normal
         const allHeaders = Object.keys(rows[0]).filter(h => {
             const n = this.normalizeKey(h);
             return n && !n.startsWith('__');
@@ -2439,6 +2447,53 @@ const cliente = {
             _id: i,
             dados: Object.fromEntries(allHeaders.map(h => [h, r[h] ?? '']))
         }));
+        this.filtered = [...this.rawData];
+        this._finalizarImport();
+    },
+
+    _parseERPCliente(rows) {
+        const parsed = [];
+        let curPedido = null, curCliente = null;
+
+        for (const row of rows) {
+            const line = String(Object.values(row)[0] ?? '').trim();
+            if (!line) continue;
+
+            // Linha de cliente: "9262 - ADRIAN COIMBRA"
+            const clientM = line.match(/^(\d{3,6})\s*-\s*(.+)$/);
+            if (clientM && !/^\d{2}\/\d{2}\/\d{4}/.test(line)) {
+                curPedido  = clientM[1].trim();
+                curCliente = clientM[2].trim();
+                continue;
+            }
+
+            // Linha de transação: "07/05/2026 ... - CANAL - VALOR ..."
+            // Ex: "07/05/2026 1 19361/1 3 - SITE - 196,70 28,52 ..."
+            const txM = line.match(/^(\d{2}\/\d{2}\/\d{4})\s+.+?\s+-\s+(\S+)\s+-\s+([\d,]+)/);
+            if (txM && curPedido) {
+                parsed.push({
+                    'Pedido':  curPedido,
+                    'Cliente': curCliente || '',
+                    'Data':    txM[1],
+                    'Canal':   txM[2],
+                    'Valor':   txM[3],
+                });
+                continue;
+            }
+
+            // Subtotal encerra bloco do cliente atual
+            if (/^Subtotal/i.test(line)) {
+                curPedido = null; curCliente = null;
+            }
+        }
+
+        if (!parsed.length) {
+            alert('Nenhum pedido encontrado no arquivo. Verifique o formato.');
+            return;
+        }
+
+        this._mapearColunas(['Pedido','Cliente','Data','Canal','Valor']);
+        this.rawData  = parsed.map((r, i) => ({ _id: i, dados: r }));
         this.filtered = [...this.rawData];
         this._finalizarImport();
     },
