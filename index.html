@@ -944,6 +944,12 @@
                 <input type="time" class="sigs-input" id="tur-inicio" style="width:110px;">
                 <label style="font-size:0.72rem;color:var(--text-dim);white-space:nowrap;">Fim</label>
                 <input type="time" class="sigs-input" id="tur-fim" style="width:110px;">
+                <label style="font-size:0.72rem;color:var(--text-dim);white-space:nowrap;">Intervalo</label>
+                <div style="display:flex;align-items:center;gap:4px;">
+                    <input type="number" class="sigs-input" id="tur-intervalo" min="0" max="240" value="0"
+                        style="width:64px;text-align:center;" placeholder="0">
+                    <span style="font-size:0.72rem;color:var(--text-dim);">min</span>
+                </div>
                 <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;" id="tur-dias-wrap">
                     <label style="font-size:0.72rem;color:var(--text-dim);">Dias:</label>
                     <label class="tur-dia-lbl" data-dia="Seg"><input type="checkbox" value="Seg"> Seg</label>

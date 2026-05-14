@@ -3142,8 +3142,9 @@ const disponibilidade = {
                 const [hi,mi] = t.inicio.split(':').map(Number);
                 const [hf,mf] = t.fim.split(':').map(Number);
                 let diff = (hf*60+mf) - (hi*60+mi);
-                if (diff < 0) diff += 24*60; // turno vira meia-noite
-                totalMin += diff;
+                if (diff < 0) diff += 24*60;
+                diff -= (Number(t.intervalo_min) || 0); // desconta intervalo
+                totalMin += Math.max(0, diff);
             }
             (t.dias_semana || []).forEach(d => diasSet.add(d));
         });
@@ -3171,8 +3172,19 @@ const disponibilidade = {
             grupos[proc].push(t);
         });
 
+        const minParaHora = m => { const h=Math.floor(m/60),r=m%60; return `${h}h${r?r+'m':''}`; };
         const renderCard = t => {
             const dias = (t.dias_semana || []).map(d => `<span class="tur-dia-badge">${d}</span>`).join('');
+            const intervalo = Number(t.intervalo_min) || 0;
+            // Horas líquidas do turno
+            let diffMin = 0;
+            if (t.inicio && t.fim) {
+                const [hi,mi] = t.inicio.split(':').map(Number);
+                const [hf,mf] = t.fim.split(':').map(Number);
+                diffMin = (hf*60+mf) - (hi*60+mi);
+                if (diffMin < 0) diffMin += 24*60;
+                diffMin = Math.max(0, diffMin - intervalo);
+            }
             return `<div class="tur-card">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;">
                     <span class="tur-card-nome">${t.nome}</span>
@@ -3180,7 +3192,10 @@ const disponibilidade = {
                         style="background:none;border:none;color:#f85149;cursor:pointer;font-size:0.85rem;">✕</button>
                 </div>
                 <div class="tur-card-horario">${t.inicio?.slice(0,5) || '—'} → ${t.fim?.slice(0,5) || '—'}</div>
-                <div class="tur-card-dias">${dias || '<span style="opacity:.4;font-size:0.72rem;">Nenhum dia</span>'}</div>
+                ${intervalo ? `<div style="font-size:0.72rem;color:#d29922;margin-top:2px;">
+                    − ${intervalo}min intervalo &nbsp;·&nbsp; <span style="color:#2ea043;">${minParaHora(diffMin)} líquidas</span>
+                </div>` : `<div style="font-size:0.72rem;color:#2ea043;margin-top:2px;">${minParaHora(diffMin)} líquidas</div>`}
+                <div class="tur-card-dias" style="margin-top:6px;">${dias || '<span style="opacity:.4;font-size:0.72rem;">Nenhum dia</span>'}</div>
             </div>`;
         };
 
@@ -3201,20 +3216,22 @@ const disponibilidade = {
     },
 
     async adicionarTurno() {
-        const processo = document.getElementById('tur-processo').value.trim();
-        const nome     = document.getElementById('tur-nome').value.trim();
-        const inicio   = document.getElementById('tur-inicio').value;
-        const fim      = document.getElementById('tur-fim').value;
-        const dias     = [...document.querySelectorAll('#tur-dias-wrap input:checked')].map(i => i.value);
+        const processo    = document.getElementById('tur-processo').value.trim();
+        const nome        = document.getElementById('tur-nome').value.trim();
+        const inicio      = document.getElementById('tur-inicio').value;
+        const fim         = document.getElementById('tur-fim').value;
+        const intervalo   = parseInt(document.getElementById('tur-intervalo').value) || 0;
+        const dias        = [...document.querySelectorAll('#tur-dias-wrap input:checked')].map(i => i.value);
         if (!processo || !nome || !inicio || !fim) {
             alert('Preencha processo, nome, início e fim do turno.'); return;
         }
-        const res = await api.post('/api/turnos', { processo, nome, inicio, fim, dias_semana: dias });
+        const res = await api.post('/api/turnos', { processo, nome, inicio, fim, intervalo_min: intervalo, dias_semana: dias });
         if (res?.ok) {
-            document.getElementById('tur-processo').value = '';
-            document.getElementById('tur-nome').value    = '';
-            document.getElementById('tur-inicio').value  = '';
-            document.getElementById('tur-fim').value     = '';
+            document.getElementById('tur-processo').value  = '';
+            document.getElementById('tur-nome').value      = '';
+            document.getElementById('tur-inicio').value    = '';
+            document.getElementById('tur-fim').value       = '';
+            document.getElementById('tur-intervalo').value = '0';
             document.querySelectorAll('#tur-dias-wrap input').forEach(i => i.checked = false);
             await this.carregarTurnos();
             mostrarToast(`✓ Turno adicionado em ${processo}`);
