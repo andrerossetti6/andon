@@ -915,24 +915,8 @@
         <!-- ── PAINEL: TURNOS ── -->
         <div id="panel-turnos" style="display:none;flex-direction:column;gap:var(--section-gap);">
 
-            <!-- Cards resumo -->
-            <div class="vendas-summary" style="grid-template-columns:repeat(3,1fr);">
-                <div class="summary-card">
-                    <span class="s-label">TOTAL TURNOS</span>
-                    <span class="s-value" id="tur-total">0</span>
-                    <span class="s-sub">configurados</span>
-                </div>
-                <div class="summary-card">
-                    <span class="s-label">HORAS/DIA</span>
-                    <span class="s-value" id="tur-horas" style="color:#2ea043;">0h</span>
-                    <span class="s-sub">total de horas produtivas</span>
-                </div>
-                <div class="summary-card">
-                    <span class="s-label">DIAS ATIVOS</span>
-                    <span class="s-value" id="tur-dias" style="color:#58a6ff;">0</span>
-                    <span class="s-sub">dias por semana</span>
-                </div>
-            </div>
+            <!-- Cards por processo (gerados dinamicamente) -->
+            <div id="tur-proc-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:var(--layout-gap);"></div>
 
             <!-- Formulário de turno -->
             <div class="vendas-filters-bar" style="flex-wrap:wrap;gap:var(--layout-gap);">

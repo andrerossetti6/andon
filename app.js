@@ -3135,23 +3135,41 @@ const disponibilidade = {
     },
 
     renderTurnos() {
-        const total = this._turnos.length;
-        let totalMin = 0, diasSet = new Set();
+        const minParaHora = m => { const h=Math.floor(m/60),r=m%60; return `${h}h${r?(r+'m'):''}`;};
+        const calcLiq = t => {
+            if (!t.inicio || !t.fim) return 0;
+            const [hi,mi]=[...t.inicio.split(':').map(Number)], [hf,mf]=[...t.fim.split(':').map(Number)];
+            let d=(hf*60+mf)-(hi*60+mi); if(d<0) d+=24*60;
+            return Math.max(0, d - (Number(t.intervalo_min)||0));
+        };
+
+        // Agrupa por processo
+        const grupos = {};
         this._turnos.forEach(t => {
-            if (t.inicio && t.fim) {
-                const [hi,mi] = t.inicio.split(':').map(Number);
-                const [hf,mf] = t.fim.split(':').map(Number);
-                let diff = (hf*60+mf) - (hi*60+mi);
-                if (diff < 0) diff += 24*60;
-                diff -= (Number(t.intervalo_min) || 0); // desconta intervalo
-                totalMin += Math.max(0, diff);
-            }
-            (t.dias_semana || []).forEach(d => diasSet.add(d));
+            const p = t.processo || '—';
+            if (!grupos[p]) grupos[p] = [];
+            grupos[p].push(t);
         });
-        const horas = Math.floor(totalMin/60), mins = totalMin%60;
-        document.getElementById('tur-total').textContent = total;
-        document.getElementById('tur-horas').textContent = `${horas}h${mins ? mins+'m' : ''}`;
-        document.getElementById('tur-dias').textContent  = diasSet.size;
+
+        // Cards de resumo por processo
+        const procCards = document.getElementById('tur-proc-cards');
+        if (procCards) {
+            if (!Object.keys(grupos).length) {
+                procCards.innerHTML = '';
+            } else {
+                procCards.innerHTML = Object.entries(grupos)
+                    .sort(([a],[b]) => a.localeCompare(b))
+                    .map(([proc, turnos]) => {
+                        const horasProc = turnos.reduce((s,t) => s + calcLiq(t), 0);
+                        const diasProc  = new Set(turnos.flatMap(t => t.dias_semana||[])).size;
+                        return `<div class="summary-card" style="border-left:3px solid var(--indigo-btn);">
+                            <span class="s-label">${proc.toUpperCase()}</span>
+                            <span class="s-value" style="color:#58a6ff;">${minParaHora(horasProc)}</span>
+                            <span class="s-sub">${turnos.length} turno${turnos.length>1?'s':''} · ${diasProc} dia${diasProc!==1?'s':''}/sem</span>
+                        </div>`;
+                    }).join('');
+            }
+        }
 
         // Popula datalist de processos para autocomplete
         const processosList = [...new Set(this._turnos.map(t => t.processo).filter(Boolean))].sort();
