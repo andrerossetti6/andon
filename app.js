@@ -2328,8 +2328,9 @@ const cliente = {
     _col1: null, _col1Values: [], _col1Selected: '',
     _col2: null, _col2Values: [], _col2Selected: '',
     _colQtd: null,
-    // mapeamento das 5 colunas alvo
-    _colPedido: null, _colCliente: null, _colData: null, _colCanal: null, _colValor: null,
+    // mapeamento das 7 colunas alvo
+    _colCodigo: null, _colDesc: null, _colData: null, _colCliente: null,
+    _colQtd: null, _colValUnit: null, _colValTotal: null,
 
     init() {
         this.setupDropZone();
@@ -2453,68 +2454,87 @@ const cliente = {
 
     _parseERPCliente(rows) {
         const parsed = [];
-        let curPedido = null, curCliente = null;
+        let curCodigo = null, curDesc = null, curCliente = null, curData = null;
 
         for (const row of rows) {
             const line = String(Object.values(row)[0] ?? '').trim();
-            if (!line) continue;
+            if (!line || /^-{3,}/.test(line)) continue;
 
-            // Linha de cliente: "9262 - ADRIAN COIMBRA"
-            const clientM = line.match(/^(\d{3,6})\s*-\s*(.+)$/);
-            if (clientM && !/^\d{2}\/\d{2}\/\d{4}/.test(line)) {
-                curPedido  = clientM[1].trim();
-                curCliente = clientM[2].trim();
+            // Linha de produto: "46254 - Regata Feminina" (código numérico + descrição)
+            const prodM = line.match(/^(\d{3,8})\s*-\s*(.+)$/);
+            if (prodM && !/^\d{2}\/\d{2}\/\d{4}/.test(line)) {
+                curCodigo  = prodM[1].trim();
+                curDesc    = prodM[2].trim();
+                curCliente = null; curData = null;
                 continue;
             }
 
-            // Linha de transação: "07/05/2026 ... - CANAL - VALOR ..."
-            // Ex: "07/05/2026 1 19361/1 3 - SITE - 196,70 28,52 ..."
-            const txM = line.match(/^(\d{2}\/\d{2}\/\d{4})\s+.+?\s+-\s+(\S+)\s+-\s+([\d,]+)/);
-            if (txM && curPedido) {
-                parsed.push({
-                    'Pedido':  curPedido,
-                    'Cliente': curCliente || '',
-                    'Data':    txM[1],
-                    'Canal':   txM[2],
-                    'Valor':   txM[3],
-                });
+            // Linha de data + cliente: "08/05/2026 ... Malharia Anselmi ..."
+            // Tenta extrair data e, se houver texto depois, considera como cliente
+            const dateM = line.match(/^(\d{2}\/\d{2}\/\d{4})\s+(.*)/);
+            if (dateM && curCodigo) {
+                curData = dateM[1];
+                // Extrai cliente: texto entre dashes ou antes dos números
+                const resto = dateM[2];
+                const clienteM = resto.match(/(?:^|\s-\s)([A-Za-záàãâéêíóôõúçÁÀÃÂÉÊÍÓÔÕÚÇ][A-Za-záàãâéêíóôõúçÁÀÃÂÉÊÍÓÔÕÚÇ\s]+?)(?:\s+-|\s+[\d,]+|$)/);
+                if (clienteM) curCliente = clienteM[1].trim();
+
+                // Extrai valores numéricos do final da linha
+                const nums = resto.match(/([\d.]+,\d+)/g) || [];
+                const qtd      = nums[0] ? nums[0] : '';
+                const valUnit  = nums[1] ? nums[1] : '';
+                const valTotal = nums[nums.length - 1] || '';
+
+                if (qtd) {
+                    parsed.push({
+                        'Código':         curCodigo  || '',
+                        'Descrição':      curDesc    || '',
+                        'Data':           curData    || '',
+                        'Cliente':        curCliente || '',
+                        'Quantidade':     qtd,
+                        'Valor Unitário': valUnit,
+                        'Valor Total':    valTotal,
+                    });
+                }
                 continue;
             }
 
-            // Subtotal encerra bloco do cliente atual
-            if (/^Subtotal/i.test(line)) {
-                curPedido = null; curCliente = null;
+            // Subtotal encerra bloco
+            if (/^Subtotal|^Total/i.test(line)) {
+                curCodigo = null; curDesc = null; curCliente = null; curData = null;
             }
         }
 
         if (!parsed.length) {
-            alert('Nenhum pedido encontrado no arquivo. Verifique o formato.');
+            alert('Nenhum registro encontrado no arquivo. Verifique o formato.');
             return;
         }
 
-        this._mapearColunas(['Pedido','Cliente','Data','Canal','Valor']);
+        const cols = ['Código','Descrição','Data','Cliente','Quantidade','Valor Unitário','Valor Total'];
+        this._mapearColunas(cols);
         this.rawData  = parsed.map((r, i) => ({ _id: i, dados: r }));
         this.filtered = [...this.rawData];
         this._finalizarImport();
     },
 
-    // Detecta as 5 colunas alvo e define a ordem de exibição
+    // Detecta as 7 colunas alvo e define a ordem de exibição
     _mapearColunas(headers) {
         const n = h => this.normalizeKey(h);
         const find = (...keys) => headers.find(h => keys.includes(n(h))) ||
                                    headers.find(h => keys.some(k => n(h).includes(k)));
 
-        this._colPedido  = find('pedido','nrpedido','numpedido','numeropedido','nropedido','codpedido','ordem','id');
-        this._colCliente = find('cliente','nomecliente','nome','razaosocial','nomrazaosocial','comprador');
-        this._colData    = find('data','datapedido','datavenda','dataemissao','datacriacao','dtpedido');
-        this._colCanal   = find('canal','canalvenda','canaldevenda','origem','tipovenda');
-        this._colValor   = find('valor','valortotal','valorpedido','valorrs','total','valorbr','vltotal');
+        this._colCodigo   = find('codigo','cod','codproduto','codigoproduto','referencia','ref','sku');
+        this._colDesc     = find('descricao','desc','descproduto','produto','nomeproduto','descricaoproduto');
+        this._colData     = find('data','datavenda','datapedido','dataemissao','datacriacao','dtpedido');
+        this._colCliente  = find('cliente','nomecliente','nome','razaosocial','nomrazaosocial','comprador');
+        this._colQtd      = find('quantidade','qtd','qty','qtde','quant');
+        this._colValUnit  = find('valorunitario','valunit','valorunit','precounitario','preco','unitario','vlrunit');
+        this._colValTotal = find('valortotal','total','valorrs','vltotal','vlrtotal','valorbruto','bruto');
 
-        // Exibe as 5 colunas alvo na ordem desejada (ignorando as não encontradas)
-        const ordem = [this._colPedido, this._colCliente, this._colData, this._colCanal, this._colValor];
+        const ordem = [this._colCodigo, this._colDesc, this._colData, this._colCliente,
+                       this._colQtd, this._colValUnit, this._colValTotal];
         this.colunas = ordem.filter(Boolean);
 
-        // Fallback: se não encontrou nenhuma, exibe todas
         if (!this.colunas.length) this.colunas = headers;
     },
 
@@ -2527,8 +2547,8 @@ const cliente = {
     },
 
     _detectCombosCols() {
-        // col1 = Canal (filtro por canal de venda), col2 = oculto (busca texto já cobre)
-        this._col1 = this._colCanal || null;
+        // col1 = Cliente, col2 = oculto
+        this._col1 = this._colCliente || null;
         this._col2 = null;
 
         const uniq = col => col
@@ -2544,7 +2564,7 @@ const cliente = {
         const i1 = document.getElementById('cliente-col1-input');
 
         if (this._col1 && this._col1Values.length) {
-            i1.placeholder = `Filtrar Canal...`; i1.value = ''; w1.style.display = '';
+            i1.placeholder = 'Filtrar Cliente...'; i1.value = ''; w1.style.display = '';
         } else w1.style.display = 'none';
         w2.style.display = 'none';
     },
@@ -2561,26 +2581,31 @@ const cliente = {
     },
 
     render() {
-        const total    = this.rawData.length;
-        const filt     = this.filtered.length;
-        const toVal    = v => parseFloat(String(v ?? '0').replace(/\./g,'').replace(',','.')) || 0;
-        const valorTotal = this._colValor
-            ? this.filtered.reduce((s, r) => s + toVal(r.dados?.[this._colValor]), 0)
-            : null;
+        const total  = this.rawData.length;
+        const filt   = this.filtered.length;
+        const toNum  = v => parseFloat(String(v ?? '0').replace(/\./g,'').replace(',','.')) || 0;
+
+        const qtdTotal = this._colQtd
+            ? this.filtered.reduce((s, r) => s + toNum(r.dados?.[this._colQtd]), 0) : null;
+        const valTotal = this._colValTotal
+            ? this.filtered.reduce((s, r) => s + toNum(r.dados?.[this._colValTotal]), 0) : null;
 
         document.getElementById('cliente-total').textContent     = total.toLocaleString('pt-BR');
-        document.getElementById('cliente-qtd').textContent       = valorTotal != null
-            ? 'R$ ' + valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })
-            : '—';
+        document.getElementById('cliente-qtd').textContent       = qtdTotal != null ? qtdTotal.toLocaleString('pt-BR') : '—';
+        const elValor = document.getElementById('cliente-valor');
+        if (elValor) elValor.textContent = valTotal != null
+            ? 'R$ ' + valTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '—';
         document.getElementById('cliente-filtrados').textContent = filt.toLocaleString('pt-BR');
-        document.getElementById('cliente-count').textContent     = `${filt.toLocaleString('pt-BR')} pedidos${filt > 2000 ? ' (exibindo 2000)' : ''}`;
+        document.getElementById('cliente-count').textContent     = `${filt.toLocaleString('pt-BR')} registros${filt > 2000 ? ' (exibindo 2000)' : ''}`;
 
         const LABELS = {
-            [this._colPedido]:  'PEDIDO',
-            [this._colCliente]: 'CLIENTE',
-            [this._colData]:    'DATA',
-            [this._colCanal]:   'CANAL',
-            [this._colValor]:   'VALOR',
+            [this._colCodigo]:   'CÓDIGO',
+            [this._colDesc]:     'DESCRIÇÃO',
+            [this._colData]:     'DATA',
+            [this._colCliente]:  'CLIENTE',
+            [this._colQtd]:      'QUANTIDADE',
+            [this._colValUnit]:  'VALOR UNIT.',
+            [this._colValTotal]: 'VALOR TOTAL',
         };
 
         const table = document.getElementById('cliente-table');
@@ -2591,13 +2616,17 @@ const cliente = {
             const cells = this.colunas.map(h => {
                 const v = r.dados?.[h];
                 const empty = '<span style="opacity:.3">—</span>';
-                if (!v && v !== 0) return `<td>${empty}</td>`;
-                if (h === this._colPedido)
+                if (v === undefined || v === '') return `<td>${empty}</td>`;
+                if (h === this._colCodigo)
                     return `<td><span style="font-family:monospace;color:#58a6ff;font-weight:600;">${v}</span></td>`;
-                if (h === this._colValor)
-                    return `<td style="text-align:right;color:#2ea043;font-weight:600;">${'R$ ' + toVal(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>`;
-                if (h === this._colCanal)
-                    return `<td><span class="seg-badge">${v}</span></td>`;
+                if (h === this._colQtd)
+                    return `<td style="text-align:right;font-weight:600;">${toNum(v).toLocaleString('pt-BR')}</td>`;
+                if (h === this._colValUnit)
+                    return `<td style="text-align:right;color:#8b949e;">R$ ${toNum(v).toLocaleString('pt-BR',{minimumFractionDigits:3})}</td>`;
+                if (h === this._colValTotal)
+                    return `<td style="text-align:right;color:#2ea043;font-weight:600;">R$ ${toNum(v).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>`;
+                if (h === this._colCliente)
+                    return `<td style="font-weight:500;">${v}</td>`;
                 return `<td>${v}</td>`;
             }).join('');
             return `<tr>${cells}</tr>`;
