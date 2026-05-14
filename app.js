@@ -54,6 +54,12 @@ const api = {
         return r.json();
     },
 
+    async delete(url) {
+        const r = await fetch(url, { method: 'DELETE', headers: auth.cabecalho() });
+        if (r.status === 401) { auth.sair(); return null; }
+        return r.json();
+    },
+
     async salvarImport(nomeArquivo, rawData, monthCols) {
         const anos = [...new Set(monthCols.map(c => c.year).filter(Boolean))];
         const linhas = rawData.map(r => {
@@ -186,6 +192,9 @@ function mostrarApp() {
     init();
     banco.init();
     cliente.init();
+    calendario.init();
+    processos.init();
+    capacidade.init();
     estoque.init();
     op.init();
     costura.init();
@@ -196,6 +205,9 @@ function mostrarApp() {
     vendas.carregarHistorico()
         .then(() => banco.carregarHistorico())
         .then(() => cliente.carregarHistorico())
+        .then(() => calendario.carregarHistorico())
+        .then(() => processos.carregarHistorico())
+        .then(() => capacidade.carregarHistorico())
         .then(() => estoque.carregarHistorico())
         .then(() => op.carregarHistorico())
         .then(() => costura.carregarHistorico())
@@ -567,7 +579,7 @@ function fecharDetalheVxe() {
 function navigateTo(viewName) {
     fecharDetalhe();
     fecharDetalheVxe();
-    ['dashboard','vendas','cliente','banco','estoque','op','costura','pesquisa','vxe','abc','abc-micro','abc-estoque'].forEach(v => {
+    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','pesquisa','vxe','abc','abc-micro','abc-estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -582,6 +594,9 @@ function navigateTo(viewName) {
         estoque:       'nav-analise',
         op:            'nav-analise',
         costura:       'nav-analise',
+        calendario:    'nav-arq',
+        processos:     'nav-arq',
+        capacidade:    'nav-arq',
         pesquisa:      'nav-pesquisa',
         vxe:           'nav-vxe',
         dashboard:     'nav-analise',
@@ -605,6 +620,12 @@ function navigateTo(viewName) {
         document.querySelector('[data-view="op"]')?.classList.add('sub-active');
     } else if (viewName === 'costura') {
         document.querySelector('[data-view="costura"]')?.classList.add('sub-active');
+    } else if (viewName === 'calendario') {
+        document.querySelector('[data-view="calendario"]')?.classList.add('sub-active');
+    } else if (viewName === 'processos') {
+        document.querySelector('[data-view="processos"]')?.classList.add('sub-active');
+    } else if (viewName === 'capacidade') {
+        document.querySelector('[data-view="capacidade"]')?.classList.add('sub-active');
     } else if (viewName === 'pesquisa') {
         pesquisa.render();
     } else if (viewName === 'vxe') {
@@ -1179,7 +1200,10 @@ const vendas = {
             else if (modulo === 'op') op.salvar('substituir');
             else if (modulo === 'costura') costura.salvar('substituir');
             else if (modulo === 'banco') banco.salvar('substituir');
-            else if (modulo === 'cliente') cliente.salvar('substituir');
+            else if (modulo === 'cliente')    cliente.salvar('substituir');
+            else if (modulo === 'calendario') calendario.salvar('substituir');
+            else if (modulo === 'processos')  processos.salvar('substituir');
+            else if (modulo === 'capacidade') capacidade.salvar('substituir');
             else this.salvarImportacao('substituir');
         });
         document.getElementById('btn-nova-imp').addEventListener('click', () => {
@@ -1188,7 +1212,10 @@ const vendas = {
             else if (modulo === 'op') op.salvar('nova');
             else if (modulo === 'costura') costura.salvar('nova');
             else if (modulo === 'banco') banco.salvar('nova');
-            else if (modulo === 'cliente') cliente.salvar('nova');
+            else if (modulo === 'cliente')    cliente.salvar('nova');
+            else if (modulo === 'calendario') calendario.salvar('nova');
+            else if (modulo === 'processos')  processos.salvar('nova');
+            else if (modulo === 'capacidade') capacidade.salvar('nova');
             else this.salvarImportacao('nova');
         });
         document.getElementById('btn-cancelar-imp').addEventListener('click', () => {
@@ -2727,6 +2754,207 @@ const cliente = {
         await this.carregarHistorico();
     }
 };
+
+// ====== ARQUITETURA DE DADOS — factory genérica ======
+
+function criarModuloArq(id, nomeApi) {
+    return {
+        rawData: [], filtered: [], colunas: [],
+        _importacoes: [], _currentId: null, _nomeArquivo: '',
+        _col1: null, _col1Values: [], _col1Selected: '',
+        _col2: null, _col2Values: [], _col2Selected: '',
+        _colQtd: null,
+
+        init() {
+            const zone = document.getElementById(`${id}-drop-zone`);
+            zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+            zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+            zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag-over'); const f = e.dataTransfer.files[0]; if (f) this.handleFile(f); });
+            const inp = document.getElementById(`file-input-${id}`);
+            inp.addEventListener('change', e => { const f = e.target.files[0]; if (f) this.handleFile(f); inp.value = ''; });
+            document.getElementById(`${id}-search`).addEventListener('input', () => this.aplicarFiltros());
+            this._setupCombo(`${id}-col1-input`,`${id}-col1-dropdown`,'_col1Selected','_col1Values');
+            this._setupCombo(`${id}-col2-input`,`${id}-col2-dropdown`,'_col2Selected','_col2Values');
+        },
+
+        limpar() {
+            document.getElementById(`${id}-search`).value = '';
+            this._col1Selected = ''; this._col2Selected = '';
+            document.getElementById(`${id}-col1-input`).value = '';
+            document.getElementById(`${id}-col2-input`).value = '';
+            document.getElementById(`${id}-col1-dropdown`).classList.remove('open');
+            document.getElementById(`${id}-col2-dropdown`).classList.remove('open');
+            this.aplicarFiltros();
+        },
+
+        _setupCombo(inputId, dropId, selKey, valsKey) {
+            const input = document.getElementById(inputId);
+            const drop  = document.getElementById(dropId);
+            input.addEventListener('focus', () => { this._renderDrop(drop, input, selKey, valsKey, ''); drop.classList.add('open'); });
+            input.addEventListener('input', () => { this[selKey] = ''; this._renderDrop(drop, input, selKey, valsKey, input.value); drop.classList.add('open'); this.aplicarFiltros(); });
+            document.addEventListener('mousedown', e => { if (!e.target.closest(`#${dropId}`) && !e.target.closest(`#${inputId}`)) drop.classList.remove('open'); });
+        },
+
+        _renderDrop(drop, input, selKey, valsKey, q) {
+            const term = q.toLowerCase().trim();
+            const matches = term ? this[valsKey].filter(v => v.toLowerCase().includes(term)) : this[valsKey];
+            drop.innerHTML = `<div class="combobox-option clear-opt" data-val="">Todos</div>` +
+                matches.slice(0,100).map(v => `<div class="combobox-option${v===this[selKey]?' active':''}" data-val="${v}">${v}</div>`).join('');
+            drop.querySelectorAll('.combobox-option').forEach(el => {
+                el.addEventListener('mousedown', e => { e.preventDefault(); this[selKey]=el.dataset.val; input.value=el.dataset.val; drop.classList.remove('open'); this.aplicarFiltros(); });
+            });
+        },
+
+        normalizeKey(key) { return String(key).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,''); },
+
+        handleFile(file) {
+            this._nomeArquivo = file.name;
+            const ext = file.name.split('.').pop().toLowerCase();
+            if (ext === 'csv') Papa.parse(file, { header:true, skipEmptyLines:true, complete: r => this.processData(r.data) });
+            else if (['xls','xlsx'].includes(ext)) {
+                const reader = new FileReader();
+                reader.onload = e => { const wb = XLSX.read(e.target.result,{type:'array'}); this.processData(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''})); };
+                reader.readAsArrayBuffer(file);
+            }
+        },
+
+        processData(rows) {
+            if (!rows?.length) return;
+            const allHeaders = Object.keys(rows[0]).filter(h => { const n=this.normalizeKey(h); return n && !n.startsWith('__'); });
+            const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs'];
+            this._colQtd = allHeaders.find(h => QTD_KEYS.includes(this.normalizeKey(h))) || null;
+            this.colunas = allHeaders;
+            this.rawData = rows.map((r,i) => ({ _id:i, dados: Object.fromEntries(allHeaders.map(h=>[h,r[h]??''])) }));
+            this.filtered = [...this.rawData];
+            this._detectCombosCols();
+            document.getElementById(`${id}-drop-zone`).style.display = 'none';
+            document.getElementById(`${id}-data`).classList.add('visible');
+            this.render();
+            this.perguntarESalvar(this._nomeArquivo);
+        },
+
+        _detectCombosCols() {
+            const STATUS_KEYS = ['status','situacao','estado','tipo','categoria'];
+            const DESC_KEYS   = ['descricao','descr','desc','produto','nome'];
+            const find = keys => this.colunas.find(c => keys.includes(this.normalizeKey(c)));
+            this._col1 = find(STATUS_KEYS) || this.colunas.find(c => STATUS_KEYS.some(k => this.normalizeKey(c).includes(k)));
+            this._col2 = find(DESC_KEYS)   || this.colunas.find(c => DESC_KEYS.some(k => this.normalizeKey(c).includes(k)));
+            const uniq = col => col ? [...new Set(this.rawData.map(r => String(r.dados?.[col]??'')).filter(Boolean))].sort() : [];
+            this._col1Values = uniq(this._col1); this._col2Values = uniq(this._col2);
+            this._col1Selected = ''; this._col2Selected = '';
+            const w1=document.getElementById(`${id}-col1-wrap`), w2=document.getElementById(`${id}-col2-wrap`);
+            const i1=document.getElementById(`${id}-col1-input`), i2=document.getElementById(`${id}-col2-input`);
+            if (this._col1) { i1.placeholder=`Filtrar ${this._col1}...`; i1.value=''; w1.style.display=''; } else w1.style.display='none';
+            if (this._col2) { i2.placeholder=`Filtrar ${this._col2}...`; i2.value=''; w2.style.display=''; } else w2.style.display='none';
+        },
+
+        aplicarFiltros() {
+            const q = document.getElementById(`${id}-search`).value.toLowerCase().trim();
+            this.filtered = this.rawData.filter(r => {
+                if (q && !Object.values(r.dados).some(v => String(v).toLowerCase().includes(q))) return false;
+                if (this._col1Selected && String(r.dados?.[this._col1]??'') !== this._col1Selected) return false;
+                if (this._col2Selected && String(r.dados?.[this._col2]??'') !== this._col2Selected) return false;
+                return true;
+            });
+            this.render();
+        },
+
+        render() {
+            const total = this.rawData.length, filt = this.filtered.length;
+            const qtd = this._colQtd ? this.filtered.reduce((s,r) => s+(parseFloat(String(r.dados?.[this._colQtd]??'0').replace(',','.'))||0),0) : 0;
+            document.getElementById(`${id}-total`).textContent     = total.toLocaleString('pt-BR');
+            document.getElementById(`${id}-qtd`).textContent       = this._colQtd ? qtd.toLocaleString('pt-BR') : '—';
+            document.getElementById(`${id}-filtrados`).textContent = filt.toLocaleString('pt-BR');
+            document.getElementById(`${id}-count`).textContent     = `${filt.toLocaleString('pt-BR')} registros${filt>2000?' (exibindo 2000)':''}`;
+            const table = document.getElementById(`${id}-table`);
+            table.querySelector('thead tr').innerHTML = this.colunas.map(h=>`<th>${h.toUpperCase()}</th>`).join('');
+            table.querySelector('tbody').innerHTML = this.filtered.slice(0,2000).map(r => {
+                const cells = this.colunas.map(h => { const v=r.dados?.[h]; return `<td>${v!==undefined&&v!==''?v:'<span style="opacity:.3">—</span>'}</td>`; }).join('');
+                return `<tr>${cells}</tr>`;
+            }).join('');
+        },
+
+        async perguntarESalvar(nome) {
+            this._nomeArquivo = nome;
+            const lista = await api.get(`/api/importacoes-${nomeApi}`);
+            if (!lista?.length && !this._currentId) { await this.salvar('nova'); }
+            else {
+                document.getElementById('modal-arquivo').textContent = nome;
+                document.getElementById('import-modal').dataset.modulo = id;
+                document.getElementById('import-modal').style.display = 'flex';
+            }
+        },
+
+        async salvar(modo) {
+            document.getElementById('import-modal').style.display = 'none';
+            this._setSaving(true);
+            try {
+                if (modo === 'substituir' && this._currentId) await api.delete(`/api/importacoes-${nomeApi}/${this._currentId}`);
+                const res = await api.post(`/api/${nomeApi}/import`, { nomeArquivo: this._nomeArquivo, linhas: this.rawData.map(r=>({dados:r.dados})) });
+                if (res?.ok) this._currentId = res.importacaoId;
+                else alert(`Erro ao salvar. Verifique se as tabelas importacoes_${nomeApi} e dados_${nomeApi} foram criadas no Supabase.`);
+            } catch(e) { alert('Erro de conexão.'); } finally { this._setSaving(false); }
+            await this.carregarHistorico();
+        },
+
+        _setSaving(v) { const el=document.getElementById(`${id}-saving`); if(el) el.style.display=v?'':'none'; },
+
+        async carregarHistorico() {
+            const lista = await api.get(`/api/importacoes-${nomeApi}`);
+            this._importacoes = lista || [];
+            this.renderHistorico();
+            if (lista?.length && !this._currentId) await this.carregarImportacao(lista[0].id);
+        },
+
+        async carregarImportacao(id_imp) {
+            const rows = await api.get(`/api/${nomeApi}?importacao_id=${id_imp}`);
+            if (!rows?.length) return;
+            this._currentId = id_imp;
+            this.colunas = Object.keys(rows[0].dados || {});
+            this.rawData = rows.map((r,i) => ({ _id:i, dados:r.dados }));
+            const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs'];
+            this._colQtd = this.colunas.find(h => QTD_KEYS.includes(this.normalizeKey(h))) || null;
+            this.filtered = [...this.rawData];
+            this._detectCombosCols();
+            document.getElementById(`${id}-drop-zone`).style.display = 'none';
+            document.getElementById(`${id}-data`).classList.add('visible');
+            this.render(); this.renderHistorico();
+        },
+
+        renderHistorico() {
+            const wrap=document.getElementById(`${id}-history`), list=document.getElementById(`${id}-history-list`);
+            if (!this._importacoes?.length) { wrap.style.display='none'; return; }
+            wrap.style.display='block';
+            list.innerHTML = this._importacoes.map(imp => {
+                const d = new Date(imp.criado_em).toLocaleDateString('pt-BR',{day:'2-digit',month:'short'});
+                const ativo = imp.id === this._currentId;
+                return `<div class="hi-item${ativo?' hi-ativo':''}" onclick="${id}.carregarImportacao('${imp.id}')">
+                    <span class="hi-dot">${ativo?'●':'○'}</span>
+                    <div class="hi-info"><span class="hi-nome">${imp.nome_arquivo}</span><span class="hi-meta">${d} · ${imp.total_linhas} registros</span></div>
+                    <button class="hi-del" onclick="event.stopPropagation();${id}.excluir('${imp.id}')" title="Excluir">✕</button>
+                </div>`;
+            }).join('');
+            list.style.display='flex';
+            const chev=document.getElementById(`chevron-${id}`); if(chev) chev.style.transform='rotate(90deg)';
+        },
+
+        async excluir(imp_id) {
+            if (!confirm('Excluir esta importação?')) return;
+            await api.delete(`/api/importacoes-${nomeApi}/${imp_id}`);
+            if (this._currentId === imp_id) {
+                this.rawData=[]; this.filtered=[];
+                document.getElementById(`${id}-data`).classList.remove('visible');
+                document.getElementById(`${id}-drop-zone`).style.display='';
+                this._currentId=null;
+            }
+            await this.carregarHistorico();
+        }
+    };
+}
+
+const calendario = criarModuloArq('calendario', 'calendario');
+const processos  = criarModuloArq('processos',  'processos');
+const capacidade = criarModuloArq('capacidade',  'capacidade');
 
 // ====== IMPORTAÇÃO: BANCO DE DADOS ======
 

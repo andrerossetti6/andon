@@ -70,6 +70,20 @@
             </nav>
 
             <nav class="nav-section">
+                <h3>ARQUITETURA DE DADOS</h3>
+                <ul>
+                    <li class="has-sub" id="nav-arq" onclick="navigateTo('calendario')">
+                        <div class="item-content">Arquitetura de Dados</div>
+                        <ul class="sub-menu">
+                            <li data-view="calendario" onclick="event.stopPropagation(); navigateTo('calendario')">Calendário</li>
+                            <li data-view="processos"  onclick="event.stopPropagation(); navigateTo('processos')">Processos</li>
+                            <li data-view="capacidade" onclick="event.stopPropagation(); navigateTo('capacidade')">Capacidade</li>
+                        </ul>
+                    </li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section">
                 <h3>DASHBOARDS</h3>
                 <ul>
                     <li id="nav-pesquisa" onclick="navigateTo('pesquisa')">
@@ -809,6 +823,147 @@
                     <tbody></tbody>
                 </table>
             </div>
+        </div>
+    </main>
+
+    <!-- ── Arquitetura: Calendário ──────────────────────────── -->
+    <main class="content" id="view-calendario" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Arquitetura de <span>Calendário</span></h1>
+                <p class="page-subtitle">Importe dados de calendário em CSV ou XLS</p>
+            </div>
+            <div class="page-header-actions">
+                <label class="btn primary import-btn" for="file-input-calendario">
+                    <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Importar Arquivo
+                </label>
+                <input type="file" id="file-input-calendario" accept=".csv,.xls,.xlsx" style="display:none;">
+            </div>
+        </header>
+        <div id="calendario-history" style="display:none;" class="import-history">
+            <div class="history-header" onclick="toggleHistorico('calendario-history')" style="cursor:pointer;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="history-chevron" id="chevron-calendario">›</span>
+                    <span class="s-label" style="margin:0;">IMPORTAÇÕES SALVAS <span id="calendario-saving" style="display:none;color:var(--text-dim);">· salvando...</span></span>
+                </div>
+                <label class="btn secondary" for="file-input-calendario" onclick="event.stopPropagation()" style="cursor:pointer;padding:4px 14px;font-size:0.72rem;">+ Novo arquivo</label>
+            </div>
+            <div id="calendario-history-list" class="history-list" style="display:none;"></div>
+        </div>
+        <div class="drop-zone" id="calendario-drop-zone">
+            <div class="drop-icon"><svg viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg></div>
+            <h3>Arraste seu arquivo aqui</h3><p>Suporte a .CSV, .XLS e .XLSX</p>
+            <label class="btn secondary" for="file-input-calendario" style="margin-top:16px;display:inline-block;cursor:pointer;">Ou clique para selecionar</label>
+        </div>
+        <div id="calendario-data">
+            <div class="vendas-summary">
+                <div class="summary-card"><span class="s-label">REGISTROS</span><span class="s-value" id="calendario-total">0</span><span class="s-sub">importados</span></div>
+                <div class="summary-card"><span class="s-label">QUANTIDADE</span><span class="s-value" id="calendario-qtd">0</span><span class="s-sub">unidades</span></div>
+                <div class="summary-card"><span class="s-label">FILTRADOS</span><span class="s-value" id="calendario-filtrados">0</span><span class="s-sub">resultado</span></div>
+            </div>
+            <div class="vendas-filters-bar">
+                <input type="text" class="sigs-input" id="calendario-search" placeholder="Buscar em qualquer coluna...">
+                <div class="combobox-wrap" id="calendario-col1-wrap" style="display:none;"><input type="text" class="sigs-input combobox-input" id="calendario-col1-input" placeholder="Filtrar..." autocomplete="off"><div class="combobox-dropdown" id="calendario-col1-dropdown"></div></div>
+                <div class="combobox-wrap" id="calendario-col2-wrap" style="display:none;"><input type="text" class="sigs-input combobox-input" id="calendario-col2-input" placeholder="Filtrar..." autocomplete="off"><div class="combobox-dropdown" id="calendario-col2-dropdown"></div></div>
+                <span class="table-count-label" id="calendario-count"></span>
+                <button class="btn secondary" onclick="calendario.limpar()">Limpar</button>
+            </div>
+            <div class="vendas-table-wrap"><table class="vendas-table estoque-table-full" id="calendario-table"><thead><tr></tr></thead><tbody></tbody></table></div>
+        </div>
+    </main>
+
+    <!-- ── Arquitetura: Processos ─────────────────────────────── -->
+    <main class="content" id="view-processos" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Arquitetura de <span>Processos</span></h1>
+                <p class="page-subtitle">Importe dados de processos em CSV ou XLS</p>
+            </div>
+            <div class="page-header-actions">
+                <label class="btn primary import-btn" for="file-input-processos">
+                    <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Importar Arquivo
+                </label>
+                <input type="file" id="file-input-processos" accept=".csv,.xls,.xlsx" style="display:none;">
+            </div>
+        </header>
+        <div id="processos-history" style="display:none;" class="import-history">
+            <div class="history-header" onclick="toggleHistorico('processos-history')" style="cursor:pointer;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="history-chevron" id="chevron-processos">›</span>
+                    <span class="s-label" style="margin:0;">IMPORTAÇÕES SALVAS <span id="processos-saving" style="display:none;color:var(--text-dim);">· salvando...</span></span>
+                </div>
+                <label class="btn secondary" for="file-input-processos" onclick="event.stopPropagation()" style="cursor:pointer;padding:4px 14px;font-size:0.72rem;">+ Novo arquivo</label>
+            </div>
+            <div id="processos-history-list" class="history-list" style="display:none;"></div>
+        </div>
+        <div class="drop-zone" id="processos-drop-zone">
+            <div class="drop-icon"><svg viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg></div>
+            <h3>Arraste seu arquivo aqui</h3><p>Suporte a .CSV, .XLS e .XLSX</p>
+            <label class="btn secondary" for="file-input-processos" style="margin-top:16px;display:inline-block;cursor:pointer;">Ou clique para selecionar</label>
+        </div>
+        <div id="processos-data">
+            <div class="vendas-summary">
+                <div class="summary-card"><span class="s-label">REGISTROS</span><span class="s-value" id="processos-total">0</span><span class="s-sub">importados</span></div>
+                <div class="summary-card"><span class="s-label">QUANTIDADE</span><span class="s-value" id="processos-qtd">0</span><span class="s-sub">unidades</span></div>
+                <div class="summary-card"><span class="s-label">FILTRADOS</span><span class="s-value" id="processos-filtrados">0</span><span class="s-sub">resultado</span></div>
+            </div>
+            <div class="vendas-filters-bar">
+                <input type="text" class="sigs-input" id="processos-search" placeholder="Buscar em qualquer coluna...">
+                <div class="combobox-wrap" id="processos-col1-wrap" style="display:none;"><input type="text" class="sigs-input combobox-input" id="processos-col1-input" placeholder="Filtrar..." autocomplete="off"><div class="combobox-dropdown" id="processos-col1-dropdown"></div></div>
+                <div class="combobox-wrap" id="processos-col2-wrap" style="display:none;"><input type="text" class="sigs-input combobox-input" id="processos-col2-input" placeholder="Filtrar..." autocomplete="off"><div class="combobox-dropdown" id="processos-col2-dropdown"></div></div>
+                <span class="table-count-label" id="processos-count"></span>
+                <button class="btn secondary" onclick="processos.limpar()">Limpar</button>
+            </div>
+            <div class="vendas-table-wrap"><table class="vendas-table estoque-table-full" id="processos-table"><thead><tr></tr></thead><tbody></tbody></table></div>
+        </div>
+    </main>
+
+    <!-- ── Arquitetura: Capacidade ────────────────────────────── -->
+    <main class="content" id="view-capacidade" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Arquitetura de <span>Capacidade</span></h1>
+                <p class="page-subtitle">Importe dados de capacidade em CSV ou XLS</p>
+            </div>
+            <div class="page-header-actions">
+                <label class="btn primary import-btn" for="file-input-capacidade">
+                    <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Importar Arquivo
+                </label>
+                <input type="file" id="file-input-capacidade" accept=".csv,.xls,.xlsx" style="display:none;">
+            </div>
+        </header>
+        <div id="capacidade-history" style="display:none;" class="import-history">
+            <div class="history-header" onclick="toggleHistorico('capacidade-history')" style="cursor:pointer;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="history-chevron" id="chevron-capacidade">›</span>
+                    <span class="s-label" style="margin:0;">IMPORTAÇÕES SALVAS <span id="capacidade-saving" style="display:none;color:var(--text-dim);">· salvando...</span></span>
+                </div>
+                <label class="btn secondary" for="file-input-capacidade" onclick="event.stopPropagation()" style="cursor:pointer;padding:4px 14px;font-size:0.72rem;">+ Novo arquivo</label>
+            </div>
+            <div id="capacidade-history-list" class="history-list" style="display:none;"></div>
+        </div>
+        <div class="drop-zone" id="capacidade-drop-zone">
+            <div class="drop-icon"><svg viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg></div>
+            <h3>Arraste seu arquivo aqui</h3><p>Suporte a .CSV, .XLS e .XLSX</p>
+            <label class="btn secondary" for="file-input-capacidade" style="margin-top:16px;display:inline-block;cursor:pointer;">Ou clique para selecionar</label>
+        </div>
+        <div id="capacidade-data">
+            <div class="vendas-summary">
+                <div class="summary-card"><span class="s-label">REGISTROS</span><span class="s-value" id="capacidade-total">0</span><span class="s-sub">importados</span></div>
+                <div class="summary-card"><span class="s-label">QUANTIDADE</span><span class="s-value" id="capacidade-qtd">0</span><span class="s-sub">unidades</span></div>
+                <div class="summary-card"><span class="s-label">FILTRADOS</span><span class="s-value" id="capacidade-filtrados">0</span><span class="s-sub">resultado</span></div>
+            </div>
+            <div class="vendas-filters-bar">
+                <input type="text" class="sigs-input" id="capacidade-search" placeholder="Buscar em qualquer coluna...">
+                <div class="combobox-wrap" id="capacidade-col1-wrap" style="display:none;"><input type="text" class="sigs-input combobox-input" id="capacidade-col1-input" placeholder="Filtrar..." autocomplete="off"><div class="combobox-dropdown" id="capacidade-col1-dropdown"></div></div>
+                <div class="combobox-wrap" id="capacidade-col2-wrap" style="display:none;"><input type="text" class="sigs-input combobox-input" id="capacidade-col2-input" placeholder="Filtrar..." autocomplete="off"><div class="combobox-dropdown" id="capacidade-col2-dropdown"></div></div>
+                <span class="table-count-label" id="capacidade-count"></span>
+                <button class="btn secondary" onclick="capacidade.limpar()">Limpar</button>
+            </div>
+            <div class="vendas-table-wrap"><table class="vendas-table estoque-table-full" id="capacidade-table"><thead><tr></tr></thead><tbody></tbody></table></div>
         </div>
     </main>
 

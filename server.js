@@ -447,6 +447,47 @@ app.delete('/api/importacoes-banco/:id', auth, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── ARQUITETURA DE DADOS — rotas genéricas ───────────────────
+['calendario','processos','capacidade'].forEach(nome => {
+    app.get(`/api/importacoes-${nome}`, auth, async (_req, res) => {
+        const { data, error } = await supabase.from(`importacoes_${nome}`)
+            .select('id, nome_arquivo, total_linhas, criado_em, usuarios(nome)')
+            .order('criado_em', { ascending: false }).limit(30);
+        if (error) return res.status(500).json({ erro: `Erro ao buscar importações de ${nome}` });
+        res.json(data);
+    });
+
+    app.post(`/api/${nome}/import`, auth, async (req, res) => {
+        const { nomeArquivo, linhas } = req.body;
+        if (!Array.isArray(linhas) || !linhas.length)
+            return res.status(400).json({ erro: 'Dados inválidos' });
+        const { data: imp, error: errImp } = await supabase.from(`importacoes_${nome}`)
+            .insert({ nome_arquivo: nomeArquivo || nome, usuario_id: req.usuario.id, total_linhas: linhas.length })
+            .select().single();
+        if (errImp) return res.status(500).json({ erro: errImp.message });
+        const rows = linhas.map(l => ({ importacao_id: imp.id, dados: l.dados || {} }));
+        for (let i = 0; i < rows.length; i += 200) {
+            const { error } = await supabase.from(`dados_${nome}`).insert(rows.slice(i, i + 200));
+            if (error) return res.status(500).json({ erro: `Erro ao salvar dados de ${nome}` });
+        }
+        res.json({ ok: true, importacaoId: imp.id, total: linhas.length });
+    });
+
+    app.get(`/api/${nome}`, auth, async (req, res) => {
+        let q = supabase.from(`dados_${nome}`).select('*');
+        if (req.query.importacao_id) q = q.eq('importacao_id', req.query.importacao_id);
+        const { data, error } = await q.limit(10000);
+        if (error) return res.status(500).json({ erro: `Erro ao buscar ${nome}` });
+        res.json(data);
+    });
+
+    app.delete(`/api/importacoes-${nome}/:id`, auth, async (req, res) => {
+        const { error } = await supabase.from(`importacoes_${nome}`).delete().eq('id', req.params.id);
+        if (error) return res.status(500).json({ erro: 'Erro ao deletar' });
+        res.json({ ok: true });
+    });
+});
+
 // ── DELETE /api/importacoes/:id (admin) ───────────────────────
 app.delete('/api/importacoes/:id', auth, adminOnly, async (req, res) => {
     const { error } = await supabase
