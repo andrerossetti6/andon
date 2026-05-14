@@ -3160,11 +3160,14 @@ const disponibilidade = {
                 procCards.innerHTML = Object.entries(grupos)
                     .sort(([a],[b]) => a.localeCompare(b))
                     .map(([proc, turnos]) => {
-                        const horasProc = turnos.reduce((s,t) => s + calcLiq(t), 0);
+                        const mins = turnos.map(t => calcLiq(t));
+                        const horasProc = mins.reduce((s,m) => s + m, 0);
                         const diasProc  = new Set(turnos.flatMap(t => t.dias_semana||[])).size;
+                        const parcelas  = mins.map(m => minParaHora(m)).join(' + ');
                         return `<div class="summary-card" style="border-left:3px solid var(--indigo-btn);">
                             <span class="s-label">${proc.toUpperCase()}</span>
                             <span class="s-value" style="color:#58a6ff;">${minParaHora(horasProc)}</span>
+                            <span class="s-sub" style="font-size:0.68rem;opacity:.75;">${parcelas}</span>
                             <span class="s-sub">${turnos.length} turno${turnos.length>1?'s':''} · ${diasProc} dia${diasProc!==1?'s':''}/sem</span>
                         </div>`;
                     }).join('');
