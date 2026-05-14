@@ -3036,6 +3036,64 @@ const disponibilidade = {
         await this.carregarFeriados();
     },
 
+    importarFeriados(input) {
+        const file = input.files[0];
+        if (!file) return;
+        input.value = '';
+        const ext = file.name.split('.').pop().toLowerCase();
+        const processar = rows => {
+            if (!rows?.length) return;
+            const nk = h => String(h).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+            const headers = Object.keys(rows[0]);
+            const colData = headers.find(h => ['data','date','dt'].includes(nk(h)));
+            const colNome = headers.find(h => ['nome','name','feriado','descricao','desc'].includes(nk(h)));
+            const colTipo = headers.find(h => ['tipo','type','categoria'].includes(nk(h)));
+
+            if (!colData || !colNome) {
+                alert('Arquivo precisa ter colunas: Data e Nome (mínimo).');
+                return;
+            }
+
+            // Normaliza data: aceita dd/mm/yyyy ou yyyy-mm-dd
+            const normData = v => {
+                const s = String(v ?? '').trim();
+                if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+                const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+                if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+                return null;
+            };
+
+            const TIPOS_VALIDOS = ['Nacional','Estadual','Municipal','Empresa'];
+            const lote = rows.map(r => ({
+                data: normData(r[colData]),
+                nome: String(r[colNome] ?? '').trim(),
+                tipo: TIPOS_VALIDOS.includes(r[colTipo]) ? r[colTipo] : 'Nacional'
+            })).filter(r => r.data && r.nome);
+
+            if (!lote.length) { alert('Nenhum registro válido encontrado.'); return; }
+
+            api.post('/api/feriados/lote', { feriados: lote }).then(res => {
+                if (res?.ok) {
+                    mostrarToast(`✓ ${res.total} feriados importados`);
+                    this.carregarFeriados();
+                } else {
+                    alert('Erro ao importar. Verifique se a tabela feriados existe no Supabase.');
+                }
+            });
+        };
+
+        if (ext === 'csv') {
+            Papa.parse(file, { header: true, skipEmptyLines: true, complete: r => processar(r.data) });
+        } else {
+            const reader = new FileReader();
+            reader.onload = e => {
+                const wb = XLSX.read(e.target.result, { type: 'array' });
+                processar(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }));
+            };
+            reader.readAsArrayBuffer(file);
+        }
+    },
+
     // ── TURNOS ────────────────────────────────────────────────
     async carregarTurnos() {
         const data = await api.get('/api/turnos');

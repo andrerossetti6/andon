@@ -880,6 +880,11 @@
                     <option value="Empresa">Empresa</option>
                 </select>
                 <button class="btn primary" onclick="disponibilidade.adicionarFeriado()" style="white-space:nowrap;">+ Adicionar</button>
+                <label class="btn secondary import-btn" for="file-input-feriados" style="cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:6px;">
+                    <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Importar CSV/XLS
+                </label>
+                <input type="file" id="file-input-feriados" accept=".csv,.xls,.xlsx" style="display:none;" onchange="disponibilidade.importarFeriados(this)">
                 <input type="text" class="sigs-input" id="fer-busca" placeholder="Buscar..." style="width:180px;" oninput="disponibilidade.filtrarFeriados()">
             </div>
 

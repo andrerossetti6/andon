@@ -460,6 +460,17 @@ app.post('/api/feriados', auth, async (req, res) => {
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, feriado: data });
 });
+app.post('/api/feriados/lote', auth, async (req, res) => {
+    const { feriados } = req.body;
+    if (!Array.isArray(feriados) || !feriados.length)
+        return res.status(400).json({ erro: 'Dados inválidos' });
+    const rows = feriados.map(f => ({ data: f.data, nome: f.nome, tipo: f.tipo || 'Nacional' }));
+    for (let i = 0; i < rows.length; i += 200) {
+        const { error } = await supabase.from('feriados').insert(rows.slice(i, i + 200));
+        if (error) return res.status(500).json({ erro: error.message });
+    }
+    res.json({ ok: true, total: rows.length });
+});
 app.delete('/api/feriados/:id', auth, async (req, res) => {
     const { error } = await supabase.from('feriados').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ erro: error.message });
