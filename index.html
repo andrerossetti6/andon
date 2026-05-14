@@ -936,11 +936,14 @@
 
             <!-- Formulário de turno -->
             <div class="vendas-filters-bar" style="flex-wrap:wrap;gap:var(--layout-gap);">
-                <input type="text" class="sigs-input" id="tur-nome" placeholder="Nome do turno (ex: Turno 1)" style="width:180px;">
+                <input type="text" class="sigs-input" id="tur-processo" list="tur-processo-list"
+                    placeholder="Processo (ex: Costura)" style="width:180px;" autocomplete="off">
+                <datalist id="tur-processo-list"></datalist>
+                <input type="text" class="sigs-input" id="tur-nome" placeholder="Nome do turno (ex: Turno 1)" style="width:160px;">
                 <label style="font-size:0.72rem;color:var(--text-dim);white-space:nowrap;">Início</label>
-                <input type="time" class="sigs-input" id="tur-inicio" style="width:120px;">
+                <input type="time" class="sigs-input" id="tur-inicio" style="width:110px;">
                 <label style="font-size:0.72rem;color:var(--text-dim);white-space:nowrap;">Fim</label>
-                <input type="time" class="sigs-input" id="tur-fim" style="width:120px;">
+                <input type="time" class="sigs-input" id="tur-fim" style="width:110px;">
                 <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;" id="tur-dias-wrap">
                     <label style="font-size:0.72rem;color:var(--text-dim);">Dias:</label>
                     <label class="tur-dia-lbl" data-dia="Seg"><input type="checkbox" value="Seg"> Seg</label>

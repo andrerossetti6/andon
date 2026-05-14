@@ -484,9 +484,11 @@ app.get('/api/turnos', auth, async (_req, res) => {
     res.json(data);
 });
 app.post('/api/turnos', auth, async (req, res) => {
-    const { nome, inicio, fim, dias_semana } = req.body;
+    const { processo, nome, inicio, fim, dias_semana } = req.body;
     if (!nome || !inicio || !fim) return res.status(400).json({ erro: 'Nome, início e fim obrigatórios' });
-    const { data, error } = await supabase.from('turnos').insert({ nome, inicio, fim, dias_semana: dias_semana || [] }).select().single();
+    const { data, error } = await supabase.from('turnos')
+        .insert({ processo: processo || '', nome, inicio, fim, dias_semana: dias_semana || [] })
+        .select().single();
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, turno: data });
 });

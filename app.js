@@ -3141,7 +3141,9 @@ const disponibilidade = {
             if (t.inicio && t.fim) {
                 const [hi,mi] = t.inicio.split(':').map(Number);
                 const [hf,mf] = t.fim.split(':').map(Number);
-                totalMin += (hf*60+mf) - (hi*60+mi);
+                let diff = (hf*60+mf) - (hi*60+mi);
+                if (diff < 0) diff += 24*60; // turno vira meia-noite
+                totalMin += diff;
             }
             (t.dias_semana || []).forEach(d => diasSet.add(d));
         });
@@ -3150,7 +3152,26 @@ const disponibilidade = {
         document.getElementById('tur-horas').textContent = `${horas}h${mins ? mins+'m' : ''}`;
         document.getElementById('tur-dias').textContent  = diasSet.size;
 
-        document.getElementById('tur-cards').innerHTML = this._turnos.map(t => {
+        // Popula datalist de processos para autocomplete
+        const processosList = [...new Set(this._turnos.map(t => t.processo).filter(Boolean))].sort();
+        const dl = document.getElementById('tur-processo-list');
+        if (dl) dl.innerHTML = processosList.map(p => `<option value="${p}">`).join('');
+
+        if (!this._turnos.length) {
+            document.getElementById('tur-cards').innerHTML =
+                `<div style="color:var(--text-dim);padding:24px;grid-column:1/-1;text-align:center;">Nenhum turno cadastrado</div>`;
+            return;
+        }
+
+        // Agrupa por processo
+        const grupos = {};
+        this._turnos.forEach(t => {
+            const proc = t.processo || '—';
+            if (!grupos[proc]) grupos[proc] = [];
+            grupos[proc].push(t);
+        });
+
+        const renderCard = t => {
             const dias = (t.dias_semana || []).map(d => `<span class="tur-dia-badge">${d}</span>`).join('');
             return `<div class="tur-card">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;">
@@ -3158,26 +3179,45 @@ const disponibilidade = {
                     <button onclick="disponibilidade.excluirTurno('${t.id}')"
                         style="background:none;border:none;color:#f85149;cursor:pointer;font-size:0.85rem;">✕</button>
                 </div>
-                <div class="tur-card-horario">${t.inicio || '—'} → ${t.fim || '—'}</div>
-                <div class="tur-card-dias">${dias || '<span style="color:var(--text-dim);font-size:0.72rem;">Nenhum dia configurado</span>'}</div>
+                <div class="tur-card-horario">${t.inicio?.slice(0,5) || '—'} → ${t.fim?.slice(0,5) || '—'}</div>
+                <div class="tur-card-dias">${dias || '<span style="opacity:.4;font-size:0.72rem;">Nenhum dia</span>'}</div>
             </div>`;
-        }).join('') || `<div style="color:var(--text-dim);padding:24px;grid-column:1/-1;text-align:center;">Nenhum turno cadastrado</div>`;
+        };
+
+        document.getElementById('tur-cards').innerHTML = Object.entries(grupos)
+            .sort(([a],[b]) => a.localeCompare(b))
+            .map(([proc, turnos]) => `
+                <div style="grid-column:1/-1;display:flex;flex-direction:column;gap:var(--layout-gap);">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <span style="font-size:0.62rem;font-weight:700;letter-spacing:.1em;color:var(--text-dim);">PROCESSO</span>
+                        <span style="font-size:0.9rem;font-weight:700;color:var(--indigo-primary);">${proc}</span>
+                        <span style="font-size:0.7rem;color:var(--text-dim);">${turnos.length} turno${turnos.length>1?'s':''}</span>
+                    </div>
+                    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:var(--layout-gap);">
+                        ${turnos.map(renderCard).join('')}
+                    </div>
+                </div>
+            `).join('');
     },
 
     async adicionarTurno() {
-        const nome   = document.getElementById('tur-nome').value.trim();
-        const inicio = document.getElementById('tur-inicio').value;
-        const fim    = document.getElementById('tur-fim').value;
-        const dias   = [...document.querySelectorAll('#tur-dias-wrap input:checked')].map(i => i.value);
-        if (!nome || !inicio || !fim) { alert('Preencha nome, início e fim do turno.'); return; }
-        const res = await api.post('/api/turnos', { nome, inicio, fim, dias_semana: dias });
+        const processo = document.getElementById('tur-processo').value.trim();
+        const nome     = document.getElementById('tur-nome').value.trim();
+        const inicio   = document.getElementById('tur-inicio').value;
+        const fim      = document.getElementById('tur-fim').value;
+        const dias     = [...document.querySelectorAll('#tur-dias-wrap input:checked')].map(i => i.value);
+        if (!processo || !nome || !inicio || !fim) {
+            alert('Preencha processo, nome, início e fim do turno.'); return;
+        }
+        const res = await api.post('/api/turnos', { processo, nome, inicio, fim, dias_semana: dias });
         if (res?.ok) {
-            document.getElementById('tur-nome').value = '';
-            document.getElementById('tur-inicio').value = '';
-            document.getElementById('tur-fim').value = '';
+            document.getElementById('tur-processo').value = '';
+            document.getElementById('tur-nome').value    = '';
+            document.getElementById('tur-inicio').value  = '';
+            document.getElementById('tur-fim').value     = '';
             document.querySelectorAll('#tur-dias-wrap input').forEach(i => i.checked = false);
             await this.carregarTurnos();
-            mostrarToast('✓ Turno adicionado');
+            mostrarToast(`✓ Turno adicionado em ${processo}`);
         }
     },
 
