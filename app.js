@@ -3182,15 +3182,6 @@ const disponibilidade = {
             return;
         }
 
-        // Agrupa por processo
-        const grupos = {};
-        this._turnos.forEach(t => {
-            const proc = t.processo || '—';
-            if (!grupos[proc]) grupos[proc] = [];
-            grupos[proc].push(t);
-        });
-
-        const minParaHora = m => { const h=Math.floor(m/60),r=m%60; return `${h}h${r?r+'m':''}`; };
         const renderCard = t => {
             const dias = (t.dias_semana || []).map(d => `<span class="tur-dia-badge">${d}</span>`).join('');
             const intervalo = Number(t.intervalo_min) || 0;
