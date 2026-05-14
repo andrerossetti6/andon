@@ -3036,6 +3036,35 @@ const disponibilidade = {
         await this.carregarFeriados();
     },
 
+    async buscarFeriadosBR() {
+        const ano = document.getElementById('fer-ano-br').value;
+        const btn = document.getElementById('btn-buscar-br');
+        btn.textContent = 'Buscando...'; btn.disabled = true;
+        try {
+            const resp = await fetch(`https://brasilapi.com.br/api/feriados/v1/${ano}`);
+            if (!resp.ok) throw new Error('Falha na API');
+            const lista = await resp.json();
+
+            const feriados = lista.map(f => ({
+                data: f.date,
+                nome: f.name,
+                tipo: 'Nacional'
+            }));
+
+            const res = await api.post('/api/feriados/lote', { feriados });
+            if (res?.ok) {
+                mostrarToast(`✓ ${res.total} feriados nacionais de ${ano} importados`);
+                await this.carregarFeriados();
+            } else {
+                alert('Erro ao salvar feriados. Verifique se a tabela feriados existe no Supabase.');
+            }
+        } catch (e) {
+            alert('Não foi possível buscar os feriados. Verifique sua conexão.');
+        } finally {
+            btn.textContent = 'Buscar'; btn.disabled = false;
+        }
+    },
+
     importarFeriados(input) {
         const file = input.files[0];
         if (!file) return;

@@ -885,6 +885,13 @@
                     Importar CSV/XLS
                 </label>
                 <input type="file" id="file-input-feriados" accept=".csv,.xls,.xlsx" style="display:none;" onchange="disponibilidade.importarFeriados(this)">
+                <div style="display:flex;align-items:center;gap:6px;border-left:1px solid var(--border-color);padding-left:var(--layout-gap);">
+                    <span style="font-size:0.72rem;color:var(--text-dim);white-space:nowrap;">🇧🇷 Feriados nacionais</span>
+                    <select class="sigs-select" id="fer-ano-br" style="width:90px;">
+                        <option>2024</option><option>2025</option><option selected>2026</option><option>2027</option>
+                    </select>
+                    <button class="btn secondary" onclick="disponibilidade.buscarFeriadosBR()" id="btn-buscar-br" style="white-space:nowrap;">Buscar</button>
+                </div>
                 <input type="text" class="sigs-input" id="fer-busca" placeholder="Buscar..." style="width:180px;" oninput="disponibilidade.filtrarFeriados()">
             </div>
 
