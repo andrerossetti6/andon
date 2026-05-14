@@ -2328,6 +2328,8 @@ const cliente = {
     _col1: null, _col1Values: [], _col1Selected: '',
     _col2: null, _col2Values: [], _col2Selected: '',
     _colQtd: null,
+    // mapeamento das 5 colunas alvo
+    _colPedido: null, _colCliente: null, _colData: null, _colCanal: null, _colValor: null,
 
     init() {
         this.setupDropZone();
@@ -2432,16 +2434,33 @@ const cliente = {
             const n = this.normalizeKey(h);
             return n && !n.startsWith('__');
         });
-        const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs'];
-        const qtdNorm  = allHeaders.find(h => QTD_KEYS.includes(this.normalizeKey(h)));
-        this._colQtd   = qtdNorm || null;
-        this.colunas   = allHeaders;
-        this.rawData   = rows.map((r, i) => ({
+        this._mapearColunas(allHeaders);
+        this.rawData = rows.map((r, i) => ({
             _id: i,
             dados: Object.fromEntries(allHeaders.map(h => [h, r[h] ?? '']))
         }));
         this.filtered = [...this.rawData];
         this._finalizarImport();
+    },
+
+    // Detecta as 5 colunas alvo e define a ordem de exibição
+    _mapearColunas(headers) {
+        const n = h => this.normalizeKey(h);
+        const find = (...keys) => headers.find(h => keys.includes(n(h))) ||
+                                   headers.find(h => keys.some(k => n(h).includes(k)));
+
+        this._colPedido  = find('pedido','nrpedido','numpedido','numeropedido','nropedido','codpedido','ordem','id');
+        this._colCliente = find('cliente','nomecliente','nome','razaosocial','nomrazaosocial','comprador');
+        this._colData    = find('data','datapedido','datavenda','dataemissao','datacriacao','dtpedido');
+        this._colCanal   = find('canal','canalvenda','canaldevenda','origem','tipovenda');
+        this._colValor   = find('valor','valortotal','valorpedido','valorrs','total','valorbr','vltotal');
+
+        // Exibe as 5 colunas alvo na ordem desejada (ignorando as não encontradas)
+        const ordem = [this._colPedido, this._colCliente, this._colData, this._colCanal, this._colValor];
+        this.colunas = ordem.filter(Boolean);
+
+        // Fallback: se não encontrou nenhuma, exibe todas
+        if (!this.colunas.length) this.colunas = headers;
     },
 
     _finalizarImport() {
@@ -2453,35 +2472,26 @@ const cliente = {
     },
 
     _detectCombosCols() {
-        const STATUS_KEYS = ['status','situacao','uf','estado','cidade'];
-        const DESC_KEYS   = ['nome','razaosocial','cliente','nomecliente','descricao'];
-        const SEG_KEYS    = ['segmento','tipo','grupo','categoria'];
-        const find = keys => this.colunas.find(c => keys.includes(this.normalizeKey(c)));
-
-        this._col1 = find(STATUS_KEYS) || this.colunas.find(c => STATUS_KEYS.some(k => this.normalizeKey(c).includes(k)));
-        this._col2 = find(SEG_KEYS) || find(DESC_KEYS) || this.colunas.find(c => {
-            const n = this.normalizeKey(c);
-            return SEG_KEYS.some(k => n.includes(k)) || DESC_KEYS.some(k => n.includes(k));
-        });
+        // col1 = Canal (filtro por canal de venda), col2 = oculto (busca texto já cobre)
+        this._col1 = this._colCanal || null;
+        this._col2 = null;
 
         const uniq = col => col
             ? [...new Set(this.rawData.map(r => String(r.dados?.[col] ?? '')).filter(Boolean))].sort()
             : [];
 
-        this._col1Values = uniq(this._col1);
-        this._col2Values = uniq(this._col2);
+        this._col1Values   = uniq(this._col1);
         this._col1Selected = '';
         this._col2Selected = '';
 
         const w1 = document.getElementById('cliente-col1-wrap');
         const w2 = document.getElementById('cliente-col2-wrap');
         const i1 = document.getElementById('cliente-col1-input');
-        const i2 = document.getElementById('cliente-col2-input');
 
-        if (this._col1) { i1.placeholder = `Filtrar ${this._col1}...`; i1.value = ''; w1.style.display = ''; }
-        else w1.style.display = 'none';
-        if (this._col2) { i2.placeholder = `Filtrar ${this._col2}...`; i2.value = ''; w2.style.display = ''; }
-        else w2.style.display = 'none';
+        if (this._col1 && this._col1Values.length) {
+            i1.placeholder = `Filtrar Canal...`; i1.value = ''; w1.style.display = '';
+        } else w1.style.display = 'none';
+        w2.style.display = 'none';
     },
 
     aplicarFiltros() {
@@ -2496,24 +2506,44 @@ const cliente = {
     },
 
     render() {
-        const total = this.rawData.length;
-        const filt  = this.filtered.length;
-        const qtd   = this._colQtd
-            ? this.filtered.reduce((s, r) => s + (parseFloat(String(r.dados?.[this._colQtd] ?? '0').replace(',','.')) || 0), 0)
-            : 0;
+        const total    = this.rawData.length;
+        const filt     = this.filtered.length;
+        const toVal    = v => parseFloat(String(v ?? '0').replace(/\./g,'').replace(',','.')) || 0;
+        const valorTotal = this._colValor
+            ? this.filtered.reduce((s, r) => s + toVal(r.dados?.[this._colValor]), 0)
+            : null;
 
         document.getElementById('cliente-total').textContent     = total.toLocaleString('pt-BR');
-        document.getElementById('cliente-qtd').textContent       = this._colQtd ? qtd.toLocaleString('pt-BR') : '—';
+        document.getElementById('cliente-qtd').textContent       = valorTotal != null
+            ? 'R$ ' + valorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+            : '—';
         document.getElementById('cliente-filtrados').textContent = filt.toLocaleString('pt-BR');
-        document.getElementById('cliente-count').textContent     = `${filt.toLocaleString('pt-BR')} clientes${filt > 2000 ? ' (exibindo 2000)' : ''}`;
+        document.getElementById('cliente-count').textContent     = `${filt.toLocaleString('pt-BR')} pedidos${filt > 2000 ? ' (exibindo 2000)' : ''}`;
+
+        const LABELS = {
+            [this._colPedido]:  'PEDIDO',
+            [this._colCliente]: 'CLIENTE',
+            [this._colData]:    'DATA',
+            [this._colCanal]:   'CANAL',
+            [this._colValor]:   'VALOR',
+        };
 
         const table = document.getElementById('cliente-table');
         table.querySelector('thead tr').innerHTML =
-            this.colunas.map(h => `<th>${h.toUpperCase()}</th>`).join('');
+            this.colunas.map(h => `<th>${LABELS[h] || h.toUpperCase()}</th>`).join('');
+
         table.querySelector('tbody').innerHTML = this.filtered.slice(0, 2000).map(r => {
             const cells = this.colunas.map(h => {
                 const v = r.dados?.[h];
-                return `<td>${v !== undefined && v !== '' ? v : '<span style="opacity:.3">—</span>'}</td>`;
+                const empty = '<span style="opacity:.3">—</span>';
+                if (!v && v !== 0) return `<td>${empty}</td>`;
+                if (h === this._colPedido)
+                    return `<td><span style="font-family:monospace;color:#58a6ff;font-weight:600;">${v}</span></td>`;
+                if (h === this._colValor)
+                    return `<td style="text-align:right;color:#2ea043;font-weight:600;">${'R$ ' + toVal(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>`;
+                if (h === this._colCanal)
+                    return `<td><span class="seg-badge">${v}</span></td>`;
+                return `<td>${v}</td>`;
             }).join('');
             return `<tr>${cells}</tr>`;
         }).join('');
@@ -2568,10 +2598,9 @@ const cliente = {
         const rows = await api.get(`/api/cliente?importacao_id=${id}`);
         if (!rows?.length) return;
         this._currentId = id;
-        this.colunas  = Object.keys(rows[0].dados || {});
+        const allHeaders = Object.keys(rows[0].dados || {});
+        this._mapearColunas(allHeaders);
         this.rawData  = rows.map((r, i) => ({ _id: i, dados: r.dados }));
-        const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs'];
-        this._colQtd = this.colunas.find(h => QTD_KEYS.includes(this.normalizeKey(h))) || null;
         this.filtered = [...this.rawData];
         this._detectCombosCols();
         document.getElementById('cliente-drop-zone').style.display = 'none';
