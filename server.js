@@ -447,6 +447,44 @@ app.delete('/api/importacoes-banco/:id', auth, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── DISPONIBILIDADE: FERIADOS ────────────────────────────────
+app.get('/api/feriados', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('feriados').select('*').order('data');
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data);
+});
+app.post('/api/feriados', auth, async (req, res) => {
+    const { data: d, nome, tipo } = req.body;
+    if (!d || !nome) return res.status(400).json({ erro: 'Data e nome obrigatórios' });
+    const { data, error } = await supabase.from('feriados').insert({ data: d, nome, tipo: tipo || 'Nacional' }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, feriado: data });
+});
+app.delete('/api/feriados/:id', auth, async (req, res) => {
+    const { error } = await supabase.from('feriados').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
+// ── DISPONIBILIDADE: TURNOS ──────────────────────────────────
+app.get('/api/turnos', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('turnos').select('*').order('nome');
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data);
+});
+app.post('/api/turnos', auth, async (req, res) => {
+    const { nome, inicio, fim, dias_semana } = req.body;
+    if (!nome || !inicio || !fim) return res.status(400).json({ erro: 'Nome, início e fim obrigatórios' });
+    const { data, error } = await supabase.from('turnos').insert({ nome, inicio, fim, dias_semana: dias_semana || [] }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, turno: data });
+});
+app.delete('/api/turnos/:id', auth, async (req, res) => {
+    const { error } = await supabase.from('turnos').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
 // ── ARQUITETURA DE DADOS — rotas genéricas ───────────────────
 ['calendario','processos','capacidade'].forEach(nome => {
     app.get(`/api/importacoes-${nome}`, auth, async (_req, res) => {

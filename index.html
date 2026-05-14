@@ -826,50 +826,124 @@
         </div>
     </main>
 
-    <!-- ── Arquitetura: Calendário ──────────────────────────── -->
+    <!-- ── Arquitetura: Calendário — Disponibilidade ─────────── -->
     <main class="content" id="view-calendario" style="display:none;">
         <header class="page-header">
             <div class="page-header-text">
-                <h1 class="page-title">Arquitetura de <span>Calendário</span></h1>
-                <p class="page-subtitle">Importe dados de calendário em CSV ou XLS</p>
-            </div>
-            <div class="page-header-actions">
-                <label class="btn primary import-btn" for="file-input-calendario">
-                    <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    Importar Arquivo
-                </label>
-                <input type="file" id="file-input-calendario" accept=".csv,.xls,.xlsx" style="display:none;">
+                <h1 class="page-title">Calendário de <span>Disponibilidade</span></h1>
+                <p class="page-subtitle">Gestão de feriados e turnos de trabalho</p>
             </div>
         </header>
-        <div id="calendario-history" style="display:none;" class="import-history">
-            <div class="history-header" onclick="toggleHistorico('calendario-history')" style="cursor:pointer;">
-                <div style="display:flex;align-items:center;gap:8px;">
-                    <span class="history-chevron" id="chevron-calendario">›</span>
-                    <span class="s-label" style="margin:0;">IMPORTAÇÕES SALVAS <span id="calendario-saving" style="display:none;color:var(--text-dim);">· salvando...</span></span>
+
+        <!-- Abas -->
+        <div style="display:flex;gap:var(--sp-2);flex-shrink:0;">
+            <button id="tab-btn-feriados" onclick="disponibilidade.abrirAba('feriados')"
+                class="year-tab active" style="border-radius:8px;padding:8px 20px;font-size:0.82rem;">
+                📅 Calendário de Feriados
+            </button>
+            <button id="tab-btn-turnos" onclick="disponibilidade.abrirAba('turnos')"
+                class="year-tab" style="border-radius:8px;padding:8px 20px;font-size:0.82rem;">
+                🕐 Turnos
+            </button>
+        </div>
+
+        <!-- ── PAINEL: FERIADOS ── -->
+        <div id="panel-feriados" style="display:flex;flex-direction:column;gap:var(--section-gap);">
+
+            <!-- Cards resumo -->
+            <div class="vendas-summary" style="grid-template-columns:repeat(3,1fr);">
+                <div class="summary-card">
+                    <span class="s-label">TOTAL FERIADOS</span>
+                    <span class="s-value" id="fer-total">0</span>
+                    <span class="s-sub">cadastrados</span>
                 </div>
-                <label class="btn secondary" for="file-input-calendario" onclick="event.stopPropagation()" style="cursor:pointer;padding:4px 14px;font-size:0.72rem;">+ Novo arquivo</label>
+                <div class="summary-card">
+                    <span class="s-label">NACIONAIS</span>
+                    <span class="s-value" id="fer-nacionais" style="color:#58a6ff;">0</span>
+                    <span class="s-sub">feriados nacionais</span>
+                </div>
+                <div class="summary-card">
+                    <span class="s-label">OUTROS</span>
+                    <span class="s-value" id="fer-outros" style="color:#d29922;">0</span>
+                    <span class="s-sub">estaduais / municipais</span>
+                </div>
             </div>
-            <div id="calendario-history-list" class="history-list" style="display:none;"></div>
+
+            <!-- Formulário de adição -->
+            <div class="vendas-filters-bar" style="flex-wrap:wrap;gap:var(--layout-gap);">
+                <input type="date" class="sigs-input" id="fer-data" style="width:160px;">
+                <input type="text" class="sigs-input" id="fer-nome" placeholder="Nome do feriado" style="flex:1;min-width:200px;">
+                <select class="sigs-select" id="fer-tipo">
+                    <option value="Nacional">Nacional</option>
+                    <option value="Estadual">Estadual</option>
+                    <option value="Municipal">Municipal</option>
+                    <option value="Empresa">Empresa</option>
+                </select>
+                <button class="btn primary" onclick="disponibilidade.adicionarFeriado()" style="white-space:nowrap;">+ Adicionar</button>
+                <input type="text" class="sigs-input" id="fer-busca" placeholder="Buscar..." style="width:180px;" oninput="disponibilidade.filtrarFeriados()">
+            </div>
+
+            <!-- Tabela de feriados -->
+            <div class="vendas-table-wrap">
+                <table class="vendas-table" id="fer-table" style="min-width:600px;">
+                    <thead>
+                        <tr>
+                            <th>DATA</th>
+                            <th>DIA DA SEMANA</th>
+                            <th>NOME</th>
+                            <th>TIPO</th>
+                            <th class="td-center">AÇÃO</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fer-tbody"></tbody>
+                </table>
+            </div>
         </div>
-        <div class="drop-zone" id="calendario-drop-zone">
-            <div class="drop-icon"><svg viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg></div>
-            <h3>Arraste seu arquivo aqui</h3><p>Suporte a .CSV, .XLS e .XLSX</p>
-            <label class="btn secondary" for="file-input-calendario" style="margin-top:16px;display:inline-block;cursor:pointer;">Ou clique para selecionar</label>
-        </div>
-        <div id="calendario-data">
-            <div class="vendas-summary">
-                <div class="summary-card"><span class="s-label">REGISTROS</span><span class="s-value" id="calendario-total">0</span><span class="s-sub">importados</span></div>
-                <div class="summary-card"><span class="s-label">QUANTIDADE</span><span class="s-value" id="calendario-qtd">0</span><span class="s-sub">unidades</span></div>
-                <div class="summary-card"><span class="s-label">FILTRADOS</span><span class="s-value" id="calendario-filtrados">0</span><span class="s-sub">resultado</span></div>
+
+        <!-- ── PAINEL: TURNOS ── -->
+        <div id="panel-turnos" style="display:none;flex-direction:column;gap:var(--section-gap);">
+
+            <!-- Cards resumo -->
+            <div class="vendas-summary" style="grid-template-columns:repeat(3,1fr);">
+                <div class="summary-card">
+                    <span class="s-label">TOTAL TURNOS</span>
+                    <span class="s-value" id="tur-total">0</span>
+                    <span class="s-sub">configurados</span>
+                </div>
+                <div class="summary-card">
+                    <span class="s-label">HORAS/DIA</span>
+                    <span class="s-value" id="tur-horas" style="color:#2ea043;">0h</span>
+                    <span class="s-sub">total de horas produtivas</span>
+                </div>
+                <div class="summary-card">
+                    <span class="s-label">DIAS ATIVOS</span>
+                    <span class="s-value" id="tur-dias" style="color:#58a6ff;">0</span>
+                    <span class="s-sub">dias por semana</span>
+                </div>
             </div>
-            <div class="vendas-filters-bar">
-                <input type="text" class="sigs-input" id="calendario-search" placeholder="Buscar em qualquer coluna...">
-                <div class="combobox-wrap" id="calendario-col1-wrap" style="display:none;"><input type="text" class="sigs-input combobox-input" id="calendario-col1-input" placeholder="Filtrar..." autocomplete="off"><div class="combobox-dropdown" id="calendario-col1-dropdown"></div></div>
-                <div class="combobox-wrap" id="calendario-col2-wrap" style="display:none;"><input type="text" class="sigs-input combobox-input" id="calendario-col2-input" placeholder="Filtrar..." autocomplete="off"><div class="combobox-dropdown" id="calendario-col2-dropdown"></div></div>
-                <span class="table-count-label" id="calendario-count"></span>
-                <button class="btn secondary" onclick="calendario.limpar()">Limpar</button>
+
+            <!-- Formulário de turno -->
+            <div class="vendas-filters-bar" style="flex-wrap:wrap;gap:var(--layout-gap);">
+                <input type="text" class="sigs-input" id="tur-nome" placeholder="Nome do turno (ex: Turno 1)" style="width:180px;">
+                <label style="font-size:0.72rem;color:var(--text-dim);white-space:nowrap;">Início</label>
+                <input type="time" class="sigs-input" id="tur-inicio" style="width:120px;">
+                <label style="font-size:0.72rem;color:var(--text-dim);white-space:nowrap;">Fim</label>
+                <input type="time" class="sigs-input" id="tur-fim" style="width:120px;">
+                <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;" id="tur-dias-wrap">
+                    <label style="font-size:0.72rem;color:var(--text-dim);">Dias:</label>
+                    <label class="tur-dia-lbl" data-dia="Seg"><input type="checkbox" value="Seg"> Seg</label>
+                    <label class="tur-dia-lbl" data-dia="Ter"><input type="checkbox" value="Ter"> Ter</label>
+                    <label class="tur-dia-lbl" data-dia="Qua"><input type="checkbox" value="Qua"> Qua</label>
+                    <label class="tur-dia-lbl" data-dia="Qui"><input type="checkbox" value="Qui"> Qui</label>
+                    <label class="tur-dia-lbl" data-dia="Sex"><input type="checkbox" value="Sex"> Sex</label>
+                    <label class="tur-dia-lbl" data-dia="Sáb"><input type="checkbox" value="Sáb"> Sáb</label>
+                    <label class="tur-dia-lbl" data-dia="Dom"><input type="checkbox" value="Dom"> Dom</label>
+                </div>
+                <button class="btn primary" onclick="disponibilidade.adicionarTurno()" style="white-space:nowrap;">+ Adicionar</button>
             </div>
-            <div class="vendas-table-wrap"><table class="vendas-table estoque-table-full" id="calendario-table"><thead><tr></tr></thead><tbody></tbody></table></div>
+
+            <!-- Cards de turnos -->
+            <div id="tur-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:var(--layout-gap);"></div>
         </div>
     </main>
 

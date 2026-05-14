@@ -192,7 +192,7 @@ function mostrarApp() {
     init();
     banco.init();
     cliente.init();
-    calendario.init();
+    disponibilidade.init();
     processos.init();
     capacidade.init();
     estoque.init();
@@ -622,6 +622,7 @@ function navigateTo(viewName) {
         document.querySelector('[data-view="costura"]')?.classList.add('sub-active');
     } else if (viewName === 'calendario') {
         document.querySelector('[data-view="calendario"]')?.classList.add('sub-active');
+        disponibilidade.abrirAba(disponibilidade._abaAtiva);
     } else if (viewName === 'processos') {
         document.querySelector('[data-view="processos"]')?.classList.add('sub-active');
     } else if (viewName === 'capacidade') {
@@ -2951,6 +2952,150 @@ function criarModuloArq(id, nomeApi) {
         }
     };
 }
+
+// Módulo de Disponibilidade (Feriados + Turnos) — substitui o import genérico de calendário
+const disponibilidade = {
+    _feriados: [],
+    _turnos:   [],
+    _abaAtiva: 'feriados',
+
+    async init() {
+        await this.carregarFeriados();
+        await this.carregarTurnos();
+    },
+
+    abrirAba(aba) {
+        this._abaAtiva = aba;
+        document.getElementById('panel-feriados').style.display = aba === 'feriados' ? 'flex' : 'none';
+        document.getElementById('panel-turnos').style.display   = aba === 'turnos'   ? 'flex' : 'none';
+        document.getElementById('tab-btn-feriados').classList.toggle('active', aba === 'feriados');
+        document.getElementById('tab-btn-turnos').classList.toggle('active',   aba === 'turnos');
+    },
+
+    // ── FERIADOS ──────────────────────────────────────────────
+    async carregarFeriados() {
+        const data = await api.get('/api/feriados');
+        this._feriados = data || [];
+        this.renderFeriados();
+    },
+
+    filtrarFeriados() {
+        const q = document.getElementById('fer-busca')?.value.toLowerCase().trim() || '';
+        const lista = q ? this._feriados.filter(f =>
+            f.nome.toLowerCase().includes(q) || f.tipo.toLowerCase().includes(q) || f.data.includes(q)
+        ) : this._feriados;
+        this._renderTabelaFeriados(lista);
+    },
+
+    renderFeriados() {
+        const total      = this._feriados.length;
+        const nacionais  = this._feriados.filter(f => f.tipo === 'Nacional').length;
+        const outros     = total - nacionais;
+        document.getElementById('fer-total').textContent     = total;
+        document.getElementById('fer-nacionais').textContent = nacionais;
+        document.getElementById('fer-outros').textContent    = outros;
+        this._renderTabelaFeriados(this._feriados);
+    },
+
+    _renderTabelaFeriados(lista) {
+        const DIAS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+        const tipoClass = t => ({ Nacional:'fer-nacional', Estadual:'fer-estadual', Municipal:'fer-municipal', Empresa:'fer-empresa' }[t] || 'fer-nacional');
+        const sorted = [...lista].sort((a,b) => a.data.localeCompare(b.data));
+        document.getElementById('fer-tbody').innerHTML = sorted.map(f => {
+            const d   = new Date(f.data + 'T12:00:00');
+            const fmt = d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' });
+            const dia = DIAS[d.getDay()];
+            return `<tr>
+                <td style="font-family:monospace;color:#58a6ff;">${fmt}</td>
+                <td style="color:var(--text-dim);">${dia}</td>
+                <td style="font-weight:500;">${f.nome}</td>
+                <td><span class="fer-tipo-badge ${tipoClass(f.tipo)}">${f.tipo}</span></td>
+                <td class="td-center"><button onclick="disponibilidade.excluirFeriado('${f.id}')"
+                    style="background:none;border:none;color:#f85149;cursor:pointer;font-size:0.85rem;padding:4px 8px;">✕</button></td>
+            </tr>`;
+        }).join('') || `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-dim);">Nenhum feriado cadastrado</td></tr>`;
+    },
+
+    async adicionarFeriado() {
+        const data = document.getElementById('fer-data').value;
+        const nome = document.getElementById('fer-nome').value.trim();
+        const tipo = document.getElementById('fer-tipo').value;
+        if (!data || !nome) { alert('Preencha a data e o nome do feriado.'); return; }
+        const res = await api.post('/api/feriados', { data, nome, tipo });
+        if (res?.ok) {
+            document.getElementById('fer-data').value = '';
+            document.getElementById('fer-nome').value = '';
+            await this.carregarFeriados();
+            mostrarToast('✓ Feriado adicionado');
+        }
+    },
+
+    async excluirFeriado(id) {
+        if (!confirm('Excluir este feriado?')) return;
+        await api.delete(`/api/feriados/${id}`);
+        await this.carregarFeriados();
+    },
+
+    // ── TURNOS ────────────────────────────────────────────────
+    async carregarTurnos() {
+        const data = await api.get('/api/turnos');
+        this._turnos = data || [];
+        this.renderTurnos();
+    },
+
+    renderTurnos() {
+        const total = this._turnos.length;
+        let totalMin = 0, diasSet = new Set();
+        this._turnos.forEach(t => {
+            if (t.inicio && t.fim) {
+                const [hi,mi] = t.inicio.split(':').map(Number);
+                const [hf,mf] = t.fim.split(':').map(Number);
+                totalMin += (hf*60+mf) - (hi*60+mi);
+            }
+            (t.dias_semana || []).forEach(d => diasSet.add(d));
+        });
+        const horas = Math.floor(totalMin/60), mins = totalMin%60;
+        document.getElementById('tur-total').textContent = total;
+        document.getElementById('tur-horas').textContent = `${horas}h${mins ? mins+'m' : ''}`;
+        document.getElementById('tur-dias').textContent  = diasSet.size;
+
+        document.getElementById('tur-cards').innerHTML = this._turnos.map(t => {
+            const dias = (t.dias_semana || []).map(d => `<span class="tur-dia-badge">${d}</span>`).join('');
+            return `<div class="tur-card">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                    <span class="tur-card-nome">${t.nome}</span>
+                    <button onclick="disponibilidade.excluirTurno('${t.id}')"
+                        style="background:none;border:none;color:#f85149;cursor:pointer;font-size:0.85rem;">✕</button>
+                </div>
+                <div class="tur-card-horario">${t.inicio || '—'} → ${t.fim || '—'}</div>
+                <div class="tur-card-dias">${dias || '<span style="color:var(--text-dim);font-size:0.72rem;">Nenhum dia configurado</span>'}</div>
+            </div>`;
+        }).join('') || `<div style="color:var(--text-dim);padding:24px;grid-column:1/-1;text-align:center;">Nenhum turno cadastrado</div>`;
+    },
+
+    async adicionarTurno() {
+        const nome   = document.getElementById('tur-nome').value.trim();
+        const inicio = document.getElementById('tur-inicio').value;
+        const fim    = document.getElementById('tur-fim').value;
+        const dias   = [...document.querySelectorAll('#tur-dias-wrap input:checked')].map(i => i.value);
+        if (!nome || !inicio || !fim) { alert('Preencha nome, início e fim do turno.'); return; }
+        const res = await api.post('/api/turnos', { nome, inicio, fim, dias_semana: dias });
+        if (res?.ok) {
+            document.getElementById('tur-nome').value = '';
+            document.getElementById('tur-inicio').value = '';
+            document.getElementById('tur-fim').value = '';
+            document.querySelectorAll('#tur-dias-wrap input').forEach(i => i.checked = false);
+            await this.carregarTurnos();
+            mostrarToast('✓ Turno adicionado');
+        }
+    },
+
+    async excluirTurno(id) {
+        if (!confirm('Excluir este turno?')) return;
+        await api.delete(`/api/turnos/${id}`);
+        await this.carregarTurnos();
+    }
+};
 
 const calendario = criarModuloArq('calendario', 'calendario');
 const processos  = criarModuloArq('processos',  'processos');
