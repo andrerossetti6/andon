@@ -58,6 +58,7 @@
                     <li class="active has-sub" id="nav-analise" onclick="navigateTo('dashboard')">
                         <div class="item-content">Importação de Dados</div>
                         <ul class="sub-menu">
+                            <li data-view="banco" onclick="event.stopPropagation(); navigateTo('banco')">Banco de Dados</li>
                             <li data-view="vendas" onclick="event.stopPropagation(); navigateTo('vendas')">Vendas</li>
                             <li data-view="estoque" onclick="event.stopPropagation(); navigateTo('estoque')">Estoque</li>
                             <li data-view="op" onclick="event.stopPropagation(); navigateTo('op')">Ordens de Produção</li>
@@ -570,6 +571,84 @@
         </div>
     </main>
 
+
+    <!-- ── Importação: Banco de Dados ──────────────────────── -->
+    <main class="content" id="view-banco" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Importação de <span>Banco de Dados</span></h1>
+                <p class="page-subtitle">Importe dados em CSV ou XLS</p>
+            </div>
+            <div class="page-header-actions">
+                <label class="btn primary import-btn" for="file-input-banco">
+                    <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Importar Arquivo
+                </label>
+                <input type="file" id="file-input-banco" accept=".csv,.xls,.xlsx" style="display:none;">
+            </div>
+        </header>
+
+        <div id="banco-history" style="display:none;" class="import-history">
+            <div class="history-header" onclick="toggleHistorico('banco-history')" style="cursor:pointer;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="history-chevron" id="chevron-banco">›</span>
+                    <span class="s-label" style="margin:0;">IMPORTAÇÕES SALVAS <span id="banco-saving" style="display:none;color:var(--text-dim);">· salvando...</span></span>
+                </div>
+                <label class="btn secondary" for="file-input-banco" onclick="event.stopPropagation()" style="cursor:pointer;padding:4px 14px;font-size:0.72rem;">+ Novo arquivo</label>
+            </div>
+            <div id="banco-history-list" class="history-list" style="display:none;"></div>
+        </div>
+
+        <div class="drop-zone" id="banco-drop-zone">
+            <div class="drop-icon">
+                <svg viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+            </div>
+            <h3>Arraste seu arquivo aqui</h3>
+            <p>Suporte a .CSV, .XLS e .XLSX</p>
+            <label class="btn secondary" for="file-input-banco" style="margin-top:16px;display:inline-block;cursor:pointer;">Ou clique para selecionar</label>
+        </div>
+
+        <div id="banco-data">
+            <div class="vendas-summary">
+                <div class="summary-card">
+                    <span class="s-label">REGISTROS IMPORTADOS</span>
+                    <span class="s-value" id="banco-total">0</span>
+                    <span class="s-sub">registros</span>
+                </div>
+                <div class="summary-card">
+                    <span class="s-label">QUANTIDADE TOTAL</span>
+                    <span class="s-value" id="banco-qtd">0</span>
+                    <span class="s-sub">unidades</span>
+                </div>
+                <div class="summary-card">
+                    <span class="s-label">ITENS FILTRADOS</span>
+                    <span class="s-value" id="banco-filtrados">0</span>
+                    <span class="s-sub">resultado do filtro</span>
+                </div>
+            </div>
+
+            <div class="vendas-filters-bar">
+                <input type="text" class="sigs-input" id="banco-search" placeholder="Buscar em qualquer coluna...">
+                <div class="combobox-wrap" id="banco-col1-wrap" style="display:none;">
+                    <input type="text" class="sigs-input combobox-input" id="banco-col1-input" placeholder="Filtrar..." autocomplete="off">
+                    <div class="combobox-dropdown" id="banco-col1-dropdown"></div>
+                </div>
+                <div class="combobox-wrap" id="banco-col2-wrap" style="display:none;">
+                    <input type="text" class="sigs-input combobox-input" id="banco-col2-input" placeholder="Filtrar..." autocomplete="off">
+                    <div class="combobox-dropdown" id="banco-col2-dropdown"></div>
+                </div>
+                <span class="table-count-label" id="banco-count"></span>
+                <button class="btn secondary" id="banco-clear" onclick="banco.limpar()">Limpar</button>
+            </div>
+
+            <div class="vendas-table-wrap">
+                <table class="vendas-table estoque-table-full" id="banco-table">
+                    <thead><tr></tr></thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
 
     <!-- ── Importação: Costura ──────────────────────────────── -->
     <main class="content" id="view-costura" style="display:none;">

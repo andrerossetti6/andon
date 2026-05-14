@@ -345,6 +345,57 @@ app.delete('/api/importacoes-costura/:id', auth, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── GET /api/importacoes-banco ───────────────────────────────
+app.get('/api/importacoes-banco', auth, async (_req, res) => {
+    const { data, error } = await supabase
+        .from('importacoes_banco')
+        .select('id, nome_arquivo, total_linhas, criado_em, usuarios(nome)')
+        .order('criado_em', { ascending: false })
+        .limit(30);
+    if (error) return res.status(500).json({ erro: 'Erro ao buscar importações de banco' });
+    res.json(data);
+});
+
+// ── POST /api/banco/import ───────────────────────────────────
+app.post('/api/banco/import', auth, async (req, res) => {
+    const { nomeArquivo, linhas } = req.body;
+    if (!Array.isArray(linhas) || !linhas.length)
+        return res.status(400).json({ erro: 'Dados inválidos' });
+
+    const { data: imp, error: errImp } = await supabase
+        .from('importacoes_banco')
+        .insert({ nome_arquivo: nomeArquivo || 'banco', usuario_id: req.usuario.id, total_linhas: linhas.length })
+        .select().single();
+    if (errImp) {
+        console.error('Erro importacoes_banco:', errImp.message);
+        return res.status(500).json({ erro: errImp.message });
+    }
+
+    const rows = linhas.map(l => ({ importacao_id: imp.id, dados: l.dados || {} }));
+    for (let i = 0; i < rows.length; i += 200) {
+        const { error } = await supabase.from('dados_banco').insert(rows.slice(i, i + 200));
+        if (error) return res.status(500).json({ erro: 'Erro ao salvar dados de banco' });
+    }
+    res.json({ ok: true, importacaoId: imp.id, total: linhas.length });
+});
+
+// ── GET /api/banco?importacao_id=xxx ─────────────────────────
+app.get('/api/banco', auth, async (req, res) => {
+    const { importacao_id } = req.query;
+    let q = supabase.from('dados_banco').select('*');
+    if (importacao_id) q = q.eq('importacao_id', importacao_id);
+    const { data, error } = await q.limit(10000);
+    if (error) return res.status(500).json({ erro: 'Erro ao buscar dados de banco' });
+    res.json(data);
+});
+
+// ── DELETE /api/importacoes-banco/:id ────────────────────────
+app.delete('/api/importacoes-banco/:id', auth, async (req, res) => {
+    const { error } = await supabase.from('importacoes_banco').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: 'Erro ao deletar' });
+    res.json({ ok: true });
+});
+
 // ── DELETE /api/importacoes/:id (admin) ───────────────────────
 app.delete('/api/importacoes/:id', auth, adminOnly, async (req, res) => {
     const { error } = await supabase
