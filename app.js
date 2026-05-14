@@ -192,7 +192,6 @@ function mostrarApp() {
     init();
     banco.init();
     cliente.init();
-    disponibilidade.init();
     processos.init();
     capacidade.init();
     estoque.init();
@@ -202,6 +201,7 @@ function mostrarApp() {
     vxe.init();
     abc.init();
     abcMicro.init();
+    disponibilidade.init().catch(() => {});
     vendas.carregarHistorico()
         .then(() => banco.carregarHistorico())
         .then(() => cliente.carregarHistorico())
@@ -628,6 +628,7 @@ function navigateTo(viewName) {
     } else if (viewName === 'capacidade') {
         document.querySelector('[data-view="capacidade"]')?.classList.add('sub-active');
     } else if (viewName === 'pesquisa') {
+        document.getElementById('nav-pesquisa')?.classList.add('active');
         pesquisa.render();
     } else if (viewName === 'vxe') {
         vxe.render();
@@ -1154,6 +1155,7 @@ const vendas = {
         });
         this.filtered = [...this.rawData];
         this.mediaMeses = [];
+        this._updateMediaBtn();
         this.populateFilters();
         this.populateMediaFilter();
         this.showDataSection();
@@ -2960,8 +2962,10 @@ const disponibilidade = {
     _abaAtiva: 'feriados',
 
     async init() {
-        await this.carregarFeriados();
-        await this.carregarTurnos();
+        try {
+            await this.carregarFeriados();
+            await this.carregarTurnos();
+        } catch(e) { /* Supabase indisponível — tabelas podem não existir ainda */ }
     },
 
     abrirAba(aba) {

@@ -453,13 +453,6 @@ app.get('/api/feriados', auth, async (_req, res) => {
     if (error) return res.status(500).json({ erro: error.message });
     res.json(data);
 });
-app.post('/api/feriados', auth, async (req, res) => {
-    const { data: d, nome, tipo } = req.body;
-    if (!d || !nome) return res.status(400).json({ erro: 'Data e nome obrigatórios' });
-    const { data, error } = await supabase.from('feriados').insert({ data: d, nome, tipo: tipo || 'Nacional' }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
-    res.json({ ok: true, feriado: data });
-});
 app.post('/api/feriados/lote', auth, async (req, res) => {
     const { feriados } = req.body;
     if (!Array.isArray(feriados) || !feriados.length)
@@ -470,6 +463,13 @@ app.post('/api/feriados/lote', auth, async (req, res) => {
         if (error) return res.status(500).json({ erro: error.message });
     }
     res.json({ ok: true, total: rows.length });
+});
+app.post('/api/feriados', auth, async (req, res) => {
+    const { data: d, nome, tipo } = req.body;
+    if (!d || !nome) return res.status(400).json({ erro: 'Data e nome obrigatórios' });
+    const { data, error } = await supabase.from('feriados').insert({ data: d, nome, tipo: tipo || 'Nacional' }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, feriado: data });
 });
 app.delete('/api/feriados/:id', auth, async (req, res) => {
     const { error } = await supabase.from('feriados').delete().eq('id', req.params.id);
