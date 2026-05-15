@@ -540,14 +540,14 @@ app.get('/api/maquinas', auth, async (req, res) => {
     res.json(data);
 });
 app.post('/api/maquinas', auth, async (req, res) => {
-    const { processo_id, id_maquina, modelo, oee, status } = req.body;
-    const { data, error } = await supabase.from('maquinas').insert({ processo_id, id_maquina, modelo, oee, status }).select().single();
+    const { processo_id, id_maquina, modelo, oee, status, n_pessoas } = req.body;
+    const { data, error } = await supabase.from('maquinas').insert({ processo_id, id_maquina, modelo, oee, status, n_pessoas }).select().single();
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, data });
 });
 app.put('/api/maquinas/:id', auth, async (req, res) => {
-    const { id_maquina, modelo, oee, status } = req.body;
-    const { data, error } = await supabase.from('maquinas').update({ id_maquina, modelo, oee, status }).eq('id', req.params.id).select().single();
+    const { id_maquina, modelo, oee, status, n_pessoas } = req.body;
+    const { data, error } = await supabase.from('maquinas').update({ id_maquina, modelo, oee, status, n_pessoas }).eq('id', req.params.id).select().single();
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, data });
 });

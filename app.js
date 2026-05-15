@@ -3427,7 +3427,7 @@ const processosGerenciamento = {
         const tbody = document.getElementById('proc-maq-tbody');
         if (!tbody) return;
         if (!this._maquinas.length) {
-            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-dim);">Nenhuma máquina cadastrada neste processo.</td></tr>`;
+            tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-dim);">Nenhuma máquina cadastrada neste processo.</td></tr>`;
             return;
         }
         const statusColor = s => ({ 'Ativo':'#2ea043','Manutenção':'#d29922','Inativo':'#8b949e','Setup':'#58a6ff' }[s] || '#8b949e');
@@ -3442,6 +3442,7 @@ const processosGerenciamento = {
                         ${m.status || '—'}
                     </span>
                 </td>
+                <td class="td-center">${m.n_pessoas != null ? m.n_pessoas : '—'}</td>
                 <td class="td-center" style="display:flex;gap:8px;justify-content:center;">
                     <button onclick="processosGerenciamento.abrirModalMaquina('${m.id}')"
                         style="background:none;border:none;color:#8b949e;cursor:pointer;padding:0;">
@@ -3475,6 +3476,8 @@ const processosGerenciamento = {
             document.getElementById('proc-modal').style.display = 'none';
             await this.carregarProcessos();
             mostrarToast(id ? '✓ Processo atualizado' : '✓ Processo criado');
+        } else {
+            alert('Erro ao salvar: ' + (res?.erro || 'verifique se a tabela processos_config foi criada no Supabase e com RLS desabilitado.'));
         }
     },
 
@@ -3492,19 +3495,21 @@ const processosGerenciamento = {
         document.getElementById('maq-modal-modelo').value        = m?.modelo || '';
         document.getElementById('maq-modal-oee').value           = m?.oee ?? '';
         document.getElementById('maq-modal-status').value        = m?.status || 'Ativo';
+        document.getElementById('maq-modal-pessoas').value       = m?.n_pessoas ?? '';
         document.getElementById('maq-modal').style.display       = 'flex';
     },
 
     async salvarMaquina() {
-        const id        = document.getElementById('maq-modal-id').value;
+        const id         = document.getElementById('maq-modal-id').value;
         const id_maquina = document.getElementById('maq-modal-id-maq').value.trim();
-        const modelo    = document.getElementById('maq-modal-modelo').value.trim();
-        const oee       = parseFloat(document.getElementById('maq-modal-oee').value) || null;
-        const status    = document.getElementById('maq-modal-status').value;
+        const modelo     = document.getElementById('maq-modal-modelo').value.trim();
+        const oee        = parseFloat(document.getElementById('maq-modal-oee').value) || null;
+        const status     = document.getElementById('maq-modal-status').value;
+        const n_pessoas  = parseInt(document.getElementById('maq-modal-pessoas').value) || null;
         if (!id_maquina) { alert('Informe o ID da máquina.'); return; }
         const res = id
-            ? await api.put(`/api/maquinas/${id}`, { id_maquina, modelo, oee, status })
-            : await api.post('/api/maquinas', { processo_id: this._processoAtual.id, id_maquina, modelo, oee, status });
+            ? await api.put(`/api/maquinas/${id}`, { id_maquina, modelo, oee, status, n_pessoas })
+            : await api.post('/api/maquinas', { processo_id: this._processoAtual.id, id_maquina, modelo, oee, status, n_pessoas });
         if (res?.ok) {
             document.getElementById('maq-modal').style.display = 'none';
             await this.carregarMaquinas(this._processoAtual.id);
