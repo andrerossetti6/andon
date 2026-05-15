@@ -77,7 +77,7 @@
                         <ul class="sub-menu">
                             <li data-view="calendario" onclick="event.stopPropagation(); navigateTo('calendario')">Calendário</li>
                             <li data-view="processos"  onclick="event.stopPropagation(); navigateTo('processos')">Processos</li>
-                            <li data-view="capacidade" onclick="event.stopPropagation(); navigateTo('capacidade')">Capacidade</li>
+                            <li data-view="capacidade" onclick="event.stopPropagation(); navigateTo('capacidade')">Matriz de Set Up</li>
                         </ul>
                     </li>
                 </ul>
@@ -1000,13 +1000,21 @@
             <!-- Tabela de máquinas -->
             <div class="vendas-table-wrap" style="margin-top:8px;">
                 <table class="vendas-table" id="proc-maq-table">
+                    <colgroup>
+                        <col style="width:18%">
+                        <col style="width:22%">
+                        <col style="width:13%">
+                        <col style="width:16%">
+                        <col style="width:16%">
+                        <col style="width:15%">
+                    </colgroup>
                     <thead><tr>
                         <th>ID MÁQUINA</th>
                         <th>MODELO</th>
                         <th class="td-center">OEE (%)</th>
                         <th class="td-center">STATUS</th>
                         <th class="td-center">N° PESSOAS</th>
-                        <th class="td-center" style="width:80px;">AÇÕES</th>
+                        <th class="td-center">AÇÕES</th>
                     </tr></thead>
                     <tbody id="proc-maq-tbody"></tbody>
                 </table>
@@ -1018,8 +1026,8 @@
     <main class="content" id="view-capacidade" style="display:none;">
         <header class="page-header">
             <div class="page-header-text">
-                <h1 class="page-title">Arquitetura de <span>Capacidade</span></h1>
-                <p class="page-subtitle">Importe dados de capacidade em CSV ou XLS</p>
+                <h1 class="page-title">Matriz de <span>Set Up</span></h1>
+                <p class="page-subtitle">Importe dados de matriz de set up em CSV ou XLS</p>
             </div>
             <div class="page-header-actions">
                 <label class="btn primary import-btn" for="file-input-capacidade">
@@ -1474,7 +1482,7 @@
                 <input type="text" class="sigs-input" id="maq-modal-modelo" placeholder="Ex: Brother S-7300A">
             </div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             <div style="display:flex;flex-direction:column;gap:6px;">
                 <label style="font-size:0.72rem;color:var(--text-dim);">OEE (%)</label>
                 <input type="number" class="sigs-input" id="maq-modal-oee" min="0" max="100" step="0.1" placeholder="0–100">
