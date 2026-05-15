@@ -3443,13 +3443,15 @@ const processosGerenciamento = {
                     </span>
                 </td>
                 <td class="td-center">${m.n_pessoas != null ? m.n_pessoas : '—'}</td>
-                <td class="td-center" style="display:flex;gap:8px;justify-content:center;">
-                    <button onclick="processosGerenciamento.abrirModalMaquina('${m.id}')"
-                        style="background:none;border:none;color:#8b949e;cursor:pointer;padding:0;">
-                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z"/></svg>
-                    </button>
-                    <button onclick="processosGerenciamento.excluirMaquina('${m.id}')"
-                        style="background:none;border:none;color:#f85149;cursor:pointer;font-size:0.85rem;">✕</button>
+                <td class="td-center">
+                    <div style="display:flex;gap:10px;justify-content:center;align-items:center;">
+                        <button onclick="processosGerenciamento.abrirModalMaquina('${m.id}')"
+                            title="Editar" style="background:none;border:none;color:#8b949e;cursor:pointer;padding:2px;line-height:1;">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z"/></svg>
+                        </button>
+                        <button onclick="processosGerenciamento.excluirMaquina('${m.id}')"
+                            title="Excluir" style="background:none;border:none;color:#f85149;cursor:pointer;padding:2px;font-size:1rem;line-height:1;font-weight:600;">✕</button>
+                    </div>
                 </td>
             </tr>
         `).join('');
@@ -3506,7 +3508,9 @@ const processosGerenciamento = {
         const oee        = parseFloat(document.getElementById('maq-modal-oee').value) || null;
         const status     = document.getElementById('maq-modal-status').value;
         const n_pessoas  = parseInt(document.getElementById('maq-modal-pessoas').value) || null;
-        if (!id_maquina) { alert('Informe o ID da máquina.'); return; }
+        if (!id_maquina && !modelo && oee == null && n_pessoas == null) {
+            alert('Preencha pelo menos um campo.'); return;
+        }
         const res = id
             ? await api.put(`/api/maquinas/${id}`, { id_maquina, modelo, oee, status, n_pessoas })
             : await api.post('/api/maquinas', { processo_id: this._processoAtual.id, id_maquina, modelo, oee, status, n_pessoas });

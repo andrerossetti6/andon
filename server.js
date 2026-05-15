@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
-app.use(express.static(__dirname));
+app.use(express.static(__dirname, { etag: false, lastModified: false, setHeaders: res => res.set('Cache-Control', 'no-store') }));
 
 // ── Middleware de autenticação ────────────────────────────────
 function auth(req, res, next) {
