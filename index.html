@@ -92,8 +92,13 @@
                     <li id="nav-vxe" onclick="navigateTo('vxe')">
                         <div class="item-content">Vendas × Estoque</div>
                     </li>
-                    <li data-view="abc" id="nav-abc-cruzada" onclick="navigateTo('abc')">
+                    <li class="has-sub" id="nav-abc-cruzada" onclick="navigateTo('abc')">
                         <div class="item-content">Curva ABC</div>
+                        <ul class="sub-menu">
+                            <li data-view="abc" onclick="event.stopPropagation(); navigateTo('abc')">ABC Vendas</li>
+                            <li data-view="abc-micro" onclick="event.stopPropagation(); navigateTo('abc-micro')">ABC Vendas Micro</li>
+                            <li data-view="abc-estoque" onclick="event.stopPropagation(); navigateTo('abc-estoque')">ABC Estoque</li>
+                        </ul>
                     </li>
                 </ul>
             </nav>
