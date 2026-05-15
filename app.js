@@ -213,7 +213,7 @@ function mostrarApp() {
         .then(() => banco.carregarHistorico())
         .then(() => cliente.carregarHistorico())
         .then(() => calendario.carregarHistorico())
-        .then(() => processos.carregarHistorico())
+        .then(() => Promise.resolve())
         .then(() => capacidade.carregarHistorico())
         .then(() => estoque.carregarHistorico())
         .then(() => op.carregarHistorico())
@@ -1214,7 +1214,7 @@ const vendas = {
             else if (modulo === 'banco') banco.salvar('substituir');
             else if (modulo === 'cliente')    cliente.salvar('substituir');
             else if (modulo === 'calendario') calendario.salvar('substituir');
-            else if (modulo === 'processos')  processos.salvar('substituir');
+            else if (modulo === 'processos')  { /* processos gerenciado pelo novo módulo */ }
             else if (modulo === 'capacidade') capacidade.salvar('substituir');
             else this.salvarImportacao('substituir');
         });
@@ -1226,7 +1226,7 @@ const vendas = {
             else if (modulo === 'banco') banco.salvar('nova');
             else if (modulo === 'cliente')    cliente.salvar('nova');
             else if (modulo === 'calendario') calendario.salvar('nova');
-            else if (modulo === 'processos')  processos.salvar('nova');
+            else if (modulo === 'processos')  { /* processos gerenciado pelo novo módulo */ }
             else if (modulo === 'capacidade') capacidade.salvar('nova');
             else this.salvarImportacao('nova');
         });
