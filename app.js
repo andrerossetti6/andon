@@ -3140,6 +3140,29 @@ const disponibilidade = {
         this.renderTurnos();
     },
 
+    _initDragCards(container) {
+        let dragged = null;
+        container.addEventListener('dragstart', e => {
+            dragged = e.target.closest('.summary-card');
+            if (dragged) { setTimeout(() => dragged.style.opacity = '0.4', 0); }
+        });
+        container.addEventListener('dragend', e => {
+            const card = e.target.closest('.summary-card');
+            if (card) card.style.opacity = '1';
+            const order = [...container.querySelectorAll('.summary-card')].map(c => c.dataset.proc);
+            localStorage.setItem('tur-proc-order', JSON.stringify(order));
+        });
+        container.addEventListener('dragover', e => {
+            e.preventDefault();
+            const over = e.target.closest('.summary-card');
+            if (over && over !== dragged) {
+                const rect = over.getBoundingClientRect();
+                const after = e.clientX > rect.left + rect.width / 2;
+                container.insertBefore(dragged, after ? over.nextSibling : over);
+            }
+        });
+    },
+
     renderTurnos() {
         const minParaHora = m => { const h=Math.floor(m/60),r=m%60; return `${h}h${r?(r+'m'):''}`;};
         const calcLiq = t => {
@@ -3157,28 +3180,39 @@ const disponibilidade = {
             grupos[p].push(t);
         });
 
-        // Cards de resumo por processo
+        // Cards de resumo por processo (com drag-and-drop)
         const procCards = document.getElementById('tur-proc-cards');
         if (procCards) {
             if (!Object.keys(grupos).length) {
                 procCards.innerHTML = '';
             } else {
-                procCards.innerHTML = Object.entries(grupos)
-                    .sort(([a],[b]) => a.localeCompare(b))
-                    .map(([proc, turnos]) => {
-                        const mins = turnos.map(t => calcLiq(t));
-                        const horasProc = mins.reduce((s,m) => s + m, 0);
-                        const diasProc  = new Set(turnos.flatMap(t => t.dias_semana||[])).size;
-                        const parcelasStr = mins.length > 1
-                            ? `<span class="s-sub" style="font-size:0.68rem;opacity:.75;">${mins.map(m => minParaHora(m)).join(' + ')} = ${minParaHora(horasProc)}</span>`
-                            : '';
-                        return `<div class="summary-card" style="border-left:3px solid var(--indigo-btn);">
-                            <span class="s-label">${proc.toUpperCase()}</span>
-                            <span class="s-value" style="color:#58a6ff;">${minParaHora(horasProc)}</span>
-                            ${parcelasStr}
-                            <span class="s-sub">${turnos.length} turno${turnos.length>1?'s':''} · ${diasProc} dia${diasProc!==1?'s':''}/sem</span>
-                        </div>`;
-                    }).join('');
+                const savedOrder = JSON.parse(localStorage.getItem('tur-proc-order') || '[]');
+                const allProcs = Object.keys(grupos);
+                const ordered = [
+                    ...savedOrder.filter(p => allProcs.includes(p)),
+                    ...allProcs.filter(p => !savedOrder.includes(p)).sort((a,b) => a.localeCompare(b))
+                ];
+                procCards.innerHTML = '';
+                ordered.forEach(proc => {
+                    const turnos = grupos[proc];
+                    const mins = turnos.map(t => calcLiq(t));
+                    const horasProc = mins.reduce((s,m) => s + m, 0);
+                    const diasProc  = new Set(turnos.flatMap(t => t.dias_semana||[])).size;
+                    const parcelasStr = mins.length > 1
+                        ? `<span class="s-sub" style="font-size:0.68rem;opacity:.75;">${mins.map(m => minParaHora(m)).join(' + ')} = ${minParaHora(horasProc)}</span>`
+                        : '';
+                    const card = document.createElement('div');
+                    card.className = 'summary-card';
+                    card.draggable = true;
+                    card.dataset.proc = proc;
+                    card.style.cssText = 'border-left:3px solid var(--indigo-btn);cursor:grab;';
+                    card.innerHTML = `<span class="s-label">${proc.toUpperCase()}</span>
+                        <span class="s-value" style="color:#58a6ff;">${minParaHora(horasProc)}</span>
+                        ${parcelasStr}
+                        <span class="s-sub">${turnos.length} turno${turnos.length>1?'s':''} · ${diasProc} dia${diasProc!==1?'s':''}/sem</span>`;
+                    procCards.appendChild(card);
+                });
+                this._initDragCards(procCards);
             }
         }
 
@@ -3210,7 +3244,11 @@ const disponibilidade = {
                     <span class="tur-card-nome">${t.nome}</span>
                     <div style="display:flex;gap:6px;">
                         <button onclick="disponibilidade.editarTurno('${t.id}')"
-                            style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:0.85rem;" title="Editar">✏️</button>
+                            style="background:none;border:none;color:#8b949e;cursor:pointer;padding:0;line-height:1;" title="Editar">
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z"/>
+                            </svg>
+                        </button>
                         <button onclick="disponibilidade.excluirTurno('${t.id}')"
                             style="background:none;border:none;color:#f85149;cursor:pointer;font-size:0.85rem;" title="Excluir">✕</button>
                     </div>
