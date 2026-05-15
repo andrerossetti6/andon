@@ -5063,6 +5063,92 @@ const pesquisa = {
         return m;
     },
 
+    _getAbcVendasClasse(codigos) {
+        if (!abc._items.length) return null;
+        const keys = codigos.map(c => c.toUpperCase());
+        // Se agrupado por código, busca direto; se por descrição, cruza via rawData
+        if (abc.selectedGrupo === 'codigo') {
+            const found = abc._items.filter(i => keys.includes(String(i.label).toUpperCase()));
+            if (!found.length) return null;
+            // Retorna a melhor classe (A > B > C)
+            const order = ['A','B','C'];
+            return found.sort((a,b) => order.indexOf(a.classe) - order.indexOf(b.classe))[0].classe;
+        } else {
+            // Acha as descrições que pertencem a esses códigos
+            const descs = new Set(vendas.rawData.filter(r => keys.includes(String(r.codigo||'').toUpperCase())).map(r => r.descricao));
+            const found = abc._items.filter(i => descs.has(i.label));
+            if (!found.length) return null;
+            const order = ['A','B','C'];
+            return found.sort((a,b) => order.indexOf(a.classe) - order.indexOf(b.classe))[0].classe;
+        }
+    },
+
+    _getAbcEstoqueClasse(codigos) {
+        if (!abcEstoque._items.length) return null;
+        const keys = codigos.map(c => c.toUpperCase());
+        const found = abcEstoque._items.filter(i => keys.includes(String(i.codigo||'').toUpperCase()));
+        if (!found.length) return null;
+        const order = ['A','B','C'];
+        return found.sort((a,b) => order.indexOf(a.classe) - order.indexOf(b.classe))[0].classe;
+    },
+
+    _renderAbcBlock(codigos) {
+        const block = document.getElementById('pc-abc-block');
+        if (!block) return;
+        const cv = this._getAbcVendasClasse(codigos);
+        const ce = this._getAbcEstoqueClasse(codigos);
+        if (!cv && !ce) { block.style.display = 'none'; return; }
+
+        const cor = { A:'#58a6ff', B:'#d29922', C:'#8b949e' };
+        const bg  = { A:'rgba(88,166,255,.12)', B:'rgba(210,153,34,.12)', C:'rgba(139,148,158,.12)' };
+
+        const badge = (c, label) => c
+            ? `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+                <span style="font-size:0.65rem;color:var(--text-dim);letter-spacing:.08em;">${label}</span>
+                <span style="font-size:2rem;font-weight:800;color:${cor[c]};background:${bg[c]};
+                    border:2px solid ${cor[c]}44;border-radius:12px;width:56px;height:56px;
+                    display:flex;align-items:center;justify-content:center;line-height:1;">${c}</span>
+               </div>`
+            : `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+                <span style="font-size:0.65rem;color:var(--text-dim);letter-spacing:.08em;">${label}</span>
+                <span style="font-size:0.8rem;color:var(--text-dim);width:56px;height:56px;
+                    display:flex;align-items:center;justify-content:center;border:1px dashed var(--border);border-radius:12px;">—</span>
+               </div>`;
+
+        const interpretacoes = {
+            AA: { icon:'✅', texto:'Equilíbrio — alto giro e bom estoque.',       cor:'#2ea043' },
+            AB: { icon:'🟡', texto:'Atenção — alto giro, estoque médio.',          cor:'#d29922' },
+            AC: { icon:'🔴', texto:'Risco de ruptura — alto giro, estoque crítico.', cor:'#f85149' },
+            BA: { icon:'🟡', texto:'Estoque excedente para giro médio.',           cor:'#d29922' },
+            BB: { icon:'🔵', texto:'Equilíbrio moderado.',                         cor:'#58a6ff' },
+            BC: { icon:'🟠', texto:'Atenção — estoque baixo para giro médio.',     cor:'#e3b341' },
+            CA: { icon:'🟠', texto:'Estoque parado — baixo giro, muito estoque.',  cor:'#e3b341' },
+            CB: { icon:'⚪', texto:'Estoque acima do necessário para baixo giro.', cor:'#8b949e' },
+            CC: { icon:'⚪', texto:'Candidato a revisão — baixo giro e estoque.',  cor:'#8b949e' },
+        };
+        const chave = cv && ce ? cv+ce : null;
+        const interp = chave ? interpretacoes[chave] : null;
+
+        block.style.display = 'block';
+        block.innerHTML = `
+            <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:16px 20px;
+                display:flex;align-items:center;gap:24px;flex-wrap:wrap;">
+                <div>
+                    <div style="font-size:0.62rem;font-weight:700;letter-spacing:.1em;color:var(--text-dim);margin-bottom:10px;">POSIÇÃO NA CURVA ABC</div>
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        ${badge(cv,'VENDAS')}
+                        <span style="font-size:1.4rem;color:var(--text-dim);margin-top:16px;">×</span>
+                        ${badge(ce,'ESTOQUE')}
+                    </div>
+                </div>
+                ${interp ? `
+                <div style="border-left:1px solid var(--border);padding-left:20px;flex:1;min-width:180px;">
+                    <div style="font-size:1.1rem;margin-bottom:6px;">${interp.icon}</div>
+                    <div style="font-size:0.85rem;color:${interp.cor};font-weight:600;">${interp.texto}</div>
+                </div>` : ''}
+            </div>`;
+    },
+
     render() {
         const tbody   = document.getElementById('pesquisa-tbody');
         const countEl = document.getElementById('pesquisa-count');
@@ -5081,6 +5167,8 @@ const pesquisa = {
             if (countEl) countEl.textContent = '';
             if (empty) empty.style.display = 'block';
             if (cards) cards.style.display = 'none';
+            const ab = document.getElementById('pc-abc-block');
+            if (ab) ab.style.display = 'none';
             return;
         }
         if (empty) empty.style.display = 'none';
@@ -5156,6 +5244,10 @@ const pesquisa = {
             document.getElementById('pc-op').textContent      = Math.round(sumOP).toLocaleString('pt-BR');
             document.getElementById('pc-costura').textContent = Math.round(sumCos).toLocaleString('pt-BR');
         }
+
+        // Bloco ABC cruzado
+        const codigos = [...new Set(rows.map(r => String(r.codigo||'').trim().toUpperCase()).filter(Boolean))];
+        this._renderAbcBlock(codigos);
     }
 };
 
