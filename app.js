@@ -3977,6 +3977,7 @@ const abc = {
     _selectedClasse: null,
     _items:          [],
     _zonas:          {},
+    _busca:          '',
 
     init() {
         document.getElementById('abc-year-tabs').addEventListener('click', e => {
@@ -4007,6 +4008,10 @@ const abc = {
         document.getElementById('abc-grupo-sel').addEventListener('change', e => {
             this.selectedGrupo = e.target.value;
             this.render();
+        });
+        document.getElementById('abc-busca').addEventListener('input', e => {
+            this._busca = e.target.value.trim().toLowerCase();
+            this.renderTable();
         });
     },
 
@@ -4228,13 +4233,22 @@ const abc = {
 
     renderTable() {
         const isDesc  = this.selectedGrupo === 'descricao';
-        const visible = this._selectedClasse
+        let visible = this._selectedClasse
             ? this._items.filter(i => i.classe === this._selectedClasse)
             : this._items;
+        if (this._busca) {
+            visible = visible.filter(i =>
+                i.label.toLowerCase().includes(this._busca) ||
+                (i.modelo  || '').toLowerCase().includes(this._busca) ||
+                (i.marca   || '').toLowerCase().includes(this._busca)
+            );
+        }
         const countEl = document.getElementById('abc-count');
-        if (countEl) countEl.textContent = this._selectedClasse
-            ? `${visible.length} itens — Classe ${this._selectedClasse} (clique para ver todos)`
-            : `${this._items.length.toLocaleString('pt-BR')} itens analisados`;
+        if (countEl) countEl.textContent = this._busca
+            ? `${visible.length} resultado${visible.length !== 1 ? 's' : ''} encontrado${visible.length !== 1 ? 's' : ''}`
+            : this._selectedClasse
+                ? `${visible.length} itens — Classe ${this._selectedClasse} (clique para ver todos)`
+                : `${this._items.length.toLocaleString('pt-BR')} itens analisados`;
         document.querySelector('#abc-table thead tr').innerHTML = `
             <th style="width:40px;">#</th>
             <th>${isDesc ? 'DESCRIÇÃO' : 'CÓDIGO'}</th>

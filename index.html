@@ -1205,6 +1205,11 @@
                 <option value="codigo">Código</option>
             </select>
             <span class="table-count-label" id="abc-count"></span>
+            <div style="margin-left:auto;position:relative;display:flex;align-items:center;">
+                <svg style="position:absolute;left:10px;color:#8b949e;pointer-events:none;" width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="6.5" cy="6.5" r="4.5"/><line x1="10.5" y1="10.5" x2="14" y2="14"/></svg>
+                <input type="text" id="abc-busca" placeholder="Buscar código ou descrição…"
+                    style="background:var(--bg-input,#161b22);border:1px solid var(--border);border-radius:8px;color:var(--text-primary);font-size:0.8rem;padding:6px 12px 6px 30px;width:230px;outline:none;">
+            </div>
         </div>
         <div class="vendas-summary">
             <div class="summary-card">
@@ -1429,9 +1434,19 @@
             <label class="tur-dia-lbl"><input type="checkbox" id="tur-edit-dia-Sáb" value="Sáb"><span>Sáb</span></label>
             <label class="tur-dia-lbl"><input type="checkbox" id="tur-edit-dia-Dom" value="Dom"><span>Dom</span></label>
         </div>
-        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:4px;">
-            <button class="sigs-btn" onclick="document.getElementById('tur-edit-modal').style.display='none'" style="background:var(--bg-hover);">Cancelar</button>
-            <button class="sigs-btn" onclick="disponibilidade.salvarEdicaoTurno()">Salvar</button>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;padding-top:16px;border-top:1px solid var(--border);">
+            <button onclick="document.getElementById('tur-edit-modal').style.display='none'"
+                style="padding:9px 20px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:0.85rem;font-weight:500;cursor:pointer;transition:all .15s;"
+                onmouseover="this.style.background='var(--bg-hover)';this.style.color='var(--text-primary)'"
+                onmouseout="this.style.background='transparent';this.style.color='var(--text-dim)'">
+                Cancelar
+            </button>
+            <button onclick="disponibilidade.salvarEdicaoTurno()"
+                style="padding:9px 24px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:0.85rem;font-weight:600;cursor:pointer;transition:opacity .15s;"
+                onmouseover="this.style.opacity='.85'"
+                onmouseout="this.style.opacity='1'">
+                Salvar alterações
+            </button>
         </div>
     </div>
 </div>
