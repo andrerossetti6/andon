@@ -954,48 +954,62 @@
 
     <!-- ── Arquitetura: Processos ─────────────────────────────── -->
     <main class="content" id="view-processos" style="display:none;">
-        <header class="page-header">
-            <div class="page-header-text">
-                <h1 class="page-title">Arquitetura de <span>Processos</span></h1>
-                <p class="page-subtitle">Importe dados de processos em CSV ou XLS</p>
-            </div>
-            <div class="page-header-actions">
-                <label class="btn primary import-btn" for="file-input-processos">
-                    <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    Importar Arquivo
-                </label>
-                <input type="file" id="file-input-processos" accept=".csv,.xls,.xlsx" style="display:none;">
-            </div>
-        </header>
-        <div id="processos-history" style="display:none;" class="import-history">
-            <div class="history-header" onclick="toggleHistorico('processos-history')" style="cursor:pointer;">
-                <div style="display:flex;align-items:center;gap:8px;">
-                    <span class="history-chevron" id="chevron-processos">›</span>
-                    <span class="s-label" style="margin:0;">IMPORTAÇÕES SALVAS <span id="processos-saving" style="display:none;color:var(--text-dim);">· salvando...</span></span>
+
+        <!-- ── Lista de Processos ── -->
+        <div id="proc-list-view">
+            <header class="page-header">
+                <div class="page-header-text">
+                    <h1 class="page-title">Arquitetura de <span>Processos</span></h1>
+                    <p class="page-subtitle">Gerencie processos e suas máquinas</p>
                 </div>
-                <label class="btn secondary" for="file-input-processos" onclick="event.stopPropagation()" style="cursor:pointer;padding:4px 14px;font-size:0.72rem;">+ Novo arquivo</label>
+                <div class="page-header-actions">
+                    <button class="btn primary" onclick="processosGerenciamento.abrirModalProcesso()">
+                        <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2Z"/></svg>
+                        Novo Processo
+                    </button>
+                </div>
+            </header>
+            <div id="proc-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:var(--layout-gap);padding-top:4px;"></div>
+            <div id="proc-empty" style="display:none;text-align:center;padding:60px 20px;color:var(--text-dim);">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".4"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                <p style="margin-top:12px;font-size:0.9rem;">Nenhum processo cadastrado.<br>Clique em <strong>Novo Processo</strong> para começar.</p>
             </div>
-            <div id="processos-history-list" class="history-list" style="display:none;"></div>
         </div>
-        <div class="drop-zone" id="processos-drop-zone">
-            <div class="drop-icon"><svg viewBox="0 0 24 24" width="32" height="32" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg></div>
-            <h3>Arraste seu arquivo aqui</h3><p>Suporte a .CSV, .XLS e .XLSX</p>
-            <label class="btn secondary" for="file-input-processos" style="margin-top:16px;display:inline-block;cursor:pointer;">Ou clique para selecionar</label>
-        </div>
-        <div id="processos-data">
-            <div class="vendas-summary">
-                <div class="summary-card"><span class="s-label">REGISTROS</span><span class="s-value" id="processos-total">0</span><span class="s-sub">importados</span></div>
-                <div class="summary-card"><span class="s-label">QUANTIDADE</span><span class="s-value" id="processos-qtd">0</span><span class="s-sub">unidades</span></div>
-                <div class="summary-card"><span class="s-label">FILTRADOS</span><span class="s-value" id="processos-filtrados">0</span><span class="s-sub">resultado</span></div>
+
+        <!-- ── Detalhe do Processo (máquinas) ── -->
+        <div id="proc-detail-view" style="display:none;">
+            <header class="page-header">
+                <div class="page-header-text" style="display:flex;align-items:center;gap:12px;">
+                    <button onclick="processosGerenciamento.voltarLista()" style="background:none;border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--text-dim);cursor:pointer;font-size:0.8rem;display:flex;align-items:center;gap:6px;">
+                        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 3L5 8l5 5"/></svg>
+                        Processos
+                    </button>
+                    <div>
+                        <h1 class="page-title" id="proc-detail-title">Processo</h1>
+                        <p class="page-subtitle" id="proc-detail-sub"></p>
+                    </div>
+                </div>
+                <div class="page-header-actions">
+                    <button class="btn primary" onclick="processosGerenciamento.abrirModalMaquina()">
+                        <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor"><path d="M8 2a.75.75 0 0 1 .75.75v4.5h4.5a.75.75 0 0 1 0 1.5h-4.5v4.5a.75.75 0 0 1-1.5 0v-4.5h-4.5a.75.75 0 0 1 0-1.5h4.5v-4.5A.75.75 0 0 1 8 2Z"/></svg>
+                        Adicionar Máquina
+                    </button>
+                </div>
+            </header>
+
+            <!-- Tabela de máquinas -->
+            <div class="vendas-table-wrap" style="margin-top:8px;">
+                <table class="vendas-table" id="proc-maq-table">
+                    <thead><tr>
+                        <th>ID MÁQUINA</th>
+                        <th>MODELO</th>
+                        <th class="td-center">OEE (%)</th>
+                        <th class="td-center">STATUS</th>
+                        <th class="td-center" style="width:80px;">AÇÕES</th>
+                    </tr></thead>
+                    <tbody id="proc-maq-tbody"></tbody>
+                </table>
             </div>
-            <div class="vendas-filters-bar">
-                <input type="text" class="sigs-input" id="processos-search" placeholder="Buscar em qualquer coluna...">
-                <div class="combobox-wrap" id="processos-col1-wrap" style="display:none;"><input type="text" class="sigs-input combobox-input" id="processos-col1-input" placeholder="Filtrar..." autocomplete="off"><div class="combobox-dropdown" id="processos-col1-dropdown"></div></div>
-                <div class="combobox-wrap" id="processos-col2-wrap" style="display:none;"><input type="text" class="sigs-input combobox-input" id="processos-col2-input" placeholder="Filtrar..." autocomplete="off"><div class="combobox-dropdown" id="processos-col2-dropdown"></div></div>
-                <span class="table-count-label" id="processos-count"></span>
-                <button class="btn secondary" onclick="processos.limpar()">Limpar</button>
-            </div>
-            <div class="vendas-table-wrap"><table class="vendas-table estoque-table-full" id="processos-table"><thead><tr></tr></thead><tbody></tbody></table></div>
         </div>
     </main>
 
@@ -1419,6 +1433,71 @@
             </table>
         </div>
     </div>
+
+<!-- Modal Processo -->
+<div id="proc-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:28px 24px;width:min(420px,95vw);display:flex;flex-direction:column;gap:16px;">
+        <h3 style="margin:0;font-size:1rem;" id="proc-modal-title">Novo Processo</h3>
+        <input type="hidden" id="proc-modal-id">
+        <div style="display:flex;flex-direction:column;gap:8px;">
+            <label style="font-size:0.72rem;color:var(--text-dim);">Nome do Processo</label>
+            <input type="text" class="sigs-input" id="proc-modal-nome" placeholder="Ex: Costura, Tecelagem...">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+            <label style="font-size:0.72rem;color:var(--text-dim);">Descrição (opcional)</label>
+            <input type="text" class="sigs-input" id="proc-modal-desc" placeholder="Descrição do processo">
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;padding-top:16px;border-top:1px solid var(--border);">
+            <button onclick="document.getElementById('proc-modal').style.display='none'"
+                style="padding:9px 20px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:0.85rem;font-weight:500;cursor:pointer;"
+                onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">Cancelar</button>
+            <button onclick="processosGerenciamento.salvarProcesso()"
+                style="padding:9px 24px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:0.85rem;font-weight:600;cursor:pointer;"
+                onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">Salvar</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Máquina -->
+<div id="maq-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:28px 24px;width:min(480px,95vw);display:flex;flex-direction:column;gap:16px;">
+        <h3 style="margin:0;font-size:1rem;" id="maq-modal-title">Adicionar Máquina</h3>
+        <input type="hidden" id="maq-modal-id">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:0.72rem;color:var(--text-dim);">ID Máquina</label>
+                <input type="text" class="sigs-input" id="maq-modal-id-maq" placeholder="Ex: MAQ-001">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:0.72rem;color:var(--text-dim);">Modelo</label>
+                <input type="text" class="sigs-input" id="maq-modal-modelo" placeholder="Ex: Brother S-7300A">
+            </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:0.72rem;color:var(--text-dim);">OEE (%)</label>
+                <input type="number" class="sigs-input" id="maq-modal-oee" min="0" max="100" step="0.1" placeholder="0–100">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:0.72rem;color:var(--text-dim);">Status</label>
+                <select class="sigs-select" id="maq-modal-status">
+                    <option value="Ativo">Ativo</option>
+                    <option value="Manutenção">Manutenção</option>
+                    <option value="Inativo">Inativo</option>
+                    <option value="Setup">Setup</option>
+                </select>
+            </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;padding-top:16px;border-top:1px solid var(--border);">
+            <button onclick="document.getElementById('maq-modal').style.display='none'"
+                style="padding:9px 20px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-dim);font-size:0.85rem;font-weight:500;cursor:pointer;"
+                onmouseover="this.style.background='var(--bg-hover)'" onmouseout="this.style.background='transparent'">Cancelar</button>
+            <button onclick="processosGerenciamento.salvarMaquina()"
+                style="padding:9px 24px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:0.85rem;font-weight:600;cursor:pointer;"
+                onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">Salvar</button>
+        </div>
+    </div>
+</div>
 
 <!-- Modal edição de turno -->
 <div id="tur-edit-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;">

@@ -507,6 +507,56 @@ app.delete('/api/turnos/:id', auth, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── PROCESSOS CRUD ───────────────────────────────────────────
+app.get('/api/processos-config', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('processos_config').select('*').order('nome');
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data);
+});
+app.post('/api/processos-config', auth, async (req, res) => {
+    const { nome, descricao } = req.body;
+    const { data, error } = await supabase.from('processos_config').insert({ nome, descricao }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, data });
+});
+app.put('/api/processos-config/:id', auth, async (req, res) => {
+    const { nome, descricao } = req.body;
+    const { data, error } = await supabase.from('processos_config').update({ nome, descricao }).eq('id', req.params.id).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, data });
+});
+app.delete('/api/processos-config/:id', auth, async (req, res) => {
+    const { error } = await supabase.from('processos_config').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
+// ── MÁQUINAS CRUD ─────────────────────────────────────────────
+app.get('/api/maquinas', auth, async (req, res) => {
+    let q = supabase.from('maquinas').select('*').order('id_maquina');
+    if (req.query.processo_id) q = q.eq('processo_id', req.query.processo_id);
+    const { data, error } = await q;
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data);
+});
+app.post('/api/maquinas', auth, async (req, res) => {
+    const { processo_id, id_maquina, modelo, oee, status } = req.body;
+    const { data, error } = await supabase.from('maquinas').insert({ processo_id, id_maquina, modelo, oee, status }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, data });
+});
+app.put('/api/maquinas/:id', auth, async (req, res) => {
+    const { id_maquina, modelo, oee, status } = req.body;
+    const { data, error } = await supabase.from('maquinas').update({ id_maquina, modelo, oee, status }).eq('id', req.params.id).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, data });
+});
+app.delete('/api/maquinas/:id', auth, async (req, res) => {
+    const { error } = await supabase.from('maquinas').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
 // ── ARQUITETURA DE DADOS — rotas genéricas ───────────────────
 ['calendario','processos','capacidade'].forEach(nome => {
     app.get(`/api/importacoes-${nome}`, auth, async (_req, res) => {

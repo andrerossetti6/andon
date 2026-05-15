@@ -198,7 +198,7 @@ function mostrarApp() {
     init();
     banco.init();
     cliente.init();
-    processos.init();
+    processosGerenciamento.init();
     capacidade.init();
     estoque.init();
     op.init();
@@ -632,6 +632,8 @@ function navigateTo(viewName) {
         disponibilidade.abrirAba(disponibilidade._abaAtiva);
     } else if (viewName === 'processos') {
         document.querySelector('[data-view="processos"]')?.classList.add('sub-active');
+        processosGerenciamento.voltarLista();
+        processosGerenciamento.carregarProcessos();
     } else if (viewName === 'capacidade') {
         document.querySelector('[data-view="capacidade"]')?.classList.add('sub-active');
     } else if (viewName === 'pesquisa') {
@@ -3346,8 +3348,176 @@ const disponibilidade = {
 };
 
 const calendario = criarModuloArq('calendario', 'calendario');
-const processos  = criarModuloArq('processos',  'processos');
 const capacidade = criarModuloArq('capacidade',  'capacidade');
+
+// ====== PROCESSOS — GERENCIAMENTO CRUD ======
+const processosGerenciamento = {
+    _processos:     [],
+    _maquinas:      [],
+    _processoAtual: null,
+
+    async init() {
+        await this.carregarProcessos();
+    },
+
+    async carregarProcessos() {
+        const data = await api.get('/api/processos-config');
+        this._processos = data || [];
+        this.renderProcessos();
+    },
+
+    renderProcessos() {
+        const grid  = document.getElementById('proc-cards-grid');
+        const empty = document.getElementById('proc-empty');
+        if (!grid) return;
+        if (!this._processos.length) {
+            grid.innerHTML = '';
+            if (empty) empty.style.display = 'block';
+            return;
+        }
+        if (empty) empty.style.display = 'none';
+        grid.innerHTML = this._processos.map(p => `
+            <div class="summary-card" style="cursor:pointer;border-left:3px solid var(--indigo-btn);transition:opacity .15s;"
+                onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'"
+                onclick="processosGerenciamento.abrirProcesso('${p.id}')">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
+                    <span class="s-label">${p.nome.toUpperCase()}</span>
+                    <div style="display:flex;gap:8px;" onclick="event.stopPropagation()">
+                        <button onclick="processosGerenciamento.abrirModalProcesso('${p.id}')"
+                            style="background:none;border:none;color:#8b949e;cursor:pointer;padding:0;">
+                            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z"/></svg>
+                        </button>
+                        <button onclick="processosGerenciamento.excluirProcesso('${p.id}')"
+                            style="background:none;border:none;color:#f85149;cursor:pointer;padding:0;font-size:0.85rem;">✕</button>
+                    </div>
+                </div>
+                <div style="font-size:1.5rem;font-weight:700;color:var(--indigo-primary);margin-bottom:4px;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:middle;margin-right:4px;"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                    ${p.nome}
+                </div>
+                ${p.descricao ? `<div class="s-sub" style="margin-top:4px;">${p.descricao}</div>` : ''}
+                <div style="margin-top:10px;font-size:0.75rem;color:var(--indigo-btn);">Ver máquinas →</div>
+            </div>
+        `).join('');
+    },
+
+    async abrirProcesso(id) {
+        this._processoAtual = this._processos.find(p => p.id === id);
+        if (!this._processoAtual) return;
+        document.getElementById('proc-list-view').style.display   = 'none';
+        document.getElementById('proc-detail-view').style.display = '';
+        document.getElementById('proc-detail-title').textContent  = this._processoAtual.nome;
+        document.getElementById('proc-detail-sub').textContent    = this._processoAtual.descricao || '';
+        await this.carregarMaquinas(id);
+    },
+
+    voltarLista() {
+        document.getElementById('proc-detail-view').style.display = 'none';
+        document.getElementById('proc-list-view').style.display   = '';
+        this._processoAtual = null;
+    },
+
+    async carregarMaquinas(processoId) {
+        const data = await api.get(`/api/maquinas?processo_id=${processoId}`);
+        this._maquinas = data || [];
+        this.renderMaquinas();
+    },
+
+    renderMaquinas() {
+        const tbody = document.getElementById('proc-maq-tbody');
+        if (!tbody) return;
+        if (!this._maquinas.length) {
+            tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-dim);">Nenhuma máquina cadastrada neste processo.</td></tr>`;
+            return;
+        }
+        const statusColor = s => ({ 'Ativo':'#2ea043','Manutenção':'#d29922','Inativo':'#8b949e','Setup':'#58a6ff' }[s] || '#8b949e');
+        tbody.innerHTML = this._maquinas.map(m => `
+            <tr>
+                <td style="font-weight:600;color:var(--indigo-primary);">${m.id_maquina || '—'}</td>
+                <td>${m.modelo || '—'}</td>
+                <td class="td-center">${m.oee != null ? Number(m.oee).toFixed(1) + '%' : '—'}</td>
+                <td class="td-center">
+                    <span style="display:inline-block;padding:2px 10px;border-radius:20px;font-size:0.72rem;font-weight:600;
+                        background:${statusColor(m.status)}22;color:${statusColor(m.status)};border:1px solid ${statusColor(m.status)}44;">
+                        ${m.status || '—'}
+                    </span>
+                </td>
+                <td class="td-center" style="display:flex;gap:8px;justify-content:center;">
+                    <button onclick="processosGerenciamento.abrirModalMaquina('${m.id}')"
+                        style="background:none;border:none;color:#8b949e;cursor:pointer;padding:0;">
+                        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z"/></svg>
+                    </button>
+                    <button onclick="processosGerenciamento.excluirMaquina('${m.id}')"
+                        style="background:none;border:none;color:#f85149;cursor:pointer;font-size:0.85rem;">✕</button>
+                </td>
+            </tr>
+        `).join('');
+    },
+
+    abrirModalProcesso(id) {
+        const p = id ? this._processos.find(x => x.id === id) : null;
+        document.getElementById('proc-modal-title').textContent = p ? 'Editar Processo' : 'Novo Processo';
+        document.getElementById('proc-modal-id').value   = p?.id || '';
+        document.getElementById('proc-modal-nome').value = p?.nome || '';
+        document.getElementById('proc-modal-desc').value = p?.descricao || '';
+        document.getElementById('proc-modal').style.display = 'flex';
+    },
+
+    async salvarProcesso() {
+        const id   = document.getElementById('proc-modal-id').value;
+        const nome = document.getElementById('proc-modal-nome').value.trim();
+        const desc = document.getElementById('proc-modal-desc').value.trim();
+        if (!nome) { alert('Informe o nome do processo.'); return; }
+        const res = id
+            ? await api.put(`/api/processos-config/${id}`, { nome, descricao: desc })
+            : await api.post('/api/processos-config', { nome, descricao: desc });
+        if (res?.ok) {
+            document.getElementById('proc-modal').style.display = 'none';
+            await this.carregarProcessos();
+            mostrarToast(id ? '✓ Processo atualizado' : '✓ Processo criado');
+        }
+    },
+
+    async excluirProcesso(id) {
+        if (!confirm('Excluir este processo e todas as suas máquinas?')) return;
+        await api.delete(`/api/processos-config/${id}`);
+        await this.carregarProcessos();
+    },
+
+    abrirModalMaquina(id) {
+        const m = id ? this._maquinas.find(x => x.id === id) : null;
+        document.getElementById('maq-modal-title').textContent   = m ? 'Editar Máquina' : 'Adicionar Máquina';
+        document.getElementById('maq-modal-id').value            = m?.id || '';
+        document.getElementById('maq-modal-id-maq').value        = m?.id_maquina || '';
+        document.getElementById('maq-modal-modelo').value        = m?.modelo || '';
+        document.getElementById('maq-modal-oee').value           = m?.oee ?? '';
+        document.getElementById('maq-modal-status').value        = m?.status || 'Ativo';
+        document.getElementById('maq-modal').style.display       = 'flex';
+    },
+
+    async salvarMaquina() {
+        const id        = document.getElementById('maq-modal-id').value;
+        const id_maquina = document.getElementById('maq-modal-id-maq').value.trim();
+        const modelo    = document.getElementById('maq-modal-modelo').value.trim();
+        const oee       = parseFloat(document.getElementById('maq-modal-oee').value) || null;
+        const status    = document.getElementById('maq-modal-status').value;
+        if (!id_maquina) { alert('Informe o ID da máquina.'); return; }
+        const res = id
+            ? await api.put(`/api/maquinas/${id}`, { id_maquina, modelo, oee, status })
+            : await api.post('/api/maquinas', { processo_id: this._processoAtual.id, id_maquina, modelo, oee, status });
+        if (res?.ok) {
+            document.getElementById('maq-modal').style.display = 'none';
+            await this.carregarMaquinas(this._processoAtual.id);
+            mostrarToast(id ? '✓ Máquina atualizada' : '✓ Máquina adicionada');
+        }
+    },
+
+    async excluirMaquina(id) {
+        if (!confirm('Excluir esta máquina?')) return;
+        await api.delete(`/api/maquinas/${id}`);
+        await this.carregarMaquinas(this._processoAtual.id);
+    }
+};
 
 // ====== IMPORTAÇÃO: BANCO DE DADOS ======
 
