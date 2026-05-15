@@ -1405,5 +1405,36 @@
         </div>
     </div>
 
+<!-- Modal edição de turno -->
+<div id="tur-edit-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;align-items:center;justify-content:center;">
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:28px 24px;width:min(480px,95vw);display:flex;flex-direction:column;gap:16px;">
+        <h3 style="margin:0;font-size:1rem;color:var(--text-primary);">Editar Turno</h3>
+        <input type="hidden" id="tur-edit-id">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <input type="text" class="sigs-input" id="tur-edit-processo" placeholder="Processo">
+            <input type="text" class="sigs-input" id="tur-edit-nome" placeholder="Nome do turno">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-items:center;">
+            <div><label style="font-size:0.72rem;color:var(--text-dim);">Início</label><input type="time" class="sigs-input" id="tur-edit-inicio" style="width:100%;"></div>
+            <div><label style="font-size:0.72rem;color:var(--text-dim);">Fim</label><input type="time" class="sigs-input" id="tur-edit-fim" style="width:100%;"></div>
+            <div><label style="font-size:0.72rem;color:var(--text-dim);">Intervalo (min)</label><input type="number" class="sigs-input" id="tur-edit-intervalo" min="0" max="240" value="0" style="width:100%;"></div>
+        </div>
+        <div id="tur-edit-dias-wrap" style="display:flex;gap:6px;flex-wrap:wrap;">
+            <label style="font-size:0.72rem;color:var(--text-dim);width:100%;margin-bottom:2px;">Dias da semana</label>
+            <label class="tur-dia-lbl"><input type="checkbox" id="tur-edit-dia-Seg" value="Seg"><span>Seg</span></label>
+            <label class="tur-dia-lbl"><input type="checkbox" id="tur-edit-dia-Ter" value="Ter"><span>Ter</span></label>
+            <label class="tur-dia-lbl"><input type="checkbox" id="tur-edit-dia-Qua" value="Qua"><span>Qua</span></label>
+            <label class="tur-dia-lbl"><input type="checkbox" id="tur-edit-dia-Qui" value="Qui"><span>Qui</span></label>
+            <label class="tur-dia-lbl"><input type="checkbox" id="tur-edit-dia-Sex" value="Sex"><span>Sex</span></label>
+            <label class="tur-dia-lbl"><input type="checkbox" id="tur-edit-dia-Sáb" value="Sáb"><span>Sáb</span></label>
+            <label class="tur-dia-lbl"><input type="checkbox" id="tur-edit-dia-Dom" value="Dom"><span>Dom</span></label>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:4px;">
+            <button class="sigs-btn" onclick="document.getElementById('tur-edit-modal').style.display='none'" style="background:var(--bg-hover);">Cancelar</button>
+            <button class="sigs-btn" onclick="disponibilidade.salvarEdicaoTurno()">Salvar</button>
+        </div>
+    </div>
+</div>
+
 </body>
 </html>

@@ -54,6 +54,12 @@ const api = {
         return r.json();
     },
 
+    async put(url, body) {
+        const r = await fetch(url, { method: 'PUT', headers: auth.cabecalho(), body: JSON.stringify(body) });
+        if (r.status === 401) { auth.sair(); return null; }
+        return r.json();
+    },
+
     async delete(url) {
         const r = await fetch(url, { method: 'DELETE', headers: auth.cabecalho() });
         if (r.status === 401) { auth.sair(); return null; }
@@ -3163,11 +3169,13 @@ const disponibilidade = {
                         const mins = turnos.map(t => calcLiq(t));
                         const horasProc = mins.reduce((s,m) => s + m, 0);
                         const diasProc  = new Set(turnos.flatMap(t => t.dias_semana||[])).size;
-                        const parcelas  = mins.map(m => minParaHora(m)).join(' + ');
+                        const parcelasStr = mins.length > 1
+                            ? `<span class="s-sub" style="font-size:0.68rem;opacity:.75;">${mins.map(m => minParaHora(m)).join(' + ')} = ${minParaHora(horasProc)}</span>`
+                            : '';
                         return `<div class="summary-card" style="border-left:3px solid var(--indigo-btn);">
                             <span class="s-label">${proc.toUpperCase()}</span>
                             <span class="s-value" style="color:#58a6ff;">${minParaHora(horasProc)}</span>
-                            <span class="s-sub" style="font-size:0.68rem;opacity:.75;">${parcelas}</span>
+                            ${parcelasStr}
                             <span class="s-sub">${turnos.length} turno${turnos.length>1?'s':''} · ${diasProc} dia${diasProc!==1?'s':''}/sem</span>
                         </div>`;
                     }).join('');
@@ -3200,8 +3208,12 @@ const disponibilidade = {
             return `<div class="tur-card">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;">
                     <span class="tur-card-nome">${t.nome}</span>
-                    <button onclick="disponibilidade.excluirTurno('${t.id}')"
-                        style="background:none;border:none;color:#f85149;cursor:pointer;font-size:0.85rem;">✕</button>
+                    <div style="display:flex;gap:6px;">
+                        <button onclick="disponibilidade.editarTurno('${t.id}')"
+                            style="background:none;border:none;color:#8b949e;cursor:pointer;font-size:0.85rem;" title="Editar">✏️</button>
+                        <button onclick="disponibilidade.excluirTurno('${t.id}')"
+                            style="background:none;border:none;color:#f85149;cursor:pointer;font-size:0.85rem;" title="Excluir">✕</button>
+                    </div>
                 </div>
                 <div class="tur-card-horario">${t.inicio?.slice(0,5) || '—'} → ${t.fim?.slice(0,5) || '—'}</div>
                 ${intervalo ? `<div style="font-size:0.72rem;color:#d29922;margin-top:2px;">
@@ -3234,9 +3246,12 @@ const disponibilidade = {
         const fim         = document.getElementById('tur-fim').value;
         const intervalo   = parseInt(document.getElementById('tur-intervalo').value) || 0;
         const dias        = [...document.querySelectorAll('#tur-dias-wrap input:checked')].map(i => i.value);
-        if (!processo || !nome || !inicio || !fim) {
-            alert('Preencha processo, nome, início e fim do turno.'); return;
-        }
+        const faltando = [];
+        if (!processo) faltando.push('Processo');
+        if (!nome)     faltando.push('Nome do turno');
+        if (!inicio)   faltando.push('Início');
+        if (!fim)      faltando.push('Fim');
+        if (faltando.length) { alert('Preencha: ' + faltando.join(', ')); return; }
         const res = await api.post('/api/turnos', { processo, nome, inicio, fim, intervalo_min: intervalo, dias_semana: dias });
         if (res?.ok) {
             document.getElementById('tur-processo').value  = '';
@@ -3247,6 +3262,40 @@ const disponibilidade = {
             document.querySelectorAll('#tur-dias-wrap input').forEach(i => i.checked = false);
             await this.carregarTurnos();
             mostrarToast(`✓ Turno adicionado em ${processo}`);
+        }
+    },
+
+    editarTurno(id) {
+        const t = this._turnos.find(x => String(x.id) === String(id));
+        if (!t) return;
+        const dias = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+        document.getElementById('tur-edit-id').value         = t.id;
+        document.getElementById('tur-edit-processo').value   = t.processo || '';
+        document.getElementById('tur-edit-nome').value       = t.nome || '';
+        document.getElementById('tur-edit-inicio').value     = t.inicio?.slice(0,5) || '';
+        document.getElementById('tur-edit-fim').value        = t.fim?.slice(0,5) || '';
+        document.getElementById('tur-edit-intervalo').value  = t.intervalo_min || 0;
+        dias.forEach(d => {
+            const cb = document.getElementById('tur-edit-dia-' + d);
+            if (cb) cb.checked = (t.dias_semana || []).includes(d);
+        });
+        document.getElementById('tur-edit-modal').style.display = 'flex';
+    },
+
+    async salvarEdicaoTurno() {
+        const id        = document.getElementById('tur-edit-id').value;
+        const processo  = document.getElementById('tur-edit-processo').value.trim();
+        const nome      = document.getElementById('tur-edit-nome').value.trim();
+        const inicio    = document.getElementById('tur-edit-inicio').value;
+        const fim       = document.getElementById('tur-edit-fim').value;
+        const intervalo = parseInt(document.getElementById('tur-edit-intervalo').value) || 0;
+        const dias      = [...document.querySelectorAll('#tur-edit-dias-wrap input:checked')].map(i => i.value);
+        if (!processo || !nome || !inicio || !fim) { alert('Preencha todos os campos.'); return; }
+        const res = await api.put(`/api/turnos/${id}`, { processo, nome, inicio, fim, intervalo_min: intervalo, dias_semana: dias });
+        if (res?.ok) {
+            document.getElementById('tur-edit-modal').style.display = 'none';
+            await this.carregarTurnos();
+            mostrarToast('✓ Turno atualizado');
         }
     },
 

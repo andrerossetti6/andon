@@ -492,6 +492,15 @@ app.post('/api/turnos', auth, async (req, res) => {
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, turno: data });
 });
+app.put('/api/turnos/:id', auth, async (req, res) => {
+    const { processo, nome, inicio, fim, intervalo_min, dias_semana } = req.body;
+    const { data, error } = await supabase.from('turnos')
+        .update({ processo, nome, inicio, fim, intervalo_min, dias_semana })
+        .eq('id', req.params.id).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, data });
+});
+
 app.delete('/api/turnos/:id', auth, async (req, res) => {
     const { error } = await supabase.from('turnos').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ erro: error.message });
