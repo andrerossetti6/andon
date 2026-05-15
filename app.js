@@ -207,6 +207,7 @@ function mostrarApp() {
     vxe.init();
     abc.init();
     abcMicro.init();
+    abcEstoque.init();
     disponibilidade.init().catch(() => {});
     vendas.carregarHistorico()
         .then(() => banco.carregarHistorico())
@@ -4291,6 +4292,7 @@ const abcMicro = {
     _selectedClasse: null,
     _items:          [],
     _zonas:          {},
+    _busca:          '',
 
     init() {
         document.getElementById('abcm-year-tabs').addEventListener('click', e => {
@@ -4321,6 +4323,10 @@ const abcMicro = {
         document.getElementById('abcm-grupo-sel').addEventListener('change', e => {
             this.selectedGrupo = e.target.value;
             this.render();
+        });
+        document.getElementById('abcm-busca').addEventListener('input', e => {
+            this._busca = e.target.value.trim().toLowerCase();
+            this.renderTable();
         });
     },
 
@@ -4561,13 +4567,22 @@ const abcMicro = {
 
     renderTable() {
         const isDesc  = this.selectedGrupo === 'descricao';
-        const visible = this._selectedClasse
+        let visible = this._selectedClasse
             ? this._items.filter(i => i.classe === this._selectedClasse)
             : this._items;
+        if (this._busca) {
+            visible = visible.filter(i =>
+                i.label.toLowerCase().includes(this._busca) ||
+                (i.modelo || '').toLowerCase().includes(this._busca) ||
+                (i.marca  || '').toLowerCase().includes(this._busca)
+            );
+        }
         const countEl = document.getElementById('abcm-count');
-        if (countEl) countEl.textContent = this._selectedClasse
-            ? `${visible.length} itens — Classe ${this._selectedClasse} (clique para ver todos)`
-            : `${this._items.length.toLocaleString('pt-BR')} itens analisados`;
+        if (countEl) countEl.textContent = this._busca
+            ? `${visible.length} resultado${visible.length !== 1 ? 's' : ''} encontrado${visible.length !== 1 ? 's' : ''}`
+            : this._selectedClasse
+                ? `${visible.length} itens — Classe ${this._selectedClasse} (clique para ver todos)`
+                : `${this._items.length.toLocaleString('pt-BR')} itens analisados`;
         // Mapa de estoque por código (normalizado para garantir match)
         const estMap = {};
         estoque.rawData.forEach(r => {
@@ -4618,6 +4633,14 @@ const abcMicro = {
 const abcEstoque = {
     _selectedClasse: null,
     _items: [],
+    _busca: '',
+
+    init() {
+        document.getElementById('abce-busca').addEventListener('input', e => {
+            this._busca = e.target.value.trim().toLowerCase();
+            this.renderTable();
+        });
+    },
 
     render() {
         if (!estoque.rawData.length) {
@@ -4763,11 +4786,18 @@ const abcEstoque = {
     },
 
     renderTable() {
-        const visible = this._selectedClasse
+        let visible = this._selectedClasse
             ? this._items.filter(i => i.classe === this._selectedClasse)
             : this._items;
-        document.getElementById('abce-count').textContent =
-            this._selectedClasse
+        if (this._busca) {
+            visible = visible.filter(i =>
+                String(i.codigo || '').toLowerCase().includes(this._busca) ||
+                String(i.descricao || '').toLowerCase().includes(this._busca)
+            );
+        }
+        document.getElementById('abce-count').textContent = this._busca
+            ? `${visible.length} resultado${visible.length !== 1 ? 's' : ''} encontrado${visible.length !== 1 ? 's' : ''}`
+            : this._selectedClasse
                 ? `${visible.length} itens — Classe ${this._selectedClasse} (clique para ver todos)`
                 : `${this._items.length.toLocaleString('pt-BR')} itens analisados`;
         document.querySelector('#abce-table tbody').innerHTML = visible.map((r, i) => {
