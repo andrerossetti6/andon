@@ -92,6 +92,9 @@
                     <li id="nav-vxe" onclick="navigateTo('vxe')">
                         <div class="item-content">Vendas × Estoque</div>
                     </li>
+                    <li id="nav-op-dash" onclick="navigateTo('op-dash')">
+                        <div class="item-content">Ordem de Produção</div>
+                    </li>
                     <li class="has-sub" id="nav-abc-cruzada" onclick="navigateTo('abc')">
                         <div class="item-content">Curva ABC</div>
                         <ul class="sub-menu">
@@ -1043,6 +1046,42 @@
     </main>
 
 
+
+    <!-- ── Dashboard: Ordem de Produção ─────────────────────── -->
+    <main class="content" id="view-op-dash" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Ordens de <span>Produção</span></h1>
+                <p class="page-subtitle">Visão geral das ordens importadas</p>
+            </div>
+        </header>
+        <div id="op-dash-empty" style="color:var(--text-dim);text-align:center;padding:60px 20px;">
+            Importe dados de Ordens de Produção primeiro.
+        </div>
+        <div id="op-dash-content" style="display:none;">
+            <!-- Cards resumo -->
+            <div class="vendas-summary" style="margin-bottom:16px;">
+                <div class="summary-card"><span class="s-label">TOTAL OPs</span><span class="s-value" id="opdash-total">—</span><span class="s-sub">ordens</span></div>
+                <div class="summary-card"><span class="s-label">TOTAL PEÇAS</span><span class="s-value" id="opdash-pecas" style="color:var(--indigo-primary);">—</span><span class="s-sub">planejadas</span></div>
+                <div class="summary-card"><span class="s-label">LIBERADAS</span><span class="s-value" id="opdash-liberadas" style="color:var(--green-accent);">—</span><span class="s-sub">p/ produção</span></div>
+                <div class="summary-card"><span class="s-label">EM ABERTO</span><span class="s-value" id="opdash-aberto" style="color:var(--red-accent);">—</span><span class="s-sub">outros status</span></div>
+            </div>
+            <!-- Filtros -->
+            <div class="vendas-filters-bar" style="margin-bottom:12px;">
+                <input type="text" class="sigs-input" id="opdash-busca" placeholder="Buscar código, produto, status..." style="width:280px;">
+                <select class="sigs-select" id="opdash-status-sel"><option value="">Todos os Status</option></select>
+                <span class="table-count-label" id="opdash-count"></span>
+                <button class="btn secondary" onclick="opDash.limpar()">Limpar</button>
+            </div>
+            <!-- Tabela -->
+            <div class="vendas-table-wrap">
+                <table class="vendas-table" id="opdash-table">
+                    <thead><tr id="opdash-thead"></tr></thead>
+                    <tbody id="opdash-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
 
     <!-- ── Dashboard: Vendas × Estoque ───────────────────────── -->
     <main class="content" id="view-vxe" style="display:none;">

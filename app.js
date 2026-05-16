@@ -593,7 +593,7 @@ function fecharDetalheVxe() {
 function navigateTo(viewName) {
     fecharDetalhe();
     fecharDetalheVxe();
-    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','pesquisa','vxe','abc','abc-micro','abc-estoque'].forEach(v => {
+    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','pesquisa','vxe','op-dash','abc','abc-micro','abc-estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -613,6 +613,7 @@ function navigateTo(viewName) {
         capacidade:    'nav-arq',
         pesquisa:      'nav-pesquisa',
         vxe:           'nav-vxe',
+        'op-dash':     'nav-op-dash',
         dashboard:     'nav-analise',
         abc:           'nav-abc-cruzada',
         'abc-micro':   'nav-abc-cruzada',
@@ -648,6 +649,9 @@ function navigateTo(viewName) {
         pesquisa.render();
     } else if (viewName === 'vxe') {
         vxe.render();
+    } else if (viewName === 'op-dash') {
+        document.getElementById('nav-op-dash')?.classList.add('active');
+        opDash.render();
     } else if (viewName === 'abc') {
         document.querySelector('[data-view="abc"]')?.classList.add('sub-active');
         setTimeout(() => abc.render(), 50);
@@ -5013,6 +5017,88 @@ const abcEstoque = {
 };
 
 // ====== PESQUISA POR CÓDIGO ======
+
+// ====== DASHBOARD: ORDEM DE PRODUÇÃO ======
+const opDash = {
+    _busca: '',
+    _statusSel: '',
+    _rows: [],
+
+    render() {
+        const empty   = document.getElementById('op-dash-empty');
+        const content = document.getElementById('op-dash-content');
+        if (!op.rawData?.length) {
+            if (empty)   empty.style.display = 'block';
+            if (content) content.style.display = 'none';
+            return;
+        }
+        if (empty)   empty.style.display = 'none';
+        if (content) content.style.display = 'block';
+
+        // Monta linhas a partir de op.rawData (estrutura: {_id, dados})
+        this._rows = op.rawData.map(r => r.dados || {});
+
+        // Popula select de status
+        const statusSel = document.getElementById('opdash-status-sel');
+        if (statusSel) {
+            const statuses = [...new Set(this._rows.map(r => {
+                const k = Object.keys(r).find(k => /status|situac/i.test(k));
+                return k ? String(r[k]).trim() : '';
+            }).filter(Boolean))].sort();
+            statusSel.innerHTML = '<option value="">Todos os Status</option>' +
+                statuses.map(s => `<option value="${s}"${s===this._statusSel?' selected':''}>${s}</option>`).join('');
+            statusSel.onchange = e => { this._statusSel = e.target.value; this._renderTabela(); };
+        }
+
+        // Listener de busca
+        const busca = document.getElementById('opdash-busca');
+        if (busca) {
+            busca.oninput = e => { this._busca = e.target.value.trim().toLowerCase(); this._renderTabela(); };
+            busca.value = this._busca;
+        }
+
+        this._renderTabela();
+    },
+
+    _renderTabela() {
+        const qtdCol = op._colQtd;
+        const statusKey = this._rows.length
+            ? Object.keys(this._rows[0]).find(k => /status|situac/i.test(k)) || null
+            : null;
+
+        let visible = this._rows;
+        if (this._statusSel) visible = visible.filter(r => String(r[statusKey]||'').trim() === this._statusSel);
+        if (this._busca)     visible = visible.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(this._busca)));
+
+        // Cards
+        const total   = visible.length;
+        const pecas   = qtdCol ? visible.reduce((s,r) => s + (parseFloat(String(r[qtdCol]||'0').replace(',','.')) || 0), 0) : 0;
+        const liberadas = statusKey ? visible.filter(r => /liberado/i.test(String(r[statusKey]||''))).length : 0;
+        document.getElementById('opdash-total').textContent     = total.toLocaleString('pt-BR');
+        document.getElementById('opdash-pecas').textContent     = pecas.toLocaleString('pt-BR');
+        document.getElementById('opdash-liberadas').textContent = liberadas.toLocaleString('pt-BR');
+        document.getElementById('opdash-aberto').textContent    = (total - liberadas).toLocaleString('pt-BR');
+        document.getElementById('opdash-count').textContent     = `${total.toLocaleString('pt-BR')} ordens`;
+
+        // Cabeçalho dinâmico
+        const cols = op.colunas || Object.keys(this._rows[0] || {});
+        document.getElementById('opdash-thead').innerHTML = cols.map(c => `<th>${c.toUpperCase()}</th>`).join('');
+
+        // Corpo
+        document.getElementById('opdash-tbody').innerHTML = visible.slice(0, 2000).map(r =>
+            `<tr>${cols.map(c => `<td>${r[c] != null && r[c] !== '' ? r[c] : '<span style="opacity:.3">—</span>'}</td>`).join('')}</tr>`
+        ).join('');
+    },
+
+    limpar() {
+        this._busca = ''; this._statusSel = '';
+        const b = document.getElementById('opdash-busca');
+        const s = document.getElementById('opdash-status-sel');
+        if (b) b.value = '';
+        if (s) s.value = '';
+        this._renderTabela();
+    }
+};
 
 const pesquisa = {
     _query: '',
