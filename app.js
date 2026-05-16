@@ -4251,7 +4251,9 @@ const abc = {
         // Aggregate vendas by grupo (com divisão por 3 se trimestre)
         const map = {};
         vendas.rawData.forEach(r => {
-            const key = this.selectedGrupo === 'descricao' ? r.descricao : r.codigo;
+            const key = this.selectedGrupo === 'descricao' ? r.descricao
+                      : this.selectedGrupo === 'marca'     ? (r.marca || '—')
+                      : r.codigo;
             const qtd = Math.round(activeCols.reduce((s, c) => s + (r[c.key] || 0), 0) / divisor);
             if (!map[key]) map[key] = { label: key, quantidade: 0, _mods: new Set(), _marcas: new Set(), _tams: new Set() };
             map[key].quantidade += qtd;
@@ -4421,6 +4423,7 @@ const abc = {
     renderTable() {
         if (!this._items?.length) return;
         const isDesc  = this.selectedGrupo === 'descricao';
+        const isMarca = this.selectedGrupo === 'marca';
         let visible = this._selectedClasse
             ? this._items.filter(i => i.classe === this._selectedClasse)
             : this._items;
@@ -4439,7 +4442,7 @@ const abc = {
                 : `${this._items.length.toLocaleString('pt-BR')} itens analisados`;
         document.querySelector('#abc-table thead tr').innerHTML = `
             <th style="width:40px;">#</th>
-            <th>${isDesc ? 'DESCRIÇÃO' : 'CÓDIGO'}</th>
+            <th>${isDesc ? 'DESCRIÇÃO' : isMarca ? 'MARCA' : 'CÓDIGO'}</th>
             <th>MODELO</th>
             <th>MARCA</th>
             <th>TAMANHO</th>
@@ -4450,14 +4453,14 @@ const abc = {
         `;
         document.querySelector('#abc-table tbody').innerHTML = visible.map((r, i) => {
             const cls     = `abc-${r.classe.toLowerCase()}`;
-            const cellCls = isDesc ? 'td-desc' : 'td-code';
+            const cellCls = isDesc ? 'td-desc' : isMarca ? 'td-desc' : 'td-code';
             const seg = vendas.rawData.find(v => (isDesc ? v.descricao : v.codigo) === r.label)?.segmento || '';
             const clickAttr = isDesc
                 ? `onclick="abrirDetalhe('${r.label.replace(/'/g,"\\'")}','${seg.replace(/'/g,"\\'")}'); event.stopPropagation();" style="cursor:pointer;"`
                 : '';
             return `<tr ${clickAttr} title="${isDesc ? 'Clique para ver detalhe' : ''}">
                 <td class="td-dim td-center">${i + 1}</td>
-                <td class="${cellCls}" style="${isDesc ? 'color:var(--indigo-primary);' : ''}">${r.label}</td>
+                <td class="${cellCls}" style="${(isDesc || isMarca) ? 'color:var(--indigo-primary);' : ''}">${r.label}</td>
                 <td style="font-size:0.75rem;color:var(--text-dim)">${r.modelo || '—'}</td>
                 <td style="font-size:0.75rem;color:var(--text-dim)">${r.marca  || '—'}</td>
                 <td style="font-size:0.72rem;color:var(--text-dim)">${r.tamanho || '—'}</td>
@@ -4587,7 +4590,9 @@ const abcMicro = {
         // Aggregate vendas by grupo (com divisão por 3 se trimestre)
         const map = {};
         vendas.rawData.forEach(r => {
-            const key = this.selectedGrupo === 'descricao' ? r.descricao : r.codigo;
+            const key = this.selectedGrupo === 'descricao' ? r.descricao
+                      : this.selectedGrupo === 'marca'     ? (r.marca || '—')
+                      : r.codigo;
             const qtd = Math.round(activeCols.reduce((s, c) => s + (r[c.key] || 0), 0) / divisor);
             if (!map[key]) map[key] = { label: key, quantidade: 0, _mods: new Set(), _marcas: new Set(), _tams: new Set() };
             map[key].quantidade += qtd;
