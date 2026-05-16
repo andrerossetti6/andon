@@ -5023,6 +5023,8 @@ const abcEstoque = {
 const opDash = {
     _busca: '',
     _statusSel: '',
+    _marcaSel: '',
+    _cobSel: '',
     _rows: [],
     _dirty: false,
 
@@ -5092,15 +5094,32 @@ const opDash = {
             };
         });
 
-        // Popula select de status
+        // Status
         const statusSel = document.getElementById('opdash-status-sel');
         if (statusSel) {
             const statuses = [...opCodes].filter(Boolean).sort();
-            statusSel.innerHTML = '<option value="">Todos os Status</option>' +
+            statusSel.innerHTML = '<option value="">Todos</option>' +
                 statuses.map(s => `<option value="${s}"${s===this._statusSel?' selected':''}>${s}</option>`).join('');
             statusSel.onchange = e => { this._statusSel = e.target.value; this._renderTabela(); };
         }
 
+        // Marca
+        const marcaSel = document.getElementById('opdash-marca-sel');
+        if (marcaSel) {
+            const marcas = [...new Set(this._rows.map(r => r.marca).filter(m => m && m !== '—'))].sort();
+            marcaSel.innerHTML = '<option value="">Todas</option>' +
+                marcas.map(m => `<option value="${m}"${m===this._marcaSel?' selected':''}>${m}</option>`).join('');
+            marcaSel.onchange = e => { this._marcaSel = e.target.value; this._renderTabela(); };
+        }
+
+        // Cobertura
+        const cobSel = document.getElementById('opdash-cob-sel');
+        if (cobSel) {
+            cobSel.value = this._cobSel;
+            cobSel.onchange = e => { this._cobSel = e.target.value; this._renderTabela(); };
+        }
+
+        // Busca
         const busca = document.getElementById('opdash-busca');
         if (busca) {
             busca.oninput = e => { this._busca = e.target.value.trim().toLowerCase(); this._renderTabela(); };
@@ -5121,7 +5140,18 @@ const opDash = {
     _renderTabela() {
         let visible = this._rows;
         if (this._statusSel) visible = visible.filter(r => r._status === this._statusSel);
-        if (this._busca)     visible = visible.filter(r =>
+        if (this._marcaSel)  visible = visible.filter(r => r.marca === this._marcaSel);
+        if (this._cobSel) {
+            visible = visible.filter(r => {
+                const c = r.cobertura;
+                if (this._cobSel === 'critico') return c != null && c < 1;
+                if (this._cobSel === 'ok')      return c != null && c >= 1 && c <= 3;
+                if (this._cobSel === 'excesso') return c != null && c > 3;
+                if (this._cobSel === 'sem')     return c == null;
+                return true;
+            });
+        }
+        if (this._busca) visible = visible.filter(r =>
             String(r.codigo).toLowerCase().includes(this._busca) ||
             String(r.descricao).toLowerCase().includes(this._busca) ||
             String(r.marca).toLowerCase().includes(this._busca) ||
@@ -5158,11 +5188,11 @@ const opDash = {
     },
 
     limpar() {
-        this._busca = ''; this._statusSel = '';
-        const b = document.getElementById('opdash-busca');
-        const s = document.getElementById('opdash-status-sel');
-        if (b) b.value = '';
-        if (s) s.value = '';
+        this._busca = ''; this._statusSel = ''; this._marcaSel = ''; this._cobSel = '';
+        ['opdash-busca','opdash-status-sel','opdash-marca-sel','opdash-cob-sel'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
         this._renderTabela();
     }
 };
