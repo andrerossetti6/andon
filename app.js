@@ -209,16 +209,20 @@ function mostrarApp() {
     abcMicro.init();
     abcEstoque.init();
     disponibilidade.init().catch(() => {});
-    vendas.carregarHistorico()
-        .then(() => banco.carregarHistorico())
-        .then(() => cliente.carregarHistorico())
-        .then(() => calendario.carregarHistorico())
-        .then(() => Promise.resolve())
-        .then(() => capacidade.carregarHistorico())
-        .then(() => estoque.carregarHistorico())
-        .then(() => op.carregarHistorico())
-        .then(() => costura.carregarHistorico())
-        .catch(() => {});
+    Promise.allSettled([
+        vendas.carregarHistorico(),
+        banco.carregarHistorico(),
+        cliente.carregarHistorico(),
+        calendario.carregarHistorico(),
+        capacidade.carregarHistorico(),
+        estoque.carregarHistorico(),
+        op.carregarHistorico(),
+        costura.carregarHistorico(),
+    ]).then(results => {
+        results.forEach((r, i) => {
+            if (r.status === 'rejected') console.warn('carregarHistorico[' + i + '] falhou:', r.reason);
+        });
+    });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
