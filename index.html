@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SIGS | Gestão Stoll - Dashboard</title>
-    <meta name="description" content="Portal de Gestão Industrial SIGS - Monitoramento e Insights">
+    <title>SIN₁ | Gestão Stoll - Dashboard</title>
+    <meta name="description" content="Portal de Gestão Industrial SIN₁ - Monitoramento e Insights">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
-<body class="sigs-layout">
+<body class="sin1-layout">
 
     <!-- ── Tela de Login ─────────────────────────────────── -->
     <div id="view-login" class="login-screen" style="display:none;">
@@ -18,7 +18,7 @@
             <div class="login-logo">
                 <div class="logo-icon"></div>
                 <div>
-                    <span class="brand">SIGS</span>
+                    <span class="brand">SIN<sub>1</sub></span>
                     <span class="subtext">Gestão Stoll</span>
                 </div>
             </div>
@@ -47,7 +47,7 @@
             <div class="logo">
                 <div class="logo-icon"></div>
                 <div class="logo-text">
-                    <span class="brand">SIGS</span>
+                    <span class="brand">SIN<sub>1</sub></span>
                     <span class="subtext">Gestão Stoll</span>
                 </div>
             </div>
@@ -117,127 +117,7 @@
     </aside>
 
     <!-- Main Content -->
-    <main class="content" id="view-dashboard" style="display:none;">
-        <!-- Top Stats Row -->
-        <header class="stats-row">
-            <div class="stat-card agent-card">
-                <div class="agent-info">
-                    <span class="label">SIGS • AGENTE LOCAL</span>
-                    <h2>Atlas <span class="version">v 0.4</span></h2>
-                    <p class="status"><span class="pulse-green"></span> analisando / última leitura há 12min</p>
-                    <p class="details">/ 14 máq monitoradas</p>
-                </div>
-                <div class="agent-visual">
-                    <div class="orb-glow"></div>
-                </div>
-            </div>
-
-            <div class="stat-card">
-                <div class="card-header">
-                    <span class="label">INSIGHTS • HOJE</span>
-                </div>
-                <div class="card-body">
-                    <span class="big-value">23</span>
-                    <span class="delta positive">↑ +6 vs ontem</span>
-                </div>
-                <canvas class="mini-chart blue"></canvas>
-            </div>
-
-            <div class="stat-card">
-                <div class="card-header">
-                    <span class="label">IMPLEMENTADOS</span>
-                </div>
-                <div class="card-body">
-                    <span class="big-value">8<small>/23</small></span>
-                    <span class="sub-label">35% taxa de adoção</span>
-                </div>
-                <canvas class="mini-chart green"></canvas>
-            </div>
-
-            <div class="stat-card">
-                <div class="card-header">
-                    <span class="label">OEE ESTIMADO</span>
-                </div>
-                <div class="card-body">
-                    <span class="big-value">+4.2<small>%</small></span>
-                    <span class="action-text">se aplicar pendentes</span>
-                </div>
-                <canvas class="mini-chart blue-glow"></canvas>
-            </div>
-
-            <div class="stat-card">
-                <div class="card-header">
-                    <span class="label">TEMPO • ECONOMIA</span>
-                </div>
-                <div class="card-body">
-                    <span class="big-value">3.4<small>h/dia</small></span>
-                    <span class="sub-label highlight">média móvel • 7d</span>
-                </div>
-                <canvas class="mini-chart orange"></canvas>
-            </div>
-        </header>
-
-        <!-- Secondary Layout (3 columns) -->
-        <div class="dashboard-grid">
-            <!-- Left Col: Filters -->
-            <section class="filters-column">
-                <div class="filter-group">
-                    <h3>CATEGORIA</h3>
-                    <label class="checkbox-item"><input type="checkbox" checked> Eficiência <span class="chk"></span></label>
-                    <label class="checkbox-item"><input type="checkbox" checked> Qualidade <span class="chk"></span></label>
-                    <label class="checkbox-item"><input type="checkbox" checked> Manutenção <span class="chk"></span></label>
-                    <label class="checkbox-item"><input type="checkbox" checked> Paradas <span class="chk"></span></label>
-                    <label class="checkbox-item"><input type="checkbox"> Operadores <span class="chk"></span></label>
-                </div>
-
-                <div class="filter-group">
-                    <h3>SEVERIDADE</h3>
-                    <div class="severity-item"><span class="dot info"></span> Info <span class="count">14</span></div>
-                    <div class="severity-item"><span class="dot warning"></span> Atenção <span class="count">7</span></div>
-                    <div class="severity-item"><span class="dot critical"></span> Crítico <span class="count">2</span></div>
-                </div>
-
-                <div class="filter-group">
-                    <h3>STATUS</h3>
-                    <div class="status-item">Novos <span class="count">12</span></div>
-                    <div class="status-item">Em revisão <span class="count">3</span></div>
-                    <div class="status-item">Aplicados <span class="count">8</span></div>
-                </div>
-            </section>
-
-            <!-- Middle Col: Insights List -->
-            <section class="insights-column">
-                <div class="section-header">
-                    <h2>Insights <span>recentes</span></h2>
-                    <div class="meta">23 ativos • ordem por relevância</div>
-                </div>
-                
-                <div class="insights-list" id="insights-container">
-                    <!-- Dynamic Insight Cards -->
-                </div>
-            </section>
-
-            <!-- Right Col: Activity -->
-            <section class="activity-column">
-                <div class="activity-summary">
-                    <span class="label">ATIVIDADE • ÚLTIMAS 24H</span>
-                    <div class="events-count">
-                        <span class="num">156</span>
-                        <span class="unit">eventos</span>
-                    </div>
-                    <span class="sub">+18 vs ontem • 6.5/h em média</span>
-                    <canvas class="activity-chart"></canvas>
-                </div>
-
-                <div class="actions-list">
-                    <h3>ÚLTIMAS AÇÕES</h3>
-                    <div class="action-timeline" id="actions-container">
-                        <!-- Dynamic Actions -->
-                    </div>
-                </div>
-            </section>
-        </div>
-    </main>
+    <main class="content" id="view-dashboard" style="display:none;"></main>
 
     <!-- Vendas View -->
     <main class="content" id="view-vendas" style="display:none;">
@@ -273,20 +153,20 @@
             <!-- Filters Bar -->
             <div class="vendas-filters-bar" style="flex-shrink:0;">
                 <label>Segmento</label>
-                <select class="sigs-select" id="filter-segmento"><option value="">Todos</option></select>
+                <select class="sin1-select" id="filter-segmento"><option value="">Todos</option></select>
                 <label>Marca</label>
-                <select class="sigs-select" id="filter-marca"><option value="">Todas</option></select>
+                <select class="sin1-select" id="filter-marca"><option value="">Todas</option></select>
                 <label>Modelo</label>
-                <select class="sigs-select" id="filter-modelo"><option value="">Todos</option></select>
+                <select class="sin1-select" id="filter-modelo"><option value="">Todos</option></select>
                 <label>Tamanho</label>
-                <select class="sigs-select" id="filter-tamanho"><option value="">Todos</option></select>
-                <select class="sigs-select" id="filter-descricao" style="display:none;"><option value="">Todas</option></select>
-                <select class="sigs-select" id="filter-year" style="display:none;"></select>
+                <select class="sin1-select" id="filter-tamanho"><option value="">Todos</option></select>
+                <select class="sin1-select" id="filter-descricao" style="display:none;"><option value="">Todas</option></select>
+                <select class="sin1-select" id="filter-year" style="display:none;"></select>
                 <label>Mês</label>
-                <select class="sigs-select" id="filter-mes"><option value="">Todos</option></select>
+                <select class="sin1-select" id="filter-mes"><option value="">Todos</option></select>
                 <label>Média</label>
                 <div style="position:relative;" id="media-wrap">
-                    <button class="sigs-select" id="media-btn" style="cursor:pointer;min-width:130px;text-align:left;padding-right:24px;">Selecionar meses</button>
+                    <button class="sin1-select" id="media-btn" style="cursor:pointer;min-width:130px;text-align:left;padding-right:24px;">Selecionar meses</button>
                     <span style="position:absolute;right:8px;top:50%;transform:translateY(-50%);pointer-events:none;font-size:0.7rem;opacity:.5;">▼</span>
                     <div id="media-dropdown" style="display:none;position:absolute;top:calc(100% + 4px);left:0;z-index:200;background:#1c2128;border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:8px 0;min-width:170px;box-shadow:0 8px 24px rgba(0,0,0,.5);">
                         <div id="media-checks" style="padding:4px 12px 4px;max-height:220px;overflow-y:auto;display:flex;flex-direction:column;gap:4px;"></div>
@@ -295,7 +175,7 @@
                         </div>
                     </div>
                 </div>
-                <input type="text" class="sigs-input" id="search-input" placeholder="Buscar por código...">
+                <input type="text" class="sin1-input" id="search-input" placeholder="Buscar por código...">
                 <span class="table-count-label" id="table-count"></span>
                 <button class="btn secondary" id="clear-filters-btn">Limpar</button>
             </div>
@@ -430,10 +310,10 @@
 
             <!-- Filtros -->
             <div class="vendas-filters-bar">
-                <input type="text" class="sigs-input" id="est-search" placeholder="Buscar por código ou descrição...">
-                <select class="sigs-select" id="est-seg" style="display:none;"><option value="">Todos segmentos</option></select>
+                <input type="text" class="sin1-input" id="est-search" placeholder="Buscar por código ou descrição...">
+                <select class="sin1-select" id="est-seg" style="display:none;"><option value="">Todos segmentos</option></select>
                 <div class="combobox-wrap" id="est-desc-wrap" style="display:none;">
-                    <input type="text" class="sigs-input combobox-input" id="est-desc-input" placeholder="Filtrar descrição..." autocomplete="off">
+                    <input type="text" class="sin1-input combobox-input" id="est-desc-input" placeholder="Filtrar descrição..." autocomplete="off">
                     <div class="combobox-dropdown" id="est-desc-dropdown"></div>
                 </div>
                 <span class="table-count-label" id="est-count"></span>
@@ -460,15 +340,15 @@
         </header>
 
         <div class="vendas-filters-bar" style="margin-bottom:16px;">
-            <input type="text" class="sigs-input" id="pesquisa-input"
+            <input type="text" class="sin1-input" id="pesquisa-input"
                 placeholder="Digite o código do produto..."
                 style="max-width:300px;">
             <label>Ano</label>
-            <select class="sigs-select" id="pesquisa-ano" onchange="pesquisa.render()">
+            <select class="sin1-select" id="pesquisa-ano" onchange="pesquisa.render()">
                 <option value="">Todos</option>
             </select>
             <label>Modelo</label>
-            <select class="sigs-select" id="pesquisa-modelo" onchange="pesquisa.render()">
+            <select class="sin1-select" id="pesquisa-modelo" onchange="pesquisa.render()">
                 <option value="">Todos</option>
             </select>
             <span class="table-count-label" id="pesquisa-count"></span>
@@ -567,13 +447,13 @@
             </div>
 
             <div class="vendas-filters-bar">
-                <input type="text" class="sigs-input" id="op-search" placeholder="Buscar em qualquer coluna...">
+                <input type="text" class="sin1-input" id="op-search" placeholder="Buscar em qualquer coluna...">
                 <div class="combobox-wrap" id="op-col1-wrap" style="display:none;">
-                    <input type="text" class="sigs-input combobox-input" id="op-col1-input" placeholder="Filtrar..." autocomplete="off">
+                    <input type="text" class="sin1-input combobox-input" id="op-col1-input" placeholder="Filtrar..." autocomplete="off">
                     <div class="combobox-dropdown" id="op-col1-dropdown"></div>
                 </div>
                 <div class="combobox-wrap" id="op-col2-wrap" style="display:none;">
-                    <input type="text" class="sigs-input combobox-input" id="op-col2-input" placeholder="Filtrar..." autocomplete="off">
+                    <input type="text" class="sin1-input combobox-input" id="op-col2-input" placeholder="Filtrar..." autocomplete="off">
                     <div class="combobox-dropdown" id="op-col2-dropdown"></div>
                 </div>
                 <span class="table-count-label" id="op-count"></span>
@@ -651,13 +531,13 @@
             </div>
 
             <div class="vendas-filters-bar">
-                <input type="text" class="sigs-input" id="cliente-search" placeholder="Buscar em qualquer coluna...">
+                <input type="text" class="sin1-input" id="cliente-search" placeholder="Buscar em qualquer coluna...">
                 <div class="combobox-wrap" id="cliente-col1-wrap" style="display:none;">
-                    <input type="text" class="sigs-input combobox-input" id="cliente-col1-input" placeholder="Filtrar..." autocomplete="off">
+                    <input type="text" class="sin1-input combobox-input" id="cliente-col1-input" placeholder="Filtrar..." autocomplete="off">
                     <div class="combobox-dropdown" id="cliente-col1-dropdown"></div>
                 </div>
                 <div class="combobox-wrap" id="cliente-col2-wrap" style="display:none;">
-                    <input type="text" class="sigs-input combobox-input" id="cliente-col2-input" placeholder="Filtrar..." autocomplete="off">
+                    <input type="text" class="sin1-input combobox-input" id="cliente-col2-input" placeholder="Filtrar..." autocomplete="off">
                     <div class="combobox-dropdown" id="cliente-col2-dropdown"></div>
                 </div>
                 <span class="table-count-label" id="cliente-count"></span>
@@ -729,13 +609,13 @@
             </div>
 
             <div class="vendas-filters-bar">
-                <input type="text" class="sigs-input" id="banco-search" placeholder="Buscar em qualquer coluna...">
+                <input type="text" class="sin1-input" id="banco-search" placeholder="Buscar em qualquer coluna...">
                 <div class="combobox-wrap" id="banco-col1-wrap" style="display:none;">
-                    <input type="text" class="sigs-input combobox-input" id="banco-col1-input" placeholder="Filtrar..." autocomplete="off">
+                    <input type="text" class="sin1-input combobox-input" id="banco-col1-input" placeholder="Filtrar..." autocomplete="off">
                     <div class="combobox-dropdown" id="banco-col1-dropdown"></div>
                 </div>
                 <div class="combobox-wrap" id="banco-col2-wrap" style="display:none;">
-                    <input type="text" class="sigs-input combobox-input" id="banco-col2-input" placeholder="Filtrar..." autocomplete="off">
+                    <input type="text" class="sin1-input combobox-input" id="banco-col2-input" placeholder="Filtrar..." autocomplete="off">
                     <div class="combobox-dropdown" id="banco-col2-dropdown"></div>
                 </div>
                 <span class="table-count-label" id="banco-count"></span>
@@ -807,13 +687,13 @@
             </div>
 
             <div class="vendas-filters-bar">
-                <input type="text" class="sigs-input" id="costura-search" placeholder="Buscar em qualquer coluna...">
+                <input type="text" class="sin1-input" id="costura-search" placeholder="Buscar em qualquer coluna...">
                 <div class="combobox-wrap" id="costura-col1-wrap" style="display:none;">
-                    <input type="text" class="sigs-input combobox-input" id="costura-col1-input" placeholder="Filtrar..." autocomplete="off">
+                    <input type="text" class="sin1-input combobox-input" id="costura-col1-input" placeholder="Filtrar..." autocomplete="off">
                     <div class="combobox-dropdown" id="costura-col1-dropdown"></div>
                 </div>
                 <div class="combobox-wrap" id="costura-col2-wrap" style="display:none;">
-                    <input type="text" class="sigs-input combobox-input" id="costura-col2-input" placeholder="Filtrar..." autocomplete="off">
+                    <input type="text" class="sin1-input combobox-input" id="costura-col2-input" placeholder="Filtrar..." autocomplete="off">
                     <div class="combobox-dropdown" id="costura-col2-dropdown"></div>
                 </div>
                 <span class="table-count-label" id="costura-count"></span>
@@ -874,9 +754,9 @@
 
             <!-- Formulário de adição -->
             <div class="vendas-filters-bar" style="flex-wrap:wrap;gap:var(--layout-gap);">
-                <input type="date" class="sigs-input" id="fer-data" style="width:160px;">
-                <input type="text" class="sigs-input" id="fer-nome" placeholder="Nome do feriado" style="flex:1;min-width:200px;">
-                <select class="sigs-select" id="fer-tipo">
+                <input type="date" class="sin1-input" id="fer-data" style="width:160px;">
+                <input type="text" class="sin1-input" id="fer-nome" placeholder="Nome do feriado" style="flex:1;min-width:200px;">
+                <select class="sin1-select" id="fer-tipo">
                     <option value="Nacional">Nacional</option>
                     <option value="Estadual">Estadual</option>
                     <option value="Municipal">Municipal</option>
@@ -890,12 +770,12 @@
                 <input type="file" id="file-input-feriados" accept=".csv,.xls,.xlsx" style="display:none;" onchange="disponibilidade.importarFeriados(this)">
                 <div style="display:flex;align-items:center;gap:6px;border-left:1px solid var(--border-color);padding-left:var(--layout-gap);">
                     <span style="font-size:0.72rem;color:var(--text-dim);white-space:nowrap;">🇧🇷 Feriados nacionais</span>
-                    <select class="sigs-select" id="fer-ano-br" style="width:90px;">
+                    <select class="sin1-select" id="fer-ano-br" style="width:90px;">
                         <option>2024</option><option>2025</option><option selected>2026</option><option>2027</option>
                     </select>
                     <button class="btn secondary" onclick="disponibilidade.buscarFeriadosBR()" id="btn-buscar-br" style="white-space:nowrap;">Buscar</button>
                 </div>
-                <input type="text" class="sigs-input" id="fer-busca" placeholder="Buscar..." style="width:180px;" oninput="disponibilidade.filtrarFeriados()">
+                <input type="text" class="sin1-input" id="fer-busca" placeholder="Buscar..." style="width:180px;" oninput="disponibilidade.filtrarFeriados()">
             </div>
 
             <!-- Tabela de feriados -->
@@ -923,17 +803,17 @@
 
             <!-- Formulário de turno -->
             <div class="vendas-filters-bar" style="flex-wrap:wrap;gap:var(--layout-gap);">
-                <input type="text" class="sigs-input" id="tur-processo" list="tur-processo-list"
+                <input type="text" class="sin1-input" id="tur-processo" list="tur-processo-list"
                     placeholder="Processo (ex: Costura)" style="width:180px;" autocomplete="off">
                 <datalist id="tur-processo-list"></datalist>
-                <input type="text" class="sigs-input" id="tur-nome" placeholder="Nome do turno (ex: Turno 1)" style="width:160px;">
+                <input type="text" class="sin1-input" id="tur-nome" placeholder="Nome do turno (ex: Turno 1)" style="width:160px;">
                 <label style="font-size:0.72rem;color:var(--text-dim);white-space:nowrap;">Início</label>
-                <input type="time" class="sigs-input" id="tur-inicio" style="width:110px;">
+                <input type="time" class="sin1-input" id="tur-inicio" style="width:110px;">
                 <label style="font-size:0.72rem;color:var(--text-dim);white-space:nowrap;">Fim</label>
-                <input type="time" class="sigs-input" id="tur-fim" style="width:110px;">
+                <input type="time" class="sin1-input" id="tur-fim" style="width:110px;">
                 <label style="font-size:0.72rem;color:var(--text-dim);white-space:nowrap;">Intervalo</label>
                 <div style="display:flex;align-items:center;gap:4px;">
-                    <input type="number" class="sigs-input" id="tur-intervalo" min="0" max="240" value="0"
+                    <input type="number" class="sin1-input" id="tur-intervalo" min="0" max="240" value="0"
                         style="width:64px;text-align:center;" placeholder="0">
                     <span style="font-size:0.72rem;color:var(--text-dim);">min</span>
                 </div>
@@ -1062,9 +942,9 @@
                 <div class="summary-card"><span class="s-label">FILTRADOS</span><span class="s-value" id="capacidade-filtrados">0</span><span class="s-sub">resultado</span></div>
             </div>
             <div class="vendas-filters-bar">
-                <input type="text" class="sigs-input" id="capacidade-search" placeholder="Buscar em qualquer coluna...">
-                <div class="combobox-wrap" id="capacidade-col1-wrap" style="display:none;"><input type="text" class="sigs-input combobox-input" id="capacidade-col1-input" placeholder="Filtrar..." autocomplete="off"><div class="combobox-dropdown" id="capacidade-col1-dropdown"></div></div>
-                <div class="combobox-wrap" id="capacidade-col2-wrap" style="display:none;"><input type="text" class="sigs-input combobox-input" id="capacidade-col2-input" placeholder="Filtrar..." autocomplete="off"><div class="combobox-dropdown" id="capacidade-col2-dropdown"></div></div>
+                <input type="text" class="sin1-input" id="capacidade-search" placeholder="Buscar em qualquer coluna...">
+                <div class="combobox-wrap" id="capacidade-col1-wrap" style="display:none;"><input type="text" class="sin1-input combobox-input" id="capacidade-col1-input" placeholder="Filtrar..." autocomplete="off"><div class="combobox-dropdown" id="capacidade-col1-dropdown"></div></div>
+                <div class="combobox-wrap" id="capacidade-col2-wrap" style="display:none;"><input type="text" class="sin1-input combobox-input" id="capacidade-col2-input" placeholder="Filtrar..." autocomplete="off"><div class="combobox-dropdown" id="capacidade-col2-dropdown"></div></div>
                 <span class="table-count-label" id="capacidade-count"></span>
                 <button class="btn secondary" onclick="capacidade.limpar()">Limpar</button>
             </div>
@@ -1149,7 +1029,7 @@
         <div class="vendas-filters-bar" style="flex-shrink:0;">
             <div id="vxe-year-tabs" class="year-tabs"></div>
             <label>Trimestre</label>
-            <select class="sigs-select" id="vxe-tri">
+            <select class="sin1-select" id="vxe-tri">
                 <option value="">Todos</option>
                 <option value="Q1">Q1 (Jan–Mar)</option>
                 <option value="Q2">Q2 (Abr–Jun)</option>
@@ -1157,21 +1037,21 @@
                 <option value="Q4">Q4 (Out–Dez)</option>
             </select>
             <label>Mês</label>
-            <select class="sigs-select" id="vxe-mes"><option value="">Todos</option></select>
+            <select class="sin1-select" id="vxe-mes"><option value="">Todos</option></select>
             <label>Marca</label>
-            <select class="sigs-select" id="vxe-marca"><option value="">Todas</option></select>
+            <select class="sin1-select" id="vxe-marca"><option value="">Todas</option></select>
             <label>Modelo</label>
-            <select class="sigs-select" id="vxe-modelo"><option value="">Todos</option></select>
+            <select class="sin1-select" id="vxe-modelo"><option value="">Todos</option></select>
             <label>Segmento</label>
-            <select class="sigs-select" id="vxe-seg"><option value="">Todos</option></select>
+            <select class="sin1-select" id="vxe-seg"><option value="">Todos</option></select>
             <label>Status</label>
-            <select class="sigs-select" id="vxe-status">
+            <select class="sin1-select" id="vxe-status">
                 <option value="">Todos</option>
                 <option value="critico">Crítico (&lt;1 mês)</option>
                 <option value="ok">Equilíbrio (1–3 meses)</option>
                 <option value="excesso">Excesso (&gt;3 meses)</option>
             </select>
-            <input type="text" class="sigs-input" id="vxe-search" placeholder="Buscar por código..." style="width:220px;">
+            <input type="text" class="sin1-input" id="vxe-search" placeholder="Buscar por código..." style="width:220px;">
             <span class="table-count-label" id="vxe-count"></span>
         </div>
         <!-- Cards resumo -->
@@ -1221,7 +1101,7 @@
         <div class="vendas-filters-bar" style="flex-shrink:0;">
             <div id="abc-year-tabs" class="year-tabs"></div>
             <label>Trimestre</label>
-            <select class="sigs-select" id="abc-tri-sel">
+            <select class="sin1-select" id="abc-tri-sel">
                 <option value="">Todos</option>
                 <option value="Q1">Q1 (Jan–Mar)</option>
                 <option value="Q2">Q2 (Abr–Jun)</option>
@@ -1229,9 +1109,9 @@
                 <option value="Q4">Q4 (Out–Dez)</option>
             </select>
             <label>Mês</label>
-            <select class="sigs-select" id="abc-month-sel"><option value="">Todos</option></select>
+            <select class="sin1-select" id="abc-month-sel"><option value="">Todos</option></select>
             <label>Agrupar</label>
-            <select class="sigs-select" id="abc-grupo-sel">
+            <select class="sin1-select" id="abc-grupo-sel">
                 <option value="descricao">Descrição</option>
                 <option value="codigo">Código</option>
             </select>
@@ -1302,7 +1182,7 @@
         <div class="vendas-filters-bar" style="flex-shrink:0;">
             <div id="abcm-year-tabs" class="year-tabs"></div>
             <label>Trimestre</label>
-            <select class="sigs-select" id="abcm-tri-sel">
+            <select class="sin1-select" id="abcm-tri-sel">
                 <option value="">Todos</option>
                 <option value="Q1">Q1 (Jan–Mar)</option>
                 <option value="Q2">Q2 (Abr–Jun)</option>
@@ -1310,9 +1190,9 @@
                 <option value="Q4">Q4 (Out–Dez)</option>
             </select>
             <label>Mês</label>
-            <select class="sigs-select" id="abcm-month-sel"><option value="">Todos</option></select>
+            <select class="sin1-select" id="abcm-month-sel"><option value="">Todos</option></select>
             <label>Agrupar</label>
-            <select class="sigs-select" id="abcm-grupo-sel">
+            <select class="sin1-select" id="abcm-grupo-sel">
                 <option value="codigo" selected>Código</option>
                 <option value="descricao">Descrição</option>
             </select>
@@ -1453,11 +1333,11 @@
         <input type="hidden" id="proc-modal-id">
         <div style="display:flex;flex-direction:column;gap:8px;">
             <label style="font-size:0.72rem;color:var(--text-dim);">Nome do Processo</label>
-            <input type="text" class="sigs-input" id="proc-modal-nome" placeholder="Ex: Costura, Tecelagem...">
+            <input type="text" class="sin1-input" id="proc-modal-nome" placeholder="Ex: Costura, Tecelagem...">
         </div>
         <div style="display:flex;flex-direction:column;gap:8px;">
             <label style="font-size:0.72rem;color:var(--text-dim);">Descrição (opcional)</label>
-            <input type="text" class="sigs-input" id="proc-modal-desc" placeholder="Descrição do processo">
+            <input type="text" class="sin1-input" id="proc-modal-desc" placeholder="Descrição do processo">
         </div>
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;padding-top:16px;border-top:1px solid var(--border);">
             <button onclick="document.getElementById('proc-modal').style.display='none'"
@@ -1478,21 +1358,21 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             <div style="display:flex;flex-direction:column;gap:6px;">
                 <label style="font-size:0.72rem;color:var(--text-dim);">ID Máquina</label>
-                <input type="text" class="sigs-input" id="maq-modal-id-maq" placeholder="Ex: MAQ-001 (opcional)">
+                <input type="text" class="sin1-input" id="maq-modal-id-maq" placeholder="Ex: MAQ-001 (opcional)">
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;">
                 <label style="font-size:0.72rem;color:var(--text-dim);">Modelo</label>
-                <input type="text" class="sigs-input" id="maq-modal-modelo" placeholder="Ex: Brother S-7300A">
+                <input type="text" class="sin1-input" id="maq-modal-modelo" placeholder="Ex: Brother S-7300A">
             </div>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             <div style="display:flex;flex-direction:column;gap:6px;">
                 <label style="font-size:0.72rem;color:var(--text-dim);">OEE (%)</label>
-                <input type="number" class="sigs-input" id="maq-modal-oee" min="0" max="100" step="0.1" placeholder="0–100">
+                <input type="number" class="sin1-input" id="maq-modal-oee" min="0" max="100" step="0.1" placeholder="0–100">
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;">
                 <label style="font-size:0.72rem;color:var(--text-dim);">Status</label>
-                <select class="sigs-select" id="maq-modal-status">
+                <select class="sin1-select" id="maq-modal-status">
                     <option value="Ativo">Ativo</option>
                     <option value="Manutenção">Manutenção</option>
                     <option value="Inativo">Inativo</option>
@@ -1501,7 +1381,7 @@
             </div>
             <div style="display:flex;flex-direction:column;gap:6px;">
                 <label style="font-size:0.72rem;color:var(--text-dim);">N° Pessoas</label>
-                <input type="number" class="sigs-input" id="maq-modal-pessoas" min="0" step="1" placeholder="0">
+                <input type="number" class="sin1-input" id="maq-modal-pessoas" min="0" step="1" placeholder="0">
             </div>
         </div>
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:4px;padding-top:16px;border-top:1px solid var(--border);">
@@ -1521,13 +1401,13 @@
         <h3 style="margin:0;font-size:1rem;color:var(--text-primary);">Editar Turno</h3>
         <input type="hidden" id="tur-edit-id">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-            <input type="text" class="sigs-input" id="tur-edit-processo" placeholder="Processo">
-            <input type="text" class="sigs-input" id="tur-edit-nome" placeholder="Nome do turno">
+            <input type="text" class="sin1-input" id="tur-edit-processo" placeholder="Processo">
+            <input type="text" class="sin1-input" id="tur-edit-nome" placeholder="Nome do turno">
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-items:center;">
-            <div><label style="font-size:0.72rem;color:var(--text-dim);">Início</label><input type="time" class="sigs-input" id="tur-edit-inicio" style="width:100%;"></div>
-            <div><label style="font-size:0.72rem;color:var(--text-dim);">Fim</label><input type="time" class="sigs-input" id="tur-edit-fim" style="width:100%;"></div>
-            <div><label style="font-size:0.72rem;color:var(--text-dim);">Intervalo (min)</label><input type="number" class="sigs-input" id="tur-edit-intervalo" min="0" max="240" value="0" style="width:100%;"></div>
+            <div><label style="font-size:0.72rem;color:var(--text-dim);">Início</label><input type="time" class="sin1-input" id="tur-edit-inicio" style="width:100%;"></div>
+            <div><label style="font-size:0.72rem;color:var(--text-dim);">Fim</label><input type="time" class="sin1-input" id="tur-edit-fim" style="width:100%;"></div>
+            <div><label style="font-size:0.72rem;color:var(--text-dim);">Intervalo (min)</label><input type="number" class="sin1-input" id="tur-edit-intervalo" min="0" max="240" value="0" style="width:100%;"></div>
         </div>
         <div id="tur-edit-dias-wrap" style="display:flex;gap:6px;flex-wrap:wrap;">
             <label style="font-size:0.72rem;color:var(--text-dim);width:100%;margin-bottom:2px;">Dias da semana</label>
