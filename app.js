@@ -4412,6 +4412,7 @@ const abc = {
     },
 
     renderTable() {
+        if (!this._items?.length) return;
         const isDesc  = this.selectedGrupo === 'descricao';
         let visible = this._selectedClasse
             ? this._items.filter(i => i.classe === this._selectedClasse)
@@ -4510,10 +4511,12 @@ const abcMicro = {
     },
 
     async render() {
+        if (this._rendering) return;
+        this._rendering = true;
+        try {
         // Garante que o estoque está carregado antes de renderizar
         if (!estoque.rawData.length) {
             await estoque.carregarHistorico();
-            // Se ainda vazio (race condition), busca direto da API
             if (!estoque.rawData.length) {
                 const imps = await api.get('/api/importacoes-estoque');
                 if (imps?.length) {
@@ -4630,6 +4633,7 @@ const abcMicro = {
         this._updateCardStyles('abcm');
         setTimeout(() => this.drawChart(items), 30);
         this.renderTable();
+        } finally { this._rendering = false; }
     },
 
     drawChart(items) {
@@ -4745,6 +4749,7 @@ const abcMicro = {
     },
 
     renderTable() {
+        if (!this._items?.length) return;
         const isDesc  = this.selectedGrupo === 'descricao';
         let visible = this._selectedClasse
             ? this._items.filter(i => i.classe === this._selectedClasse)
@@ -4828,7 +4833,7 @@ const abcEstoque = {
         }
 
         // Detecta coluna de descrição no estoque
-        const descCol = estoque._colDesc || estoque.colunas.find(c => {
+        const descCol = estoque._colDesc || (estoque.colunas || []).find(c => {
             const n = estoque.normalizeKey(c);
             return n.includes('descricao') || n.includes('descr') || n.includes('produto');
         });
@@ -4965,6 +4970,7 @@ const abcEstoque = {
     },
 
     renderTable() {
+        if (!this._items?.length) return;
         let visible = this._selectedClasse
             ? this._items.filter(i => i.classe === this._selectedClasse)
             : this._items;
@@ -5172,6 +5178,12 @@ const pesquisa = {
             return;
         }
         if (empty) empty.style.display = 'none';
+
+        if (!vendas.rawData?.length) {
+            tbody.innerHTML = `<tr><td colspan="10" style="text-align:center;padding:24px;color:#8b949e;">Importe dados de Vendas primeiro.</td></tr>`;
+            if (countEl) countEl.textContent = '';
+            return;
+        }
 
         // Filtrar vendas por código + modelo
         let rows = vendas.rawData.filter(r => String(r.codigo || '').toUpperCase().includes(q));
