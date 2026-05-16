@@ -651,7 +651,8 @@ function navigateTo(viewName) {
         vxe.render();
     } else if (viewName === 'op-dash') {
         document.getElementById('nav-op-dash')?.classList.add('active');
-        opDash.render();
+        if (opDash._dirty || !opDash._rows.length) opDash.render();
+        opDash._dirty = false;
     } else if (viewName === 'abc') {
         document.querySelector('[data-view="abc"]')?.classList.add('sub-active');
         setTimeout(() => abc.render(), 50);
@@ -5023,6 +5024,7 @@ const opDash = {
     _busca: '',
     _statusSel: '',
     _rows: [],
+    _dirty: false,
 
     // Constrói mapa código → dados VxE (vendas + estoque)
     _buildVxeMap() {
@@ -5611,5 +5613,12 @@ const vxe = {
                 })()}</td>
                 <td class="td-center"><span class="vxe-badge ${classes[r.st]}">${labels[r.st]}</span></td>
             </tr>`).join('');
+
+        // Atualiza opDash se visível, senão marca como desatualizado
+        if (document.getElementById('view-op-dash')?.style.display !== 'none') {
+            opDash.render();
+        } else {
+            opDash._dirty = true;
+        }
     }
 };
