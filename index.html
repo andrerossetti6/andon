@@ -117,7 +117,33 @@
     </aside>
 
     <!-- Main Content -->
-    <main class="content" id="view-dashboard" style="display:none;"></main>
+    <main class="content" id="view-dashboard" style="display:none;position:relative;overflow:hidden;padding:0;">
+        <!-- Fundo -->
+        <div style="position:absolute;inset:0;background:url('dashboard-bg.jpg') center right/cover no-repeat;opacity:0.5;"></div>
+        <!-- Gradiente da esquerda para cobrir texto -->
+        <div style="position:absolute;inset:0;background:linear-gradient(to right, #0d1117 38%, rgba(13,17,23,0.7) 60%, transparent 100%);"></div>
+        <!-- Conteúdo -->
+        <div style="position:relative;z-index:1;padding:48px 56px;display:flex;flex-direction:column;justify-content:center;height:100%;">
+            <div style="max-width:520px;">
+                <p style="font-size:0.7rem;font-weight:700;letter-spacing:.15em;color:var(--indigo-btn);margin-bottom:12px;text-transform:uppercase;">Sistema de Gestão Industrial</p>
+                <h1 style="font-size:3rem;font-weight:800;line-height:1.1;margin:0 0 8px;color:#fff;">SIGS</h1>
+                <p style="font-size:1.1rem;color:#8b949e;margin:0 0 40px;font-weight:300;">Gestão <span style="color:#fff;font-weight:500;">Stoll</span></p>
+                <div style="width:40px;height:2px;background:var(--indigo-btn);margin-bottom:40px;border-radius:2px;"></div>
+                <p style="font-size:0.9rem;color:#8b949e;line-height:1.7;margin:0;">
+                    Plataforma integrada de análise de vendas,<br>
+                    estoque, produção e processos industriais.
+                </p>
+                <div style="margin-top:48px;display:flex;gap:12px;flex-wrap:wrap;">
+                    <button onclick="navigateTo('pesquisa')" style="padding:10px 22px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:0.85rem;font-weight:600;cursor:pointer;">
+                        Pesquisar Código
+                    </button>
+                    <button onclick="navigateTo('abc')" style="padding:10px 22px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-primary);font-size:0.85rem;font-weight:500;cursor:pointer;">
+                        Curva ABC
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
 
     <!-- Vendas View -->
     <main class="content" id="view-vendas" style="display:none;">

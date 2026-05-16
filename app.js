@@ -1,11 +1,11 @@
-// Lógica Central do Dashboard SIGS
+// Lógica Central do Dashboard SIN1
 
 // ══════════════════════════════════════════════════════════════
 // MÓDULO DE AUTENTICAÇÃO
 // ══════════════════════════════════════════════════════════════
 const auth = {
-    TOKEN_KEY: 'sigs_token',
-    USER_KEY:  'sigs_usuario',
+    TOKEN_KEY: 'sin1_token',
+    USER_KEY:  'sin1_usuario',
 
     getToken()   { return localStorage.getItem(this.TOKEN_KEY); },
     getUsuario() {
@@ -499,8 +499,8 @@ function drawDetailChart(monthTotals) {
         const y    = h - padY - barH;
 
         const grad = ctx.createLinearGradient(0, y, 0, h - padY);
-        grad.addColorStop(0, 'rgba(88,166,255,0.9)');
-        grad.addColorStop(1, 'rgba(88,166,255,0.2)');
+        grad.addColorStop(0, 'rgba(38,198,218,0.9)');
+        grad.addColorStop(1, 'rgba(38,198,218,0.2)');
         ctx.fillStyle = grad;
         ctx.beginPath();
         ctx.rect(x + 2, y, barW - 4, barH);
@@ -514,16 +514,16 @@ function drawDetailChart(monthTotals) {
 }
 
 function mostrarToast(msg, tipo = 'ok') {
-    let toast = document.getElementById('sigs-toast');
+    let toast = document.getElementById('sin1-toast');
     if (!toast) {
         toast = document.createElement('div');
-        toast.id = 'sigs-toast';
+        toast.id = 'sin1-toast';
         document.body.appendChild(toast);
     }
     toast.textContent = msg;
-    toast.className = `sigs-toast sigs-toast-${tipo} sigs-toast-show`;
+    toast.className = `sin1-toast sin1-toast-${tipo} sin1-toast-show`;
     clearTimeout(toast._t);
-    toast._t = setTimeout(() => toast.classList.remove('sigs-toast-show'), 3000);
+    toast._t = setTimeout(() => toast.classList.remove('sin1-toast-show'), 3000);
 }
 
 function toggleHistorico(id) {
@@ -554,12 +554,12 @@ function abrirDetalheVxe(descricao) {
     document.getElementById('vxe-detail-seg').textContent  = rows[0]?.segmento || '';
 
     const labels  = { ok: 'EQUILÍBRIO', critico: 'CRÍTICO', excesso: 'EXCESSO', 'sem-dados': '—' };
-    const cores   = { ok: '#2ea043',     critico: '#f85149',  excesso: '#d29922', 'sem-dados': '#8b949e' };
+    const cores   = { ok: '#26a69a',     critico: '#f06292',  excesso: '#ffab76', 'sem-dados': '#8b949e' };
 
     document.getElementById('vxe-detail-tbody').innerHTML = rows.map(r => {
         const cob = r.vendMedia > 0 ? (r.estProcesso / r.vendMedia) : null;
         const cobTxt = cob !== null
-            ? `<span style="color:${cob < 1 ? '#f85149' : cob <= 3 ? '#2ea043' : '#d29922'};font-weight:600;">${cob.toFixed(1)} meses</span>`
+            ? `<span style="color:${cob < 1 ? '#f06292' : cob <= 3 ? '#26a69a' : '#ffab76'};font-weight:600;">${cob.toFixed(1)} meses</span>`
             : '—';
         const stColor = cores[r.st] || '#8b949e';
         return `<tr>
@@ -568,7 +568,7 @@ function abrirDetalheVxe(descricao) {
             <td class="td-right">${r.vendTotal.toLocaleString('pt-BR')}</td>
             <td class="td-right" style="color:var(--indigo-primary);">${r.vendMedia.toLocaleString('pt-BR')}</td>
             <td class="td-right">${r.estQtd !== null ? r.estQtd.toLocaleString('pt-BR') : '—'}</td>
-            <td class="td-right" style="color:#2ea043;">${r.estProcesso.toLocaleString('pt-BR')}</td>
+            <td class="td-right" style="color:#26a69a;">${r.estProcesso.toLocaleString('pt-BR')}</td>
             <td class="td-right">${cobTxt}</td>
             <td class="td-center"><span style="color:${stColor};font-weight:600;font-size:0.7rem;">${labels[r.st]}</span></td>
         </tr>`;
@@ -697,7 +697,7 @@ const vendas = {
         checks.innerHTML = activeCols.map(c =>
             `<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:0.8rem;color:#e6edf3;padding:2px 0;">
                 <input type="checkbox" data-key="${c.key}" ${this.mediaMeses.includes(c.key) ? 'checked' : ''}
-                    style="accent-color:#58a6ff;cursor:pointer;width:14px;height:14px;">
+                    style="accent-color:#26c6da;cursor:pointer;width:14px;height:14px;">
                 ${c.label}
             </label>`
         ).join('');
@@ -1478,13 +1478,13 @@ const vendas = {
             const grad = ctx.createLinearGradient(0, y, 0, h - padY);
             if (isSel) {
                 grad.addColorStop(0, 'rgba(255,255,255,0.95)');
-                grad.addColorStop(1, 'rgba(88,166,255,0.6)');
+                grad.addColorStop(1, 'rgba(38,198,218,0.6)');
             } else if (isOther) {
-                grad.addColorStop(0, 'rgba(88,166,255,0.3)');
-                grad.addColorStop(1, 'rgba(88,166,255,0.08)');
+                grad.addColorStop(0, 'rgba(38,198,218,0.3)');
+                grad.addColorStop(1, 'rgba(38,198,218,0.08)');
             } else {
-                grad.addColorStop(0, 'rgba(88,166,255,0.85)');
-                grad.addColorStop(1, 'rgba(88,166,255,0.2)');
+                grad.addColorStop(0, 'rgba(38,198,218,0.85)');
+                grad.addColorStop(1, 'rgba(38,198,218,0.2)');
             }
             ctx.fillStyle = grad;
 
@@ -1533,7 +1533,7 @@ const vendas = {
                 const sel = this.selectedMonth === c.abbr;
                 return `<th class="th-month${sel ? ' th-month-sel' : ''}">${c.label.toUpperCase()}</th>`;
             }).join('')}
-            ${temMedia ? `<th class="th-month th-month-sel" style="color:#58a6ff;">MÉDIA (÷${nMedia})</th>` : ''}
+            ${temMedia ? `<th class="th-month th-month-sel" style="color:#26c6da;">MÉDIA (÷${nMedia})</th>` : ''}
             <th class="td-right">QTDE</th>
             <th class="td-right">VALOR R$</th>
         `;
@@ -1573,7 +1573,7 @@ const vendas = {
                     const sel = this.selectedMonth === c.abbr;
                     return `<td class="td-month${sel ? ' td-month-sel' : ''}">${v ? v.toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>'}</td>`;
                 }).join('')}
-                ${temMedia ? `<td class="td-month td-month-sel" style="color:#58a6ff;font-weight:600;">${mediaVal ? mediaVal.toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>'}</td>` : ''}
+                ${temMedia ? `<td class="td-month td-month-sel" style="color:#26c6da;font-weight:600;">${mediaVal ? mediaVal.toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>'}</td>` : ''}
                 <td class="td-qtd">${r.quantidade.toLocaleString('pt-BR')}</td>
                 <td class="td-valor">${r.valor ? 'R$ ' + r.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '<span style="opacity:.3">—</span>'}</td>
             </tr>`;
@@ -2657,13 +2657,13 @@ const cliente = {
                 const empty = '<span style="opacity:.3">—</span>';
                 if (v === undefined || v === '') return `<td>${empty}</td>`;
                 if (h === this._colCodigo)
-                    return `<td><span style="font-family:monospace;color:#58a6ff;font-weight:600;">${v}</span></td>`;
+                    return `<td><span style="font-family:monospace;color:#26c6da;font-weight:600;">${v}</span></td>`;
                 if (h === this._colQtd)
                     return `<td style="text-align:right;font-weight:600;">${toNum(v).toLocaleString('pt-BR')}</td>`;
                 if (h === this._colValUnit)
                     return `<td style="text-align:right;color:#8b949e;">R$ ${toNum(v).toLocaleString('pt-BR',{minimumFractionDigits:3})}</td>`;
                 if (h === this._colValTotal)
-                    return `<td style="text-align:right;color:#2ea043;font-weight:600;">R$ ${toNum(v).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>`;
+                    return `<td style="text-align:right;color:#26a69a;font-weight:600;">R$ ${toNum(v).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>`;
                 if (h === this._colCliente)
                     return `<td style="font-weight:500;">${v}</td>`;
                 return `<td>${v}</td>`;
@@ -3019,12 +3019,12 @@ const disponibilidade = {
             const fmt = d.toLocaleDateString('pt-BR', { day:'2-digit', month:'2-digit', year:'numeric' });
             const dia = DIAS[d.getDay()];
             return `<tr>
-                <td style="font-family:monospace;color:#58a6ff;">${fmt}</td>
+                <td style="font-family:monospace;color:#26c6da;">${fmt}</td>
                 <td style="color:var(--text-dim);">${dia}</td>
                 <td style="font-weight:500;">${f.nome}</td>
                 <td><span class="fer-tipo-badge ${tipoClass(f.tipo)}">${f.tipo}</span></td>
                 <td class="td-center"><button onclick="disponibilidade.excluirFeriado('${f.id}')"
-                    style="background:none;border:none;color:#f85149;cursor:pointer;font-size:0.85rem;padding:4px 8px;">✕</button></td>
+                    style="background:none;border:none;color:#f06292;cursor:pointer;font-size:0.85rem;padding:4px 8px;">✕</button></td>
             </tr>`;
         }).join('') || `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--text-dim);">Nenhum feriado cadastrado</td></tr>`;
     },
@@ -3210,7 +3210,7 @@ const disponibilidade = {
                     card.dataset.proc = proc;
                     card.style.cssText = 'border-left:3px solid var(--indigo-btn);cursor:grab;';
                     card.innerHTML = `<span class="s-label">${proc.toUpperCase()}</span>
-                        <span class="s-value" style="color:#58a6ff;">${minParaHora(horasProc)}</span>
+                        <span class="s-value" style="color:#26c6da;">${minParaHora(horasProc)}</span>
                         ${parcelasStr}
                         <span class="s-sub">${turnos.length} turno${turnos.length>1?'s':''} · ${diasProc} dia${diasProc!==1?'s':''}/sem</span>`;
                     procCards.appendChild(card);
@@ -3253,13 +3253,13 @@ const disponibilidade = {
                             </svg>
                         </button>
                         <button onclick="disponibilidade.excluirTurno('${t.id}')"
-                            style="background:none;border:none;color:#f85149;cursor:pointer;font-size:0.85rem;" title="Excluir">✕</button>
+                            style="background:none;border:none;color:#f06292;cursor:pointer;font-size:0.85rem;" title="Excluir">✕</button>
                     </div>
                 </div>
                 <div class="tur-card-horario">${t.inicio?.slice(0,5) || '—'} → ${t.fim?.slice(0,5) || '—'}</div>
-                ${intervalo ? `<div style="font-size:0.72rem;color:#d29922;margin-top:2px;">
-                    − ${intervalo}min intervalo &nbsp;·&nbsp; <span style="color:#2ea043;">${minParaHora(diffMin)} líquidas</span>
-                </div>` : `<div style="font-size:0.72rem;color:#2ea043;margin-top:2px;">${minParaHora(diffMin)} líquidas</div>`}
+                ${intervalo ? `<div style="font-size:0.72rem;color:#ffab76;margin-top:2px;">
+                    − ${intervalo}min intervalo &nbsp;·&nbsp; <span style="color:#26a69a;">${minParaHora(diffMin)} líquidas</span>
+                </div>` : `<div style="font-size:0.72rem;color:#26a69a;margin-top:2px;">${minParaHora(diffMin)} líquidas</div>`}
                 <div class="tur-card-dias" style="margin-top:6px;">${dias || '<span style="opacity:.4;font-size:0.72rem;">Nenhum dia</span>'}</div>
             </div>`;
         };
@@ -3388,7 +3388,7 @@ const processosGerenciamento = {
                             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z"/></svg>
                         </button>
                         <button onclick="processosGerenciamento.excluirProcesso('${p.id}')"
-                            style="background:none;border:none;color:#f85149;cursor:pointer;padding:0;font-size:0.85rem;">✕</button>
+                            style="background:none;border:none;color:#f06292;cursor:pointer;padding:0;font-size:0.85rem;">✕</button>
                     </div>
                 </div>
                 <div style="font-size:1.5rem;font-weight:700;color:var(--indigo-primary);margin-bottom:4px;">
@@ -3430,7 +3430,7 @@ const processosGerenciamento = {
             tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-dim);">Nenhuma máquina cadastrada neste processo.</td></tr>`;
             return;
         }
-        const statusColor = s => ({ 'Ativo':'#2ea043','Manutenção':'#d29922','Inativo':'#8b949e','Setup':'#58a6ff' }[s] || '#8b949e');
+        const statusColor = s => ({ 'Ativo':'#26a69a','Manutenção':'#ffab76','Inativo':'#8b949e','Setup':'#26c6da' }[s] || '#8b949e');
         tbody.innerHTML = this._maquinas.map(m => `
             <tr>
                 <td style="font-weight:600;color:var(--indigo-primary);">${m.id_maquina || '—'}</td>
@@ -3450,7 +3450,7 @@ const processosGerenciamento = {
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z"/></svg>
                         </button>
                         <button onclick="processosGerenciamento.excluirMaquina('${m.id}')"
-                            title="Excluir" style="background:none;border:none;color:#f85149;cursor:pointer;padding:2px;font-size:1rem;line-height:1;font-weight:600;">✕</button>
+                            title="Excluir" style="background:none;border:none;color:#f06292;cursor:pointer;padding:2px;font-size:1rem;line-height:1;font-weight:600;">✕</button>
                     </div>
                 </td>
             </tr>
@@ -4319,20 +4319,20 @@ const abc = {
         const xA = padL + (bA / n) * chartW;
         const xB = padL + (bB / n) * chartW;
 
-        ctx.fillStyle = 'rgba(88,166,255,0.07)';
+        ctx.fillStyle = 'rgba(38,198,218,0.07)';
         ctx.fillRect(padL, padT, xA - padL, chartH);
-        ctx.fillStyle = 'rgba(210,153,34,0.07)';
+        ctx.fillStyle = 'rgba(255,171,118,0.07)';
         ctx.fillRect(xA, padT, xB - xA, chartH);
         ctx.fillStyle = 'rgba(139,148,158,0.05)';
         ctx.fillRect(xB, padT, w - padR - xB, chartH);
 
         ctx.font = 'bold 10px Inter'; ctx.textAlign = 'center';
         if (bA > 0) {
-            ctx.fillStyle = 'rgba(88,166,255,0.65)';
+            ctx.fillStyle = 'rgba(38,198,218,0.65)';
             ctx.fillText('A', padL + (xA - padL) / 2, padT + 11);
         }
         if (bB > bA) {
-            ctx.fillStyle = 'rgba(210,153,34,0.65)';
+            ctx.fillStyle = 'rgba(255,171,118,0.65)';
             ctx.fillText('B', xA + (xB - xA) / 2, padT + 11);
         }
         if (n > bB) {
@@ -4353,7 +4353,7 @@ const abc = {
         });
 
         ctx.beginPath();
-        ctx.strokeStyle = 'rgba(88,166,255,0.85)';
+        ctx.strokeStyle = 'rgba(38,198,218,0.85)';
         ctx.lineWidth = 2;
         items.forEach((item, i) => {
             const x = padL + (i / Math.max(n - 1, 1)) * chartW;
@@ -4366,7 +4366,7 @@ const abc = {
         ctx.lineTo(lastX, padT + chartH);
         ctx.lineTo(padL, padT + chartH);
         ctx.closePath();
-        ctx.fillStyle = 'rgba(88,166,255,0.05)';
+        ctx.fillStyle = 'rgba(38,198,218,0.05)';
         ctx.fill();
 
         ctx.fillStyle = 'rgba(139,148,158,0.5)';
@@ -4656,20 +4656,20 @@ const abcMicro = {
         const xA = padL + (bA / n) * chartW;
         const xB = padL + (bB / n) * chartW;
 
-        ctx.fillStyle = 'rgba(88,166,255,0.07)';
+        ctx.fillStyle = 'rgba(38,198,218,0.07)';
         ctx.fillRect(padL, padT, xA - padL, chartH);
-        ctx.fillStyle = 'rgba(210,153,34,0.07)';
+        ctx.fillStyle = 'rgba(255,171,118,0.07)';
         ctx.fillRect(xA, padT, xB - xA, chartH);
         ctx.fillStyle = 'rgba(139,148,158,0.05)';
         ctx.fillRect(xB, padT, w - padR - xB, chartH);
 
         ctx.font = 'bold 10px Inter'; ctx.textAlign = 'center';
         if (bA > 0) {
-            ctx.fillStyle = 'rgba(88,166,255,0.65)';
+            ctx.fillStyle = 'rgba(38,198,218,0.65)';
             ctx.fillText('A', padL + (xA - padL) / 2, padT + 11);
         }
         if (bB > bA) {
-            ctx.fillStyle = 'rgba(210,153,34,0.65)';
+            ctx.fillStyle = 'rgba(255,171,118,0.65)';
             ctx.fillText('B', xA + (xB - xA) / 2, padT + 11);
         }
         if (n > bB) {
@@ -4690,7 +4690,7 @@ const abcMicro = {
         });
 
         ctx.beginPath();
-        ctx.strokeStyle = 'rgba(88,166,255,0.85)';
+        ctx.strokeStyle = 'rgba(38,198,218,0.85)';
         ctx.lineWidth = 2;
         items.forEach((item, i) => {
             const x = padL + (i / Math.max(n - 1, 1)) * chartW;
@@ -4703,7 +4703,7 @@ const abcMicro = {
         ctx.lineTo(lastX, padT + chartH);
         ctx.lineTo(padL, padT + chartH);
         ctx.closePath();
-        ctx.fillStyle = 'rgba(88,166,255,0.05)';
+        ctx.fillStyle = 'rgba(38,198,218,0.05)';
         ctx.fill();
 
         ctx.fillStyle = 'rgba(139,148,158,0.5)';
@@ -4895,16 +4895,16 @@ const abcEstoque = {
         const xA = padL + (bA / n) * chartW;
         const xB = padL + (bB / n) * chartW;
 
-        ctx.fillStyle = 'rgba(88,166,255,0.07)';
+        ctx.fillStyle = 'rgba(38,198,218,0.07)';
         ctx.fillRect(padL, padT, xA - padL, chartH);
-        ctx.fillStyle = 'rgba(210,153,34,0.07)';
+        ctx.fillStyle = 'rgba(255,171,118,0.07)';
         ctx.fillRect(xA, padT, xB - xA, chartH);
         ctx.fillStyle = 'rgba(139,148,158,0.05)';
         ctx.fillRect(xB, padT, w - padR - xB, chartH);
 
         ctx.font = 'bold 10px Inter'; ctx.textAlign = 'center';
-        if (bA > 0) { ctx.fillStyle = 'rgba(88,166,255,0.65)'; ctx.fillText('A', padL + (xA - padL) / 2, padT + 11); }
-        if (bB > bA) { ctx.fillStyle = 'rgba(210,153,34,0.65)'; ctx.fillText('B', xA + (xB - xA) / 2, padT + 11); }
+        if (bA > 0) { ctx.fillStyle = 'rgba(38,198,218,0.65)'; ctx.fillText('A', padL + (xA - padL) / 2, padT + 11); }
+        if (bB > bA) { ctx.fillStyle = 'rgba(255,171,118,0.65)'; ctx.fillText('B', xA + (xB - xA) / 2, padT + 11); }
         if (n > bB) { ctx.fillStyle = 'rgba(139,148,158,0.6)'; ctx.fillText('C', xB + (w - padR - xB) / 2, padT + 11); }
 
         [80, 95].forEach(pct => {
@@ -4916,7 +4916,7 @@ const abcEstoque = {
             ctx.fillText(`${pct}%`, w - padR + 4, y + 3);
         });
 
-        ctx.beginPath(); ctx.strokeStyle = 'rgba(88,166,255,0.85)'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.strokeStyle = 'rgba(38,198,218,0.85)'; ctx.lineWidth = 2;
         items.forEach((item, i) => {
             const x = padL + (i / Math.max(n - 1, 1)) * chartW;
             const y = padT + chartH * (1 - item.cumPct / 100);
@@ -4926,7 +4926,7 @@ const abcEstoque = {
         ctx.lineTo(padL + chartW, padT + chartH);
         ctx.lineTo(padL, padT + chartH);
         ctx.closePath();
-        ctx.fillStyle = 'rgba(88,166,255,0.05)';
+        ctx.fillStyle = 'rgba(38,198,218,0.05)';
         ctx.fill();
 
         ctx.fillStyle = 'rgba(139,148,158,0.5)'; ctx.font = '8px Inter'; ctx.textAlign = 'left';
@@ -5105,8 +5105,8 @@ const pesquisa = {
         const ce = this._getAbcEstoqueClasse(codigos);
         if (!cv && !ce) { block.style.display = 'none'; return; }
 
-        const cor = { A:'#58a6ff', B:'#d29922', C:'#8b949e' };
-        const bg  = { A:'rgba(88,166,255,.12)', B:'rgba(210,153,34,.12)', C:'rgba(139,148,158,.12)' };
+        const cor = { A:'#26c6da', B:'#ffab76', C:'#8b949e' };
+        const bg  = { A:'rgba(38,198,218,.12)', B:'rgba(255,171,118,.12)', C:'rgba(139,148,158,.12)' };
 
         const badge = (c, label) => c
             ? `<div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
@@ -5122,11 +5122,11 @@ const pesquisa = {
                </div>`;
 
         const interpretacoes = {
-            AA: { icon:'✅', texto:'Equilíbrio — alto giro e bom estoque.',       cor:'#2ea043' },
-            AB: { icon:'🟡', texto:'Atenção — alto giro, estoque médio.',          cor:'#d29922' },
-            AC: { icon:'🔴', texto:'Risco de ruptura — alto giro, estoque crítico.', cor:'#f85149' },
-            BA: { icon:'🟡', texto:'Estoque excedente para giro médio.',           cor:'#d29922' },
-            BB: { icon:'🔵', texto:'Equilíbrio moderado.',                         cor:'#58a6ff' },
+            AA: { icon:'✅', texto:'Equilíbrio — alto giro e bom estoque.',       cor:'#26a69a' },
+            AB: { icon:'🟡', texto:'Atenção — alto giro, estoque médio.',          cor:'#ffab76' },
+            AC: { icon:'🔴', texto:'Risco de ruptura — alto giro, estoque crítico.', cor:'#f06292' },
+            BA: { icon:'🟡', texto:'Estoque excedente para giro médio.',           cor:'#ffab76' },
+            BB: { icon:'🔵', texto:'Equilíbrio moderado.',                         cor:'#26c6da' },
             BC: { icon:'🟠', texto:'Atenção — estoque baixo para giro médio.',     cor:'#e3b341' },
             CA: { icon:'🟠', texto:'Estoque parado — baixo giro, muito estoque.',  cor:'#e3b341' },
             CB: { icon:'⚪', texto:'Estoque acima do necessário para baixo giro.', cor:'#8b949e' },
@@ -5216,10 +5216,10 @@ const pesquisa = {
             <th>CÓDIGO</th><th>DESCRIÇÃO</th><th>MARCA</th><th>SEGMENTO</th>
             <th class="td-center">TAM.</th>
             <th class="td-right">TOTAL VENDAS${anoLabel}</th>
-            <th class="td-right" style="color:#58a6ff;">MÉDIA VENDAS${anoLabel}</th>
-            <th class="td-right" style="color:#2ea043;">ESTOQUE</th>
-            <th class="td-right" style="color:#d29922;">PROCESSO (OP)</th>
-            <th class="td-right" style="color:#a371f7;">COSTURA</th>`;
+            <th class="td-right" style="color:#26c6da;">MÉDIA VENDAS${anoLabel}</th>
+            <th class="td-right" style="color:#26a69a;">ESTOQUE</th>
+            <th class="td-right" style="color:#ffab76;">PROCESSO (OP)</th>
+            <th class="td-right" style="color:#7c4dff;">COSTURA</th>`;
 
         tbody.innerHTML = rows.map(r => {
             const totalV = allCols.reduce((s, c) => s + (r[c.key] || 0), 0);
@@ -5238,10 +5238,10 @@ const pesquisa = {
                 <td><span class="seg-badge">${r.segmento}</span></td>
                 <td class="td-center">${r.tamanho}</td>
                 <td class="td-right">${fmt(totalV)}</td>
-                <td class="td-right" style="color:#58a6ff;font-weight:600;">${fmt(media)}</td>
-                <td class="td-right" style="color:#2ea043;font-weight:600;">${fmt(est)}</td>
-                <td class="td-right" style="color:#d29922;font-weight:600;">${fmt(opQty)}</td>
-                <td class="td-right" style="color:#a371f7;font-weight:600;">${fmt(cosQty)}</td>
+                <td class="td-right" style="color:#26c6da;font-weight:600;">${fmt(media)}</td>
+                <td class="td-right" style="color:#26a69a;font-weight:600;">${fmt(est)}</td>
+                <td class="td-right" style="color:#ffab76;font-weight:600;">${fmt(opQty)}</td>
+                <td class="td-right" style="color:#7c4dff;font-weight:600;">${fmt(cosQty)}</td>
             </tr>`;
         }).join('');
 
@@ -5439,11 +5439,11 @@ const vxe = {
                 <td class="td-qtd">${r.vendTotal.toLocaleString('pt-BR')}</td>
                 <td class="td-qtd" style="color:var(--indigo-primary);">${r.vendMedia.toLocaleString('pt-BR')}</td>
                 <td class="td-qtd">${r.estQtd !== null ? r.estQtd.toLocaleString('pt-BR') : '—'}</td>
-                <td class="td-qtd" style="color:#2ea043;">${r.estProcesso.toLocaleString('pt-BR')}</td>
+                <td class="td-qtd" style="color:#26a69a;">${r.estProcesso.toLocaleString('pt-BR')}</td>
                 <td class="td-right">${(() => {
                     if (r.vendMedia <= 0) return '—';
                     const cob = r.estProcesso / r.vendMedia;
-                    const cor = cob < 1 ? '#f85149' : cob <= 3 ? '#2ea043' : '#d29922';
+                    const cor = cob < 1 ? '#f06292' : cob <= 3 ? '#26a69a' : '#ffab76';
                     return `<span style="color:${cor};font-weight:600;">${cob.toFixed(1)} meses</span>`;
                 })()}</td>
                 <td class="td-center"><span class="vxe-badge ${classes[r.st]}">${labels[r.st]}</span></td>
