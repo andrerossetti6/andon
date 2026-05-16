@@ -5024,6 +5024,36 @@ const opDash = {
     _statusSel: '',
     _rows: [],
 
+    // Constrói mapa código → dados VxE (vendas + estoque)
+    _buildVxeMap() {
+        const estMap = {};
+        estoque.rawData.forEach(r => {
+            const k = String(r.codigo || '').trim().toUpperCase();
+            if (k) estMap[k] = (estMap[k] || 0) + (Number(r.quantidade) || 0);
+        });
+        const opMap = {};
+        const qtdCol = op._colQtd;
+        op.rawData.forEach(r => {
+            const k = String(r.dados?.['Código'] || r.dados?.['codigo'] || r.dados?.['CÓDIGO'] || '').trim().toUpperCase();
+            const q = qtdCol ? (parseFloat(String(r.dados?.[qtdCol] ?? '0').replace(',', '.')) || 0) : 0;
+            if (k) opMap[k] = (opMap[k] || 0) + q;
+        });
+        const map = {};
+        vendas.rawData.forEach(r => {
+            const cod = String(r.codigo || '').trim().toUpperCase();
+            if (!map[cod]) map[cod] = { codigo: r.codigo, descricao: r.descricao, marca: r.marca, tamanho: r.tamanho, vendTotal: 0, mesesCount: vendas.monthCols.length || 1 };
+            vendas.monthCols.forEach(c => { map[cod].vendTotal += (r[c.key] || 0); });
+        });
+        Object.values(map).forEach(r => {
+            const k = r.codigo.trim().toUpperCase();
+            r.vendMedia  = r.mesesCount > 0 ? Math.round(r.vendTotal / r.mesesCount) : 0;
+            r.estoque    = estMap[k] || 0;
+            r.emProcesso = opMap[k]  || 0;
+            r.cobertura  = r.vendMedia > 0 ? (r.estoque + r.emProcesso) / r.vendMedia : null;
+        });
+        return map;
+    },
+
     render() {
         const empty   = document.getElementById('op-dash-empty');
         const content = document.getElementById('op-dash-content');
@@ -5035,59 +5065,94 @@ const opDash = {
         if (empty)   empty.style.display = 'none';
         if (content) content.style.display = 'block';
 
-        // Monta linhas a partir de op.rawData (estrutura: {_id, dados})
-        this._rows = op.rawData.map(r => r.dados || {});
+        const vxeMap = this._buildVxeMap();
+
+        // Monta linhas cruzando OP com VxE
+        const opCodes = new Set();
+        this._rows = op.rawData.map(r => {
+            const dados = r.dados || {};
+            const statusKey = Object.keys(dados).find(k => /status|situac/i.test(k));
+            const codKey    = Object.keys(dados).find(k => /^c[oó]d/i.test(k));
+            const cod = String(dados[codKey] || '').trim().toUpperCase();
+            const vxe = vxeMap[cod] || {};
+            opCodes.add(String(dados[statusKey]||'').trim());
+            return {
+                _status: statusKey ? String(dados[statusKey]||'').trim() : '',
+                _raw: dados,
+                codigo:      vxe.codigo     || dados[codKey] || cod,
+                descricao:   vxe.descricao  || '—',
+                marca:       vxe.marca      || '—',
+                tamanho:     vxe.tamanho    || '—',
+                vendMedia:   vxe.vendMedia  ?? null,
+                estoque:     vxe.estoque    ?? null,
+                emProcesso:  vxe.emProcesso ?? null,
+                cobertura:   vxe.cobertura  ?? null,
+            };
+        });
 
         // Popula select de status
         const statusSel = document.getElementById('opdash-status-sel');
         if (statusSel) {
-            const statuses = [...new Set(this._rows.map(r => {
-                const k = Object.keys(r).find(k => /status|situac/i.test(k));
-                return k ? String(r[k]).trim() : '';
-            }).filter(Boolean))].sort();
+            const statuses = [...opCodes].filter(Boolean).sort();
             statusSel.innerHTML = '<option value="">Todos os Status</option>' +
                 statuses.map(s => `<option value="${s}"${s===this._statusSel?' selected':''}>${s}</option>`).join('');
             statusSel.onchange = e => { this._statusSel = e.target.value; this._renderTabela(); };
         }
 
-        // Listener de busca
         const busca = document.getElementById('opdash-busca');
         if (busca) {
             busca.oninput = e => { this._busca = e.target.value.trim().toLowerCase(); this._renderTabela(); };
             busca.value = this._busca;
         }
 
+        // Cabeçalho fixo (colunas 1,2,3,5,7,8,9,10 do VxE)
+        document.getElementById('opdash-thead').innerHTML = `
+            <th>CÓDIGO</th><th>DESCRIÇÃO</th><th>MARCA</th><th>TAMANHO</th>
+            <th class="td-right" style="color:var(--indigo-primary);">MÉDIA VENDAS</th>
+            <th class="td-right" style="color:var(--green-accent);">ESTOQUE</th>
+            <th class="td-right" style="color:var(--orange-accent);">EM PROCESSO (OP)</th>
+            <th class="td-right">COBERTURA</th>`;
+
         this._renderTabela();
     },
 
     _renderTabela() {
-        const qtdCol = op._colQtd;
-        const statusKey = this._rows.length
-            ? Object.keys(this._rows[0]).find(k => /status|situac/i.test(k)) || null
-            : null;
-
         let visible = this._rows;
-        if (this._statusSel) visible = visible.filter(r => String(r[statusKey]||'').trim() === this._statusSel);
-        if (this._busca)     visible = visible.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(this._busca)));
+        if (this._statusSel) visible = visible.filter(r => r._status === this._statusSel);
+        if (this._busca)     visible = visible.filter(r =>
+            String(r.codigo).toLowerCase().includes(this._busca) ||
+            String(r.descricao).toLowerCase().includes(this._busca) ||
+            String(r.marca).toLowerCase().includes(this._busca) ||
+            Object.values(r._raw).some(v => String(v).toLowerCase().includes(this._busca))
+        );
 
-        // Cards
-        const total   = visible.length;
-        const pecas   = qtdCol ? visible.reduce((s,r) => s + (parseFloat(String(r[qtdCol]||'0').replace(',','.')) || 0), 0) : 0;
-        const liberadas = statusKey ? visible.filter(r => /liberado/i.test(String(r[statusKey]||''))).length : 0;
+        const total     = visible.length;
+        const pecas     = visible.reduce((s,r) => s + (r.emProcesso || 0), 0);
+        const liberadas = visible.filter(r => /liberado/i.test(r._status)).length;
         document.getElementById('opdash-total').textContent     = total.toLocaleString('pt-BR');
         document.getElementById('opdash-pecas').textContent     = pecas.toLocaleString('pt-BR');
         document.getElementById('opdash-liberadas').textContent = liberadas.toLocaleString('pt-BR');
         document.getElementById('opdash-aberto').textContent    = (total - liberadas).toLocaleString('pt-BR');
         document.getElementById('opdash-count').textContent     = `${total.toLocaleString('pt-BR')} ordens`;
 
-        // Cabeçalho dinâmico
-        const cols = op.colunas || Object.keys(this._rows[0] || {});
-        document.getElementById('opdash-thead').innerHTML = cols.map(c => `<th>${c.toUpperCase()}</th>`).join('');
+        const fmt  = v => v != null ? Math.round(v).toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>';
+        const fmtC = v => {
+            if (v == null) return '<span style="opacity:.3">—</span>';
+            const cor = v < 1 ? '#f06292' : v <= 3 ? '#26a69a' : '#ffab76';
+            return `<span style="color:${cor};font-weight:600;">${v.toFixed(1)} meses</span>`;
+        };
 
-        // Corpo
-        document.getElementById('opdash-tbody').innerHTML = visible.slice(0, 2000).map(r =>
-            `<tr>${cols.map(c => `<td>${r[c] != null && r[c] !== '' ? r[c] : '<span style="opacity:.3">—</span>'}</td>`).join('')}</tr>`
-        ).join('');
+        document.getElementById('opdash-tbody').innerHTML = visible.slice(0, 2000).map(r => `
+            <tr>
+                <td class="td-code" style="color:var(--indigo-primary);">${r.codigo}</td>
+                <td class="td-desc">${r.descricao}</td>
+                <td style="font-size:0.75rem;">${r.marca}</td>
+                <td class="td-center">${r.tamanho}</td>
+                <td class="td-right" style="color:var(--indigo-primary);font-weight:600;">${fmt(r.vendMedia)}</td>
+                <td class="td-right" style="color:var(--green-accent);font-weight:600;">${fmt(r.estoque)}</td>
+                <td class="td-right" style="color:var(--orange-accent);font-weight:600;">${fmt(r.emProcesso)}</td>
+                <td class="td-right">${fmtC(r.cobertura)}</td>
+            </tr>`).join('');
     },
 
     limpar() {
