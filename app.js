@@ -320,6 +320,7 @@ function init() {
 
 function renderInsights() {
     const container = document.getElementById('insights-container');
+    if (!container) return;
     container.innerHTML = state.insights.map(insight => `
         <div class="insight-card" data-category="${insight.category}" data-severity="${insight.severity}">
             <div class="insight-icon" style="color: ${insight.color}">
@@ -367,6 +368,7 @@ function ignoreInsight(id) {
 
 function renderActions() {
     const container = document.getElementById('actions-container');
+    if (!container) return;
     container.innerHTML = state.actions.slice(0, 6).map(action => `
         <div class="action-item">
             <div class="action-indicator"></div>
@@ -380,6 +382,7 @@ function renderActions() {
 
 function drawMiniCharts() {
     const canvases = document.querySelectorAll('.mini-chart, .activity-chart');
+    if (!canvases.length) return;
     canvases.forEach(canvas => {
         const ctx = canvas.getContext('2d');
         const width = canvas.width = canvas.offsetWidth;
