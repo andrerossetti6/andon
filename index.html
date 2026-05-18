@@ -1102,6 +1102,29 @@
         </div>
     </main>
 
+    <!-- Painel Top 10 Pedidos -->
+    <div id="ped-top10-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:8000;" onclick="pedidos.fecharTop10()"></div>
+    <div id="ped-top10-panel" style="display:none;position:fixed;top:0;right:0;width:min(480px,100vw);height:100vh;background:var(--bg-sidebar);border-left:1px solid var(--border);z-index:8001;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .25s;">
+        <div style="padding:20px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+            <div>
+                <div style="font-size:0.65rem;font-weight:700;letter-spacing:.1em;color:var(--text-dim);">TOP 10 ITENS</div>
+                <div style="font-size:1rem;font-weight:700;color:var(--text-primary);margin-top:2px;" id="ped-top10-titulo">—</div>
+            </div>
+            <button onclick="pedidos.fecharTop10()" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:1.2rem;padding:4px;">✕</button>
+        </div>
+        <div style="padding:16px 24px;overflow-y:auto;flex:1;">
+            <table class="vendas-table" style="width:100%;">
+                <thead><tr>
+                    <th style="width:32px;">#</th>
+                    <th>CÓDIGO</th>
+                    <th>DESCRIÇÃO</th>
+                    <th class="td-right">QTD</th>
+                </tr></thead>
+                <tbody id="ped-top10-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+
     <!-- ── Dashboard: Ordem de Produção ─────────────────────── -->
     <main class="content" id="view-op-dash" style="display:none;">
         <header class="page-header">

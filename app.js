@@ -5034,12 +5034,55 @@ const abcEstoque = {
 // ====== DASHBOARD: PEDIDOS ======
 const pedidos = {
     _anoSel: '',
+    _meses:  [],  // [{key, label, total}]
+    _cols:   [],  // monthCols usadas
 
     init() {
         document.getElementById('ped-ano-sel')?.addEventListener('change', e => {
             this._anoSel = e.target.value;
             this.render();
         });
+    },
+
+    abrirTop10(colKey) {
+        const mes = this._meses.find(m => m.key === colKey);
+        if (!mes) return;
+        document.getElementById('ped-top10-titulo').textContent = mes.label;
+
+        // Agrega por código para o mês selecionado
+        const map = {};
+        vendas.rawData.forEach(r => {
+            const qtd = Number(r[colKey]) || 0;
+            if (!qtd) return;
+            const cod = r.codigo || '—';
+            if (!map[cod]) map[cod] = { codigo: cod, descricao: r.descricao || '—', marca: r.marca || '', total: 0 };
+            map[cod].total += qtd;
+        });
+        const top10 = Object.values(map).sort((a,b) => b.total - a.total).slice(0, 10);
+
+        document.getElementById('ped-top10-tbody').innerHTML = top10.map((r, i) => `
+            <tr>
+                <td class="td-dim td-center">${i + 1}</td>
+                <td class="td-code" style="color:var(--indigo-primary);">${r.codigo}</td>
+                <td class="td-desc" style="font-size:0.78rem;">${r.descricao}</td>
+                <td class="td-right" style="font-weight:700;color:var(--indigo-primary);">${r.total.toLocaleString('pt-BR')}</td>
+            </tr>`).join('');
+
+        const overlay = document.getElementById('ped-top10-overlay');
+        const panel   = document.getElementById('ped-top10-panel');
+        overlay.style.display = 'block';
+        panel.style.display   = 'flex';
+        requestAnimationFrame(() => { panel.style.transform = 'translateX(0)'; });
+    },
+
+    fecharTop10() {
+        const panel   = document.getElementById('ped-top10-panel');
+        const overlay = document.getElementById('ped-top10-overlay');
+        panel.style.transform = 'translateX(100%)';
+        setTimeout(() => {
+            panel.style.display   = 'none';
+            overlay.style.display = 'none';
+        }, 250);
     },
 
     render() {
@@ -5064,7 +5107,7 @@ const pedidos = {
         // Filtra colunas pelo ano selecionado
         const cols = this._anoSel
             ? vendas.monthCols.filter(c => c.year === this._anoSel)
-            : vendas.monthCols;
+            : vendas.monthCols.filter(c => c.year);
 
         // Soma total por mês (todos os códigos)
         const mesesMap = {};
@@ -5074,6 +5117,8 @@ const pedidos = {
         });
 
         const meses = Object.values(mesesMap).filter(m => m.total > 0);
+        this._meses = meses;
+        this._cols  = cols;
         const totalGeral = meses.reduce((s, m) => s + m.total, 0);
         const maior      = meses.reduce((a, b) => b.total > a.total ? b : a, meses[0] || {});
         const media      = meses.length ? Math.round(totalGeral / meses.length) : 0;
@@ -5087,22 +5132,48 @@ const pedidos = {
 
         // Gráfico de barras
         this._drawChart(meses);
+        this._setupCanvasClick(meses);
 
         // Tabela
         const thead = document.getElementById('ped-thead');
         const tbody = document.getElementById('ped-tbody');
-        thead.innerHTML = meses.map(m => `<th class="td-center">${m.label}</th>`).join('');
+        thead.innerHTML = meses.map(m =>
+            `<th class="td-center" style="cursor:pointer;" onclick="pedidos.abrirTop10('${m.key}')" title="Ver top 10 de ${m.label}">${m.label}</th>`
+        ).join('');
         const maxVal = Math.max(...meses.map(m => m.total), 1);
         tbody.innerHTML = `<tr>${meses.map(m => {
             const pct = (m.total / maxVal * 100).toFixed(0);
             const cor = m.total === maior?.total ? 'var(--green-accent)' : 'var(--indigo-primary)';
-            return `<td class="td-center">
+            return `<td class="td-center" style="cursor:pointer;" onclick="pedidos.abrirTop10('${m.key}')" title="Ver top 10 de ${m.label}">
                 <div style="font-weight:700;font-size:0.95rem;color:${cor};">${m.total.toLocaleString('pt-BR')}</div>
                 <div style="margin-top:4px;height:4px;border-radius:2px;background:var(--border);">
                     <div style="height:4px;border-radius:2px;background:${cor};width:${pct}%;"></div>
                 </div>
             </td>`;
         }).join('')}</tr>`;
+    },
+
+    _setupCanvasClick(meses) {
+        const canvas = document.getElementById('ped-chart');
+        if (!canvas) return;
+        canvas.style.cursor = 'pointer';
+        canvas._clickHandler && canvas.removeEventListener('click', canvas._clickHandler);
+        canvas._clickHandler = (e) => {
+            const rect  = canvas.getBoundingClientRect();
+            const mx    = e.clientX - rect.left;
+            const W     = canvas.width;
+            const padL  = 52, padR = 16, padB = 40;
+            const chartW = W - padL - padR;
+            const n      = meses.length;
+            const gap    = chartW / n;
+            const barW   = Math.max(8, gap * 0.6);
+            const idx = meses.findIndex((_, i) => {
+                const x = padL + gap * i + (gap - barW) / 2;
+                return mx >= x && mx <= x + barW;
+            });
+            if (idx >= 0) this.abrirTop10(meses[idx].key);
+        };
+        canvas.addEventListener('click', canvas._clickHandler);
     },
 
     _drawChart(meses) {
