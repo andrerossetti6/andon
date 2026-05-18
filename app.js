@@ -5047,9 +5047,13 @@ const pedidos = {
     abrirTop10(colKey) {
         const mes = this._meses.find(m => m.key === colKey);
         if (!mes) return;
+        this._top10ColKey = colKey;
+        this._top10Todos  = [];
+        this._top10Mes    = mes;
+
         document.getElementById('ped-top10-titulo').textContent = mes.label;
 
-        // Agrega por código para o mês selecionado
+        // Agrega TODOS os itens do mês
         const map = {};
         vendas.rawData.forEach(r => {
             const qtd = Number(r[colKey]) || 0;
@@ -5058,14 +5062,34 @@ const pedidos = {
             if (!map[cod]) map[cod] = { codigo: cod, descricao: r.descricao || '—', marca: r.marca || '—', total: 0 };
             map[cod].total += qtd;
         });
-        const top10 = Object.values(map).sort((a,b) => b.total - a.total).slice(0, 10);
-        const totalMes = mes.total || top10.reduce((s,r) => s + r.total, 0);
+        this._top10Todos = Object.values(map).sort((a,b) => b.total - a.total);
 
-        document.getElementById('ped-top10-tbody').innerHTML = top10.map((r, i) => {
-            const pct = totalMes > 0 ? (r.total / totalMes * 100).toFixed(1) : '0.0';
-            const barW = totalMes > 0 ? (r.total / top10[0].total * 100).toFixed(0) : 0;
+        // Limpa busca
+        const busca = document.getElementById('ped-top10-busca');
+        if (busca) { busca.value = ''; busca.oninput = e => this._renderTop10Lista(e.target.value.trim().toLowerCase()); }
+
+        this._renderTop10Lista('');
+        document.getElementById('ped-top10-overlay').style.display = 'flex';
+    },
+
+    _renderTop10Lista(q) {
+        const todos    = this._top10Todos;
+        const totalMes = this._top10Mes?.total || todos.reduce((s,r) => s + r.total, 0);
+        const maxQtd   = todos[0]?.total || 1;
+        const visible  = q ? todos.filter(r =>
+            r.codigo.toLowerCase().includes(q) || r.descricao.toLowerCase().includes(q) || r.marca.toLowerCase().includes(q)
+        ) : todos;
+
+        const countEl = document.getElementById('ped-top10-count');
+        if (countEl) countEl.textContent = q
+            ? `${visible.length} resultado${visible.length !== 1 ? 's' : ''}`
+            : `${todos.length} itens`;
+
+        document.getElementById('ped-top10-tbody').innerHTML = visible.map((r, i) => {
+            const pct  = totalMes > 0 ? (r.total / totalMes * 100).toFixed(1) : '0.0';
+            const barW = (r.total / maxQtd * 100).toFixed(0);
             return `<tr>
-                <td style="text-align:center;font-weight:700;color:var(--text-dim);font-size:1rem;">${i + 1}</td>
+                <td style="text-align:center;color:var(--text-dim);font-size:0.85rem;">${i + 1}</td>
                 <td class="td-code" style="color:var(--indigo-primary);font-weight:700;">${r.codigo}</td>
                 <td>
                     <div style="font-size:0.82rem;">${r.descricao}</div>
@@ -5074,13 +5098,10 @@ const pedidos = {
                     </div>
                 </td>
                 <td style="font-size:0.78rem;color:var(--text-dim);">${r.marca}</td>
-                <td class="td-right" style="font-weight:700;font-size:1rem;color:var(--indigo-primary);">${r.total.toLocaleString('pt-BR')}</td>
+                <td class="td-right" style="font-weight:700;color:var(--indigo-primary);">${r.total.toLocaleString('pt-BR')}</td>
                 <td class="td-right" style="color:var(--text-dim);font-size:0.82rem;">${pct}%</td>
             </tr>`;
         }).join('');
-
-        const overlay = document.getElementById('ped-top10-overlay');
-        overlay.style.display = 'flex';
     },
 
     fecharTop10() {
