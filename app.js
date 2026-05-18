@@ -656,6 +656,7 @@ function navigateTo(viewName) {
         pesquisa.render();
     } else if (viewName === 'vxe') {
         vxe.render();
+        vxe._dirty = false;
     } else if (viewName === 'pedidos') {
         document.getElementById('nav-pedidos')?.classList.add('active');
         pedidos.render();
@@ -1079,6 +1080,7 @@ const vendas = {
         this.populateMediaFilter();
         this.showDataSection();
         this.render();
+        this._sincronizarDashboards();
         this.perguntarESalvar(this._nomeArquivo || 'importacao');
     },
 
@@ -1192,6 +1194,27 @@ const vendas = {
         this.showDataSection();
         this.render();
         this.renderHistorico();
+        this._sincronizarDashboards();
+    },
+
+    _sincronizarDashboards() {
+        // VxE — atualiza ao vivo se visível, senão marca dirty
+        const vxeView = document.getElementById('view-vxe');
+        if (vxeView && vxeView.style.display !== 'none') {
+            setTimeout(() => vxe.render(), 50);
+        } else {
+            vxe._dirty = true;
+        }
+        // ABC — marca dirty para recalcular na próxima navegação
+        abc._items = [];
+        abcMicro._items = [];
+        // Pedidos — re-renderiza se visível
+        const pedView = document.getElementById('view-pedidos');
+        if (pedView && pedView.style.display !== 'none') {
+            setTimeout(() => pedidos.render(), 50);
+        }
+        // opDash — marca dirty
+        opDash._dirty = true;
     },
 
     renderHistorico() {
@@ -5704,6 +5727,7 @@ const vxe = {
     selectedYear: 'all',
     selectedTri:  '',
     selectedMes:  '',
+    _dirty:       false,
 
     init() {
         document.getElementById('vxe-year-tabs').addEventListener('click', e => {
@@ -5883,7 +5907,7 @@ const vxe = {
                 })()}</td>
                 <td class="td-right">${(() => {
                     if (r.vendMedia <= 0) return '<span style="opacity:.3">—</span>';
-                    const mult = Math.max(1, parseInt(document.getElementById('vxe-prog-mult')?.value) || 1);
+                    const mult = parseFloat(document.getElementById('vxe-prog-mult')?.value) || 1;
                     const prog = Math.round((r.vendMedia - r.estProcesso) * mult);
                     const cor = prog > 0 ? '#f06292' : '#26a69a';
                     const txt = prog > 0 ? `+${prog.toLocaleString('pt-BR')}` : prog.toLocaleString('pt-BR');
