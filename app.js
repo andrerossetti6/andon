@@ -5090,7 +5090,7 @@ const pedidos = {
             const barW = (r.total / maxQtd * 100).toFixed(0);
             return `<tr>
                 <td style="text-align:center;color:var(--text-dim);font-size:0.85rem;">${i + 1}</td>
-                <td class="td-code" style="color:var(--indigo-primary);font-weight:700;">${r.codigo}</td>
+                <td class="td-code" style="color:var(--indigo-primary);font-weight:700;position:sticky;left:0;background:var(--bg-obsidian);">${r.codigo}</td>
                 <td>
                     <div style="font-size:0.82rem;">${r.descricao}</div>
                     <div style="margin-top:3px;height:3px;border-radius:2px;background:var(--border);">
@@ -5880,6 +5880,13 @@ const vxe = {
                     const cob = r.estProcesso / r.vendMedia;
                     const cor = cob < 1 ? '#f06292' : cob <= 3 ? '#26a69a' : '#ffab76';
                     return `<span style="color:${cor};font-weight:600;">${cob.toFixed(1)} meses</span>`;
+                })()}</td>
+                <td class="td-right">${(() => {
+                    const prog = Math.round(r.vendMedia - r.estProcesso);
+                    if (r.vendMedia <= 0) return '<span style="opacity:.3">—</span>';
+                    const cor = prog > 0 ? '#f06292' : '#26a69a';
+                    const txt = prog > 0 ? `+${prog.toLocaleString('pt-BR')}` : prog.toLocaleString('pt-BR');
+                    return `<span style="color:${cor};font-weight:700;">${txt}</span>`;
                 })()}</td>
                 <td class="td-center"><span class="vxe-badge ${classes[r.st]}">${labels[r.st]}</span></td>
             </tr>`).join('');
