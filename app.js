@@ -209,6 +209,7 @@ function mostrarApp() {
     abcMicro.init();
     abcEstoque.init();
     disponibilidade.init().catch(() => {});
+    const _modulos = ['Vendas','Banco','Cliente','Calendário','Capacidade','Estoque','OP','Costura'];
     Promise.allSettled([
         vendas.carregarHistorico(),
         banco.carregarHistorico(),
@@ -219,9 +220,13 @@ function mostrarApp() {
         op.carregarHistorico(),
         costura.carregarHistorico(),
     ]).then(results => {
-        results.forEach((r, i) => {
-            if (r.status === 'rejected') console.warn('carregarHistorico[' + i + '] falhou:', r.reason);
-        });
+        const falhos = results
+            .map((r, i) => r.status === 'rejected' ? _modulos[i] : null)
+            .filter(Boolean);
+        if (falhos.length) {
+            console.warn('Módulos com falha ao carregar:', falhos);
+            mostrarToast(`⚠ Erro ao carregar: ${falhos.join(', ')}`, 'erro');
+        }
     });
 }
 
@@ -2791,12 +2796,14 @@ function criarModuloArq(id, nomeApi) {
 
         init() {
             const zone = document.getElementById(`${id}-drop-zone`);
-            zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
-            zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
-            zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag-over'); const f = e.dataTransfer.files[0]; if (f) this.handleFile(f); });
+            if (zone) {
+                zone.addEventListener('dragover', e => { e.preventDefault(); zone.classList.add('drag-over'); });
+                zone.addEventListener('dragleave', () => zone.classList.remove('drag-over'));
+                zone.addEventListener('drop', e => { e.preventDefault(); zone.classList.remove('drag-over'); const f = e.dataTransfer.files[0]; if (f) this.handleFile(f); });
+            }
             const inp = document.getElementById(`file-input-${id}`);
-            inp.addEventListener('change', e => { const f = e.target.files[0]; if (f) this.handleFile(f); inp.value = ''; });
-            document.getElementById(`${id}-search`).addEventListener('input', () => this.aplicarFiltros());
+            if (inp) inp.addEventListener('change', e => { const f = e.target.files[0]; if (f) this.handleFile(f); inp.value = ''; });
+            document.getElementById(`${id}-search`)?.addEventListener('input', () => this.aplicarFiltros());
             this._setupCombo(`${id}-col1-input`,`${id}-col1-dropdown`,'_col1Selected','_col1Values');
             this._setupCombo(`${id}-col2-input`,`${id}-col2-dropdown`,'_col2Selected','_col2Values');
         },
@@ -5076,7 +5083,10 @@ const opDash = {
         this._rows = op.rawData.map(r => {
             const dados = r.dados || {};
             const statusKey = Object.keys(dados).find(k => /status|situac/i.test(k));
-            const codKey    = Object.keys(dados).find(k => /^c[oó]d/i.test(k));
+            const codKey    = Object.keys(dados).find(k => /^c[oó]digo$/i.test(k))
+                           || Object.keys(dados).find(k => /^c[oó]d[^a-z]/i.test(k))
+                           || Object.keys(dados).find(k => /c[oó]digo/i.test(k))
+                           || Object.keys(dados).find(k => /^ref/i.test(k));
             const cod = String(dados[codKey] || '').trim().toUpperCase();
             const vxe = vxeMap[cod] || {};
             opCodes.add(String(dados[statusKey]||'').trim());

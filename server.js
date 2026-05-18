@@ -541,7 +541,10 @@ app.get('/api/maquinas', auth, async (req, res) => {
 });
 app.post('/api/maquinas', auth, async (req, res) => {
     const { processo_id, id_maquina, modelo, oee, status, n_pessoas } = req.body;
-    const { data, error } = await supabase.from('maquinas').insert({ processo_id, id_maquina, modelo, oee, status, n_pessoas }).select().single();
+    if (!processo_id) return res.status(400).json({ erro: 'processo_id obrigatório' });
+    if (!id_maquina && !modelo && oee == null && n_pessoas == null)
+        return res.status(400).json({ erro: 'Preencha ao menos um campo da máquina' });
+    const { data, error } = await supabase.from('maquinas').insert({ processo_id, id_maquina: id_maquina || null, modelo: modelo || null, oee: oee ?? null, status: status || 'Ativo', n_pessoas: n_pessoas ?? null }).select().single();
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, data });
 });
@@ -609,13 +612,13 @@ app.delete('/api/importacoes/:id', auth, adminOnly, async (req, res) => {
 // ── Rota de emergência — acesso direto sem depender do JS ────────
 app.get('/emergencia', (_req, res) => {
     res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8">
-    <title>SIGS — Acesso de Emergência</title>
+    <title>SIN1 — Acesso de Emergência</title>
     <style>body{background:#0D1117;color:#E6EDF3;font-family:Inter,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}
     .box{background:#161B22;border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:40px;width:340px}
     h2{margin:0 0 24px;font-size:1.3rem}input{width:100%;padding:10px;background:#0D1117;border:1px solid rgba(255,255,255,0.1);border-radius:6px;color:#E6EDF3;font-size:0.9rem;margin-bottom:12px;box-sizing:border-box}
     button{width:100%;padding:12px;background:#2F81F7;color:white;border:none;border-radius:6px;font-size:0.9rem;cursor:pointer}
     #msg{margin-top:12px;font-size:0.8rem;color:#F85149}</style></head>
-    <body><div class="box"><h2>SIGS — Emergência</h2>
+    <body><div class="box"><h2>SIN1 — Emergência</h2>
     <form id="f"><input type="email" id="e" value="admin@stoll.com.br" required>
     <input type="password" id="s" value="Admin@2025" required>
     <button type="submit">Entrar</button></form>
@@ -623,8 +626,8 @@ app.get('/emergencia', (_req, res) => {
     <script>document.getElementById('f').onsubmit=async e=>{e.preventDefault();
     const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({email:document.getElementById('e').value,senha:document.getElementById('s').value})});
-    const d=await r.json();if(r.ok){localStorage.setItem('sigs_token',d.token);
-    localStorage.setItem('sigs_user',JSON.stringify(d.usuario));window.location='/';}
+    const d=await r.json();if(r.ok){localStorage.setItem('sin1_token',d.token);
+    localStorage.setItem('sin1_user',JSON.stringify(d.usuario));window.location='/';}
     else document.getElementById('msg').textContent=d.erro||'Erro';}</script></body></html>`);
 });
 
@@ -634,6 +637,6 @@ app.get('/{*path}', (_req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`\n🚀 Servidor SIGS rodando em: http://localhost:${PORT}`);
+    console.log(`\n🚀 Servidor SIN1 rodando em: http://localhost:${PORT}`);
     console.log(`📡 Banco: Supabase (${process.env.SUPABASE_URL})\n`);
 });
