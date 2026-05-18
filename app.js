@@ -5055,34 +5055,36 @@ const pedidos = {
             const qtd = Number(r[colKey]) || 0;
             if (!qtd) return;
             const cod = r.codigo || '—';
-            if (!map[cod]) map[cod] = { codigo: cod, descricao: r.descricao || '—', marca: r.marca || '', total: 0 };
+            if (!map[cod]) map[cod] = { codigo: cod, descricao: r.descricao || '—', marca: r.marca || '—', total: 0 };
             map[cod].total += qtd;
         });
         const top10 = Object.values(map).sort((a,b) => b.total - a.total).slice(0, 10);
+        const totalMes = mes.total || top10.reduce((s,r) => s + r.total, 0);
 
-        document.getElementById('ped-top10-tbody').innerHTML = top10.map((r, i) => `
-            <tr>
-                <td class="td-dim td-center">${i + 1}</td>
-                <td class="td-code" style="color:var(--indigo-primary);">${r.codigo}</td>
-                <td class="td-desc" style="font-size:0.78rem;">${r.descricao}</td>
-                <td class="td-right" style="font-weight:700;color:var(--indigo-primary);">${r.total.toLocaleString('pt-BR')}</td>
-            </tr>`).join('');
+        document.getElementById('ped-top10-tbody').innerHTML = top10.map((r, i) => {
+            const pct = totalMes > 0 ? (r.total / totalMes * 100).toFixed(1) : '0.0';
+            const barW = totalMes > 0 ? (r.total / top10[0].total * 100).toFixed(0) : 0;
+            return `<tr>
+                <td style="text-align:center;font-weight:700;color:var(--text-dim);font-size:1rem;">${i + 1}</td>
+                <td class="td-code" style="color:var(--indigo-primary);font-weight:700;">${r.codigo}</td>
+                <td>
+                    <div style="font-size:0.82rem;">${r.descricao}</div>
+                    <div style="margin-top:3px;height:3px;border-radius:2px;background:var(--border);">
+                        <div style="height:3px;border-radius:2px;background:var(--indigo-primary);width:${barW}%;"></div>
+                    </div>
+                </td>
+                <td style="font-size:0.78rem;color:var(--text-dim);">${r.marca}</td>
+                <td class="td-right" style="font-weight:700;font-size:1rem;color:var(--indigo-primary);">${r.total.toLocaleString('pt-BR')}</td>
+                <td class="td-right" style="color:var(--text-dim);font-size:0.82rem;">${pct}%</td>
+            </tr>`;
+        }).join('');
 
         const overlay = document.getElementById('ped-top10-overlay');
-        const panel   = document.getElementById('ped-top10-panel');
-        overlay.style.display = 'block';
-        panel.style.display   = 'flex';
-        requestAnimationFrame(() => { panel.style.transform = 'translateX(0)'; });
+        overlay.style.display = 'flex';
     },
 
     fecharTop10() {
-        const panel   = document.getElementById('ped-top10-panel');
-        const overlay = document.getElementById('ped-top10-overlay');
-        panel.style.transform = 'translateX(100%)';
-        setTimeout(() => {
-            panel.style.display   = 'none';
-            overlay.style.display = 'none';
-        }, 250);
+        document.getElementById('ped-top10-overlay').style.display = 'none';
     },
 
     render() {
@@ -5111,7 +5113,7 @@ const pedidos = {
 
         // Soma total por mês (todos os códigos)
         const mesesMap = {};
-        cols.forEach(c => { mesesMap[c.key] = { label: c.label, abbr: c.abbr, year: c.year, total: 0 }; });
+        cols.forEach(c => { mesesMap[c.key] = { key: c.key, label: c.label, abbr: c.abbr, year: c.year, total: 0 }; });
         vendas.rawData.forEach(r => {
             cols.forEach(c => { mesesMap[c.key].total += (Number(r[c.key]) || 0); });
         });
