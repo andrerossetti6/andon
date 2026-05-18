@@ -5395,7 +5395,8 @@ const opDash = {
             <th class="td-right" style="color:var(--indigo-primary);">MÉDIA VENDAS</th>
             <th class="td-right" style="color:var(--green-accent);">ESTOQUE</th>
             <th class="td-right" style="color:var(--orange-accent);">EM PROCESSO (OP)</th>
-            <th class="td-right">COBERTURA</th>`;
+            <th class="td-right">COBERTURA</th>
+            <th class="td-right" style="color:#f06292;">PROGRAMAR</th>`;
 
         this._renderTabela();
     },
@@ -5430,11 +5431,19 @@ const opDash = {
         document.getElementById('opdash-aberto').textContent    = (total - liberadas).toLocaleString('pt-BR');
         document.getElementById('opdash-count').textContent     = `${total.toLocaleString('pt-BR')} ordens`;
 
+        const mult = parseFloat(document.getElementById('opdash-prog-mult')?.value) || 1;
         const fmt  = v => v != null ? Math.round(v).toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>';
         const fmtC = v => {
             if (v == null) return '<span style="opacity:.3">—</span>';
             const cor = v < 1 ? '#f06292' : v <= 3 ? '#26a69a' : '#ffab76';
             return `<span style="color:${cor};font-weight:600;">${v.toFixed(1)} meses</span>`;
+        };
+        const fmtP = (vendMedia, emProcesso) => {
+            if (vendMedia == null || vendMedia <= 0) return '<span style="opacity:.3">—</span>';
+            const prog = Math.round((vendMedia - emProcesso) * mult);
+            const cor  = prog > 0 ? '#f06292' : '#26a69a';
+            const txt  = prog > 0 ? `+${prog.toLocaleString('pt-BR')}` : prog.toLocaleString('pt-BR');
+            return `<span style="color:${cor};font-weight:700;">${txt}</span>`;
         };
 
         document.getElementById('opdash-tbody').innerHTML = visible.slice(0, 2000).map(r => `
@@ -5447,6 +5456,7 @@ const opDash = {
                 <td class="td-right" style="color:var(--green-accent);font-weight:600;">${fmt(r.estoque)}</td>
                 <td class="td-right" style="color:var(--orange-accent);font-weight:600;">${fmt(r.emProcesso)}</td>
                 <td class="td-right">${fmtC(r.cobertura)}</td>
+                <td class="td-right">${fmtP(r.vendMedia, r.emProcesso)}</td>
             </tr>`).join('');
     },
 

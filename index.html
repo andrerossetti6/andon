@@ -1176,6 +1176,12 @@
                 <label style="font-size:0.78rem;color:var(--text-dim);">Status</label>
                 <select class="sigs-select" id="opdash-status-sel"><option value="">Todos</option></select>
                 <span class="table-count-label" id="opdash-count"></span>
+                <div style="display:flex;align-items:center;gap:8px;margin-left:auto;background:rgba(240,98,146,.08);border:1px solid rgba(240,98,146,.3);border-radius:8px;padding:6px 14px;">
+                    <span style="font-size:0.72rem;font-weight:600;color:#f06292;white-space:nowrap;">× PROGRAMAR</span>
+                    <input type="number" id="opdash-prog-mult" min="0.1" step="0.1" value="1"
+                        style="width:60px;background:transparent;border:none;border-bottom:1px solid rgba(240,98,146,.5);color:#f06292;font-size:0.9rem;font-weight:700;text-align:center;outline:none;"
+                        oninput="opDash._renderTabela()">
+                </div>
                 <button class="btn secondary" onclick="opDash.limpar()">Limpar</button>
             </div>
             <!-- Tabela -->
@@ -1225,7 +1231,7 @@
             <span class="table-count-label" id="vxe-count"></span>
             <div style="display:flex;align-items:center;gap:8px;margin-left:auto;background:rgba(240,98,146,.08);border:1px solid rgba(240,98,146,.3);border-radius:8px;padding:6px 14px;">
                 <span style="font-size:0.72rem;font-weight:600;color:#f06292;white-space:nowrap;">× PROGRAMAR</span>
-                <input type="number" id="vxe-prog-mult" min="1" max="99" step="1" value="1"
+                <input type="number" id="vxe-prog-mult" min="0.1" step="0.1" value="1"
                     style="width:60px;background:transparent;border:none;border-bottom:1px solid rgba(240,98,146,.5);color:#f06292;font-size:0.9rem;font-weight:700;text-align:center;outline:none;"
                     oninput="vxe.render()">
             </div>
