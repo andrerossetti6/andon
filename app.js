@@ -208,6 +208,7 @@ function mostrarApp() {
     abc.init();
     abcMicro.init();
     abcEstoque.init();
+    pedidos.init();
     disponibilidade.init().catch(() => {});
     const _modulos = ['Vendas','Banco','Cliente','Calendário','Capacidade','Estoque','OP','Costura'];
     Promise.allSettled([
@@ -598,7 +599,7 @@ function fecharDetalheVxe() {
 function navigateTo(viewName) {
     fecharDetalhe();
     fecharDetalheVxe();
-    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','pesquisa','vxe','op-dash','abc','abc-micro','abc-estoque'].forEach(v => {
+    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','pesquisa','vxe','op-dash','pedidos','abc','abc-micro','abc-estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -619,6 +620,7 @@ function navigateTo(viewName) {
         pesquisa:      'nav-pesquisa',
         vxe:           'nav-vxe',
         'op-dash':     'nav-op-dash',
+        'pedidos':     'nav-pedidos',
         dashboard:     'nav-analise',
         abc:           'nav-abc-cruzada',
         'abc-micro':   'nav-abc-cruzada',
@@ -654,6 +656,9 @@ function navigateTo(viewName) {
         pesquisa.render();
     } else if (viewName === 'vxe') {
         vxe.render();
+    } else if (viewName === 'pedidos') {
+        document.getElementById('nav-pedidos')?.classList.add('active');
+        pedidos.render();
     } else if (viewName === 'op-dash') {
         document.getElementById('nav-op-dash')?.classList.add('active');
         if (opDash._dirty || !opDash._rows.length) opDash.render();
@@ -5025,6 +5030,137 @@ const abcEstoque = {
 };
 
 // ====== PESQUISA POR CÓDIGO ======
+
+// ====== DASHBOARD: PEDIDOS ======
+const pedidos = {
+    _anoSel: '',
+
+    init() {
+        document.getElementById('ped-ano-sel')?.addEventListener('change', e => {
+            this._anoSel = e.target.value;
+            this.render();
+        });
+    },
+
+    render() {
+        const empty   = document.getElementById('ped-empty');
+        const content = document.getElementById('ped-content');
+        if (!vendas.rawData?.length || !vendas.monthCols?.length) {
+            if (empty)   empty.style.display = 'block';
+            if (content) content.style.display = 'none';
+            return;
+        }
+        if (empty)   empty.style.display = 'none';
+        if (content) content.style.display = 'block';
+
+        // Popula select de ano
+        const anoSel = document.getElementById('ped-ano-sel');
+        if (anoSel) {
+            const anos = [...new Set(vendas.monthCols.map(c => c.year).filter(Boolean))].sort();
+            anoSel.innerHTML = '<option value="">Todos os anos</option>' +
+                anos.map(a => `<option value="${a}"${a===this._anoSel?' selected':''}>${a}</option>`).join('');
+        }
+
+        // Filtra colunas pelo ano selecionado
+        const cols = this._anoSel
+            ? vendas.monthCols.filter(c => c.year === this._anoSel)
+            : vendas.monthCols;
+
+        // Soma total por mês (todos os códigos)
+        const mesesMap = {};
+        cols.forEach(c => { mesesMap[c.key] = { label: c.label, abbr: c.abbr, year: c.year, total: 0 }; });
+        vendas.rawData.forEach(r => {
+            cols.forEach(c => { mesesMap[c.key].total += (Number(r[c.key]) || 0); });
+        });
+
+        const meses = Object.values(mesesMap).filter(m => m.total > 0);
+        const totalGeral = meses.reduce((s, m) => s + m.total, 0);
+        const maior      = meses.reduce((a, b) => b.total > a.total ? b : a, meses[0] || {});
+        const media      = meses.length ? Math.round(totalGeral / meses.length) : 0;
+
+        // Cards
+        document.getElementById('ped-total').textContent     = totalGeral.toLocaleString('pt-BR');
+        document.getElementById('ped-meses').textContent     = meses.length;
+        document.getElementById('ped-maior').textContent     = maior?.total?.toLocaleString('pt-BR') || '—';
+        document.getElementById('ped-maior-nome').textContent = maior?.label || '—';
+        document.getElementById('ped-media').textContent     = media.toLocaleString('pt-BR');
+
+        // Gráfico de barras
+        this._drawChart(meses);
+
+        // Tabela
+        const thead = document.getElementById('ped-thead');
+        const tbody = document.getElementById('ped-tbody');
+        thead.innerHTML = meses.map(m => `<th class="td-center">${m.label}</th>`).join('');
+        const maxVal = Math.max(...meses.map(m => m.total), 1);
+        tbody.innerHTML = `<tr>${meses.map(m => {
+            const pct = (m.total / maxVal * 100).toFixed(0);
+            const cor = m.total === maior?.total ? 'var(--green-accent)' : 'var(--indigo-primary)';
+            return `<td class="td-center">
+                <div style="font-weight:700;font-size:0.95rem;color:${cor};">${m.total.toLocaleString('pt-BR')}</div>
+                <div style="margin-top:4px;height:4px;border-radius:2px;background:var(--border);">
+                    <div style="height:4px;border-radius:2px;background:${cor};width:${pct}%;"></div>
+                </div>
+            </td>`;
+        }).join('')}</tr>`;
+    },
+
+    _drawChart(meses) {
+        const canvas = document.getElementById('ped-chart');
+        if (!canvas || !meses.length) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width  = canvas.offsetWidth || 800;
+        const H = canvas.height = 220;
+        ctx.clearRect(0, 0, W, H);
+
+        const padL = 52, padR = 16, padT = 20, padB = 40;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+        const maxVal = Math.max(...meses.map(m => m.total), 1);
+        const n = meses.length;
+        const barW = Math.max(8, (chartW / n) * 0.6);
+        const gap  = chartW / n;
+
+        // Grid lines
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        ctx.lineWidth = 1;
+        [0, 0.25, 0.5, 0.75, 1].forEach(p => {
+            const y = padT + chartH * (1 - p);
+            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+            ctx.fillStyle = '#8b949e';
+            ctx.font = '10px Inter';
+            ctx.textAlign = 'right';
+            ctx.fillText(Math.round(maxVal * p).toLocaleString('pt-BR'), padL - 6, y + 4);
+        });
+
+        // Barras
+        meses.forEach((m, i) => {
+            const x  = padL + gap * i + (gap - barW) / 2;
+            const barH = (m.total / maxVal) * chartH;
+            const y  = padT + chartH - barH;
+
+            // Gradiente
+            const grad = ctx.createLinearGradient(0, y, 0, padT + chartH);
+            grad.addColorStop(0, 'rgba(38,198,218,0.9)');
+            grad.addColorStop(1, 'rgba(38,198,218,0.2)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.roundRect(x, y, barW, barH, [3, 3, 0, 0]);
+            ctx.fill();
+
+            // Valor no topo
+            ctx.fillStyle = '#e6edf3';
+            ctx.font = 'bold 10px Inter';
+            ctx.textAlign = 'center';
+            if (barH > 18) ctx.fillText(m.total.toLocaleString('pt-BR'), x + barW/2, y - 4);
+
+            // Label mês
+            ctx.fillStyle = '#8b949e';
+            ctx.font = '10px Inter';
+            ctx.fillText(m.label, x + barW/2, H - padB + 14);
+        });
+    }
+};
 
 // ====== DASHBOARD: ORDEM DE PRODUÇÃO ======
 const opDash = {
