@@ -5882,8 +5882,9 @@ const vxe = {
                     return `<span style="color:${cor};font-weight:600;">${cob.toFixed(1)} meses</span>`;
                 })()}</td>
                 <td class="td-right">${(() => {
-                    const prog = Math.round(r.vendMedia - r.estProcesso);
                     if (r.vendMedia <= 0) return '<span style="opacity:.3">—</span>';
+                    const mult = Math.max(1, parseInt(document.getElementById('vxe-prog-mult')?.value) || 1);
+                    const prog = Math.round((r.vendMedia - r.estProcesso) * mult);
                     const cor = prog > 0 ? '#f06292' : '#26a69a';
                     const txt = prog > 0 ? `+${prog.toLocaleString('pt-BR')}` : prog.toLocaleString('pt-BR');
                     return `<span style="color:${cor};font-weight:700;">${txt}</span>`;

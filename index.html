@@ -1223,6 +1223,12 @@
             </select>
             <input type="text" class="sin1-input" id="vxe-search" placeholder="Buscar por código..." style="width:220px;">
             <span class="table-count-label" id="vxe-count"></span>
+            <div style="display:flex;align-items:center;gap:8px;margin-left:auto;background:rgba(240,98,146,.08);border:1px solid rgba(240,98,146,.3);border-radius:8px;padding:6px 14px;">
+                <span style="font-size:0.72rem;font-weight:600;color:#f06292;white-space:nowrap;">× PROGRAMAR</span>
+                <input type="number" id="vxe-prog-mult" min="1" max="99" step="1" value="1"
+                    style="width:60px;background:transparent;border:none;border-bottom:1px solid rgba(240,98,146,.5);color:#f06292;font-size:0.9rem;font-weight:700;text-align:center;outline:none;"
+                    oninput="vxe.render()">
+            </div>
         </div>
         <!-- Cards resumo -->
         <div style="display:flex;gap:12px;flex-shrink:0;">
