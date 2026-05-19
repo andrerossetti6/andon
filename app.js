@@ -1415,22 +1415,27 @@ const vendas = {
 
         // Segmento — usa rawData para mostrar todos sempre (não só os filtrados)
         const segSelecionado = document.getElementById('filter-segmento').value;
-        const bySeg = {};
-        const _mod  = document.getElementById('filter-modelo')?.value    || '';
-        const _tam  = document.getElementById('filter-tamanho')?.value   || '';
-        const _desc = document.getElementById('filter-descricao')?.value || '';
-        this.rawData.filter(r => {
-            if (_mod  && r.modelo    !== _mod)  return false;
-            if (_tam  && r.tamanho   !== _tam)  return false;
-            if (_desc && r.descricao !== _desc) return false;
-            return true;
-        }).forEach(r => {
-            const k = r.segmento || '—';
-            bySeg[k] = (bySeg[k] || 0) + rowQtd(r);
+        // Por Código — top 8 códigos por quantidade nos dados filtrados
+        const byCod = {};
+        this.filtered.forEach(r => {
+            const k = r.codigo || '—';
+            byCod[k] = (byCod[k] || 0) + rowQtd(r);
         });
-        const totalSeg = Object.values(bySeg).reduce((s, v) => s + v, 0);
-        document.getElementById('summary-segmento').innerHTML =
-            this.renderBreakdown(bySeg, totalSeg, 'segmento', segSelecionado);
+        const topCods = Object.entries(byCod).sort((a,b) => b[1]-a[1]).slice(0, 8);
+        const maxCod  = topCods[0]?.[1] || 1;
+        const elPorCod = document.getElementById('summary-por-codigo');
+        if (elPorCod) {
+            elPorCod.innerHTML = topCods.map(([cod, qtd]) => {
+                const w = (qtd / maxCod * 100).toFixed(0);
+                return `<div class="bd-row" style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                    <span style="font-size:0.72rem;color:var(--indigo-primary);font-weight:600;min-width:52px;">${cod}</span>
+                    <div style="flex:1;height:4px;border-radius:2px;background:var(--border);">
+                        <div style="height:4px;border-radius:2px;background:var(--indigo-primary);width:${w}%;"></div>
+                    </div>
+                    <span style="font-size:0.72rem;color:var(--text-dim);min-width:40px;text-align:right;">${qtd.toLocaleString('pt-BR')}</span>
+                </div>`;
+            }).join('');
+        }
 
         // Tamanho — usa os dados já filtrados (inclusive pelo segmento clicado)
         const byTam = {};
