@@ -1402,6 +1402,17 @@ const vendas = {
         document.getElementById('summary-qtd-sub').textContent =
             `${this.filtered.length.toLocaleString('pt-BR')} itens · ${this.selectedYear !== 'all' ? this.selectedYear : 'todos os anos'}`;
 
+        // Cards Código | Modelo | Tamanho
+        const codigos  = new Set(this.filtered.map(r => r.codigo).filter(Boolean));
+        const modelos  = new Set(this.filtered.map(r => r.modelo).filter(Boolean));
+        const tamanhos = new Set(this.filtered.map(r => r.tamanho).filter(Boolean));
+        const elCod = document.getElementById('summary-codigos');
+        const elMod = document.getElementById('summary-modelos');
+        const elTam = document.getElementById('summary-tamanhos');
+        if (elCod) elCod.textContent = codigos.size.toLocaleString('pt-BR');
+        if (elMod) elMod.textContent = modelos.size.toLocaleString('pt-BR');
+        if (elTam) elTam.textContent = tamanhos.size.toLocaleString('pt-BR');
+
         // Segmento — usa rawData para mostrar todos sempre (não só os filtrados)
         const segSelecionado = document.getElementById('filter-segmento').value;
         const bySeg = {};
