@@ -862,7 +862,7 @@ function navigateTo(viewName) {
     if (viewName !== 'dashboard') localStorage.setItem('sin1_lastView', viewName);
     fecharDetalhe();
     fecharDetalheVxe();
-    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','pesquisa','vxe','op-dash','pedidos','comparador','clientes-dash','abc','abc-micro','abc-estoque'].forEach(v => {
+    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','toc','pesquisa','vxe','op-dash','pedidos','comparador','clientes-dash','abc','abc-micro','abc-estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -880,6 +880,7 @@ function navigateTo(viewName) {
         calendario:    'nav-arq',
         processos:     'nav-arq',
         capacidade:    'nav-arq',
+        toc:           'nav-arq',
         pesquisa:      'nav-pesquisa',
         vxe:           'nav-vxe',
         'op-dash':     'nav-op-dash',
