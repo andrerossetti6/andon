@@ -1012,6 +1012,17 @@
                 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".4"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
                 <p style="margin-top:12px;font-size:0.9rem;">Nenhum processo cadastrado.<br>Clique em <strong>Novo Processo</strong> para começar.</p>
             </div>
+
+            <!-- ── Fluxograma BPM ── -->
+            <div id="proc-bpm-wrap" style="margin-top:32px;display:none;">
+                <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+                    <span style="font-size:0.65rem;color:var(--text-dim);letter-spacing:0.12em;font-weight:700;">FLUXOGRAMA BPM</span>
+                    <div style="flex:1;height:1px;background:var(--border-color);"></div>
+                </div>
+                <div id="proc-bpm-scroll" style="overflow-x:auto;overflow-y:visible;padding-bottom:12px;">
+                    <svg id="proc-bpm-svg" style="display:block;min-width:100%;"></svg>
+                </div>
+            </div>
         </div>
 
         <!-- ── Detalhe do Processo (máquinas) ── -->

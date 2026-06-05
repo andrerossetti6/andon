@@ -4051,6 +4051,7 @@ const processosGerenciamento = {
         `).join('');
 
         this._initDrag(grid);
+        this.renderBPM();
     },
 
     _initDrag(grid) {
@@ -4105,6 +4106,137 @@ const processosGerenciamento = {
     },
     _saveOrder() {
         localStorage.setItem('proc-order', JSON.stringify(this._processos.map(p => p.id)));
+    },
+
+    renderBPM() {
+        const wrap = document.getElementById('proc-bpm-wrap');
+        const svg  = document.getElementById('proc-bpm-svg');
+        if (!wrap || !svg) return;
+        if (!this._processos.length) { wrap.style.display = 'none'; return; }
+        wrap.style.display = '';
+
+        // Nodes: START + processos + END
+        const nodes = [
+            { id: '_start', label: 'INÍCIO', type: 'start' },
+            ...this._processos.map(p => ({ id: p.id, label: p.nome, type: 'process' })),
+            { id: '_end',   label: 'FIM',    type: 'end'   }
+        ];
+
+        // Layout em múltiplas linhas se necessário
+        const NW = 148, NH = 60, GAP_X = 48, GAP_Y = 56, PAD = 24, PER_ROW = 5;
+        const rows = [];
+        for (let i = 0; i < nodes.length; i += PER_ROW) rows.push(nodes.slice(i, i + PER_ROW));
+
+        const totalW = Math.min(nodes.length, PER_ROW) * (NW + GAP_X) - GAP_X + PAD * 2;
+        const totalH = rows.length * (NH + GAP_Y) - GAP_Y + PAD * 2;
+
+        svg.setAttribute('width',   totalW);
+        svg.setAttribute('height',  totalH);
+        svg.setAttribute('viewBox', `0 0 ${totalW} ${totalH}`);
+
+        const nodePos = {}; // id → {cx, cy, x, y}
+        let html = `<defs>
+            <marker id="bpm-arrow" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+                <path d="M0,0 L0,6 L8,3 z" fill="#26c6da" opacity=".8"/>
+            </marker>
+            <filter id="bpm-glow">
+                <feDropShadow dx="0" dy="0" stdDeviation="3" flood-color="#26c6da" flood-opacity=".25"/>
+            </filter>
+        </defs>`;
+
+        // Posiciona nodes e desenha formas
+        rows.forEach((row, ri) => {
+            // Fileiras pares: esquerda→direita; ímpares: direita→esquerda (zigzag)
+            const reversed = ri % 2 === 1;
+            const rowNodes = reversed ? [...row].reverse() : row;
+            rowNodes.forEach((node, ci) => {
+                const realCi = reversed ? (row.length - 1 - ci) : ci;
+                const x = PAD + realCi * (NW + GAP_X);
+                const y = PAD + ri * (NH + GAP_Y);
+                nodePos[node.id] = { x, y, cx: x + NW / 2, cy: y + NH / 2 };
+            });
+        });
+
+        // Desenha setas entre nodes consecutivos
+        nodes.forEach((node, i) => {
+            if (i === 0) return;
+            const prev = nodes[i - 1];
+            const a = nodePos[prev.id], b = nodePos[node.id];
+            if (!a || !b) return;
+
+            const sameLine = Math.abs(a.cy - b.cy) < 5;
+            if (sameLine) {
+                // Seta horizontal
+                const x1 = a.x + NW, y1 = a.cy, x2 = b.x - 2, y2 = b.cy;
+                html += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
+                    stroke="#26c6da" stroke-width="1.5" opacity=".6" marker-end="url(#bpm-arrow)"/>`;
+            } else {
+                // Seta de quebra de linha: desce do último da linha anterior, vira para o primeiro da próxima
+                const mx = a.x + NW + 12; // ponto intermediário
+                const path = `M${a.x + NW},${a.cy} H${mx} V${b.cy} H${b.x + NW + 2}`;
+                html += `<path d="${path}" fill="none"
+                    stroke="#26c6da" stroke-width="1.5" opacity=".6" marker-end="url(#bpm-arrow)"/>`;
+            }
+        });
+
+        // Desenha os nodes sobre as setas
+        nodes.forEach(node => {
+            const pos = nodePos[node.id];
+            if (!pos) return;
+            const { x, y, cx, cy } = pos;
+
+            const isStart = node.type === 'start';
+            const isEnd   = node.type === 'end';
+            const rx      = isStart || isEnd ? 30 : 10;
+            const fill    = isStart ? '#0d2e2a' : isEnd ? '#2a1020' : 'var(--bg-card)';
+            const stroke  = isStart ? '#26a69a' : isEnd ? '#f06292' : '#26c6da';
+            const textClr = stroke;
+            const isProc  = node.type === 'process';
+            const filter  = isProc ? 'filter="url(#bpm-glow)"' : '';
+            const cursor  = isProc ? 'pointer' : 'default';
+            const click   = isProc ? `data-proc-id="${node.id}"` : '';
+
+            html += `<g class="${isProc ? 'bpm-node' : ''}" ${click} style="cursor:${cursor}">
+                <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="${rx}"
+                    fill="${fill}" stroke="${stroke}" stroke-width="1.8" ${filter}/>`;
+
+            // Ícone pequeno no topo do node de processo
+            if (isProc) {
+                html += `<rect x="${cx - 8}" y="${y + 8}" width="16" height="10" rx="2"
+                    fill="none" stroke="${stroke}" stroke-width="1.2" opacity=".5"/>
+                <line x1="${cx - 5}" y1="${y + 20}" x2="${cx + 5}" y2="${y + 20}"
+                    stroke="${stroke}" stroke-width="1" opacity=".4"/>`;
+            }
+
+            // Texto (quebra se longo)
+            const labelY = isProc ? cy + 10 : cy;
+            const words  = node.label.split(' ');
+            if (words.length > 1 && node.label.length > 10) {
+                const mid = Math.ceil(words.length / 2);
+                const l1  = words.slice(0, mid).join(' ');
+                const l2  = words.slice(mid).join(' ');
+                html += `<text x="${cx}" y="${labelY - 7}" text-anchor="middle"
+                    fill="${textClr}" font-size="11" font-weight="700" font-family="Outfit,sans-serif">${escHTML(l1)}</text>
+                <text x="${cx}" y="${labelY + 7}" text-anchor="middle"
+                    fill="${textClr}" font-size="11" font-weight="700" font-family="Outfit,sans-serif">${escHTML(l2)}</text>`;
+            } else {
+                html += `<text x="${cx}" y="${labelY}" text-anchor="middle" dominant-baseline="middle"
+                    fill="${textClr}" font-size="11" font-weight="700" font-family="Outfit,sans-serif">${escHTML(node.label)}</text>`;
+            }
+            html += `</g>`;
+        });
+
+        svg.innerHTML = html;
+
+        // Click nos nodes de processo
+        svg.querySelectorAll('.bpm-node').forEach(g => {
+            g.addEventListener('mouseenter', () => g.querySelector('rect')?.setAttribute('opacity', '0.75'));
+            g.addEventListener('mouseleave', () => g.querySelector('rect')?.setAttribute('opacity', '1'));
+            g.addEventListener('click', () => {
+                const id = g.dataset.procId;
+                if (id) processosGerenciamento.abrirProcesso(id);
+            });
+        });
     },
 
     async abrirProcesso(id) {
