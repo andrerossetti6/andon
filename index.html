@@ -89,6 +89,22 @@
                 </ul>
             </nav>
 
+            <nav class="nav-section">
+                <ul>
+                    <li class="has-sub" id="nav-soep-grp">
+                        <div class="item-content" onclick="toggleNavGroup(this.closest('.has-sub'))">
+                            <span>S&amp;OP</span>
+                            <span class="nav-toggle">▾</span>
+                        </div>
+                        <ul class="sub-menu">
+                            <li data-view="previsao"    onclick="navigateTo('previsao')">Previsão de Demanda</li>
+                            <li data-view="plano-prod"  onclick="navigateTo('plano-prod')">Plano de Produção</li>
+                            <li data-view="soep"        onclick="navigateTo('soep')">Dashboard S&amp;OP</li>
+                        </ul>
+                    </li>
+                </ul>
+            </nav>
+
             <nav class="nav-section" id="nav-section-dashboards">
                 <h3 class="nav-section-header" data-key="dashboards" onclick="toggleNavSection(this)">
                     DASHBOARDS <span class="nav-toggle">▾</span>
@@ -2017,6 +2033,157 @@
         </div>
     </div>
 </div>
+
+<!-- ── PREVISÃO DE DEMANDA ───────────────────────────────────── -->
+<main class="content" id="view-previsao" style="display:none;">
+    <header class="page-header">
+        <div class="page-header-text">
+            <h1 class="page-title">Previsão de <span>Demanda</span></h1>
+            <p class="page-subtitle">Projeção baseada em histórico de vendas com sazonalidade automática</p>
+        </div>
+    </header>
+    <div class="summary-card" style="margin-bottom:20px;">
+        <div class="s-label" style="margin-bottom:14px;">CONFIGURAÇÃO</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:14px;align-items:end;">
+            <div>
+                <div style="font-size:.7rem;color:var(--text-dim);margin-bottom:5px;letter-spacing:.07em;">BASE HISTÓRICA</div>
+                <select id="prev-base-meses" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.83rem;">
+                    <option value="6">Últimos 6 meses</option>
+                    <option value="12" selected>Últimos 12 meses</option>
+                    <option value="24">Últimos 24 meses</option>
+                </select>
+            </div>
+            <div>
+                <div style="font-size:.7rem;color:var(--text-dim);margin-bottom:5px;letter-spacing:.07em;">HORIZONTE</div>
+                <select id="prev-horizonte" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.83rem;">
+                    <option value="1">1 mês</option>
+                    <option value="3" selected>3 meses</option>
+                    <option value="6">6 meses</option>
+                </select>
+            </div>
+            <div>
+                <div style="font-size:.7rem;color:var(--text-dim);margin-bottom:5px;letter-spacing:.07em;">AGRUPAR POR</div>
+                <select id="prev-grupo" onchange="previsao.render()" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.83rem;">
+                    <option value="familia">Família (Segmento)</option>
+                    <option value="sku">SKU (Código)</option>
+                </select>
+            </div>
+            <div>
+                <div style="font-size:.7rem;color:var(--text-dim);margin-bottom:5px;letter-spacing:.07em;">SEGMENTO</div>
+                <select id="prev-seg-sel" onchange="previsao.render()" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.83rem;"><option value="">Todos</option></select>
+            </div>
+            <button onclick="previsao.calcular()" style="padding:9px 22px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.83rem;font-weight:700;cursor:pointer;white-space:nowrap;">CALCULAR</button>
+        </div>
+    </div>
+    <div id="prev-sazon-wrap" style="display:none;" class="summary-card" style="margin-bottom:20px;">
+        <div class="s-label" style="margin-bottom:12px;">SAZONALIDADE DETECTADA <span style="font-weight:400;color:var(--text-dim);">— meses em destaque = horizonte previsto</span></div>
+        <div id="prev-sazon-bars" style="display:flex;gap:6px;align-items:flex-end;height:90px;"></div>
+    </div>
+    <div id="prev-resultado" style="display:none;" class="summary-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <div class="s-label" id="prev-table-label">PREVISÃO</div>
+            <span id="prev-count" style="font-size:.73rem;color:var(--text-dim);"></span>
+        </div>
+        <div style="overflow-x:auto;">
+            <table id="prev-table" style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                <thead><tr id="prev-thead" style="border-bottom:1px solid var(--border-color);"></tr></thead>
+                <tbody id="prev-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+</main>
+
+<!-- ── PLANO DE PRODUÇÃO ──────────────────────────────────────── -->
+<main class="content" id="view-plano-prod" style="display:none;">
+    <header class="page-header">
+        <div class="page-header-text">
+            <h1 class="page-title">Plano de <span>Produção</span></h1>
+            <p class="page-subtitle">Planejamento mensal validado contra a capacidade disponível</p>
+        </div>
+    </header>
+    <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:center;">
+        <div id="plano-mes-tabs" style="display:flex;gap:8px;"></div>
+        <div style="flex:1;"></div>
+        <input id="plano-search" type="text" placeholder="Buscar código..." style="padding:7px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;width:180px;">
+        <button onclick="planoProducao.autoSugerir()" style="padding:8px 18px;border-radius:7px;border:none;background:var(--bg-input);color:var(--text-primary);font-size:.82rem;font-weight:600;cursor:pointer;border:1px solid var(--border-color);">AUTO-SUGERIR</button>
+        <button onclick="planoProducao.salvar()" style="padding:8px 18px;border-radius:7px;border:none;background:var(--indigo-btn);color:#fff;font-size:.82rem;font-weight:700;cursor:pointer;">SALVAR PLANO</button>
+    </div>
+    <div class="summary-card" id="plano-cap-wrap" style="margin-bottom:20px;display:none;">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+            <div class="s-label">CAPACIDADE —</div>
+            <span id="plano-cap-mes" style="font-size:.73rem;color:var(--indigo-primary);font-weight:700;"></span>
+        </div>
+        <div id="plano-cap-barras"></div>
+    </div>
+    <div class="summary-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <div class="s-label" id="plano-table-label">PLANO DE PRODUÇÃO</div>
+            <span id="plano-count" style="font-size:.73rem;color:var(--text-dim);"></span>
+        </div>
+        <div style="overflow-x:auto;">
+            <table id="plano-table" style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                <thead><tr style="color:var(--text-dim);font-size:.68rem;letter-spacing:.07em;border-bottom:1px solid var(--border-color);">
+                    <th style="padding:8px 10px;text-align:left;">CÓDIGO</th>
+                    <th style="padding:8px 10px;text-align:left;">DESCRIÇÃO</th>
+                    <th style="padding:8px 10px;text-align:left;">SEGMENTO</th>
+                    <th style="padding:8px 10px;text-align:right;">PREVISÃO</th>
+                    <th style="padding:8px 10px;text-align:right;">ESTOQUE</th>
+                    <th style="padding:8px 10px;text-align:right;">OP ABERTO</th>
+                    <th style="padding:8px 10px;text-align:right;">SUGERIDO</th>
+                    <th style="padding:8px 10px;text-align:right;">PLANEJADO</th>
+                </tr></thead>
+                <tbody id="plano-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+</main>
+
+<!-- ── DASHBOARD S&OP ─────────────────────────────────────────── -->
+<main class="content" id="view-soep" style="display:none;">
+    <header class="page-header">
+        <div class="page-header-text">
+            <h1 class="page-title">Dashboard <span>S&amp;OP</span></h1>
+            <p class="page-subtitle">Visão executiva — Demanda · Produção · Estoque · Capacidade · Ações</p>
+        </div>
+        <button onclick="soepDash.render()" style="padding:9px 22px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.83rem;font-weight:700;cursor:pointer;">ATUALIZAR</button>
+    </header>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;" id="soep-kpis"></div>
+    <div class="summary-card" style="margin-bottom:20px;">
+        <div class="s-label" style="margin-bottom:14px;">HORIZONTE 3 MESES — POR SEGMENTO <span style="font-weight:400;color:var(--text-dim);">(PREV = previsão · PLAN = plano de produção)</span></div>
+        <div style="overflow-x:auto;"><table id="soep-horizonte-table" style="width:100%;border-collapse:collapse;font-size:.82rem;"></table></div>
+    </div>
+    <div class="summary-card" style="margin-bottom:20px;">
+        <div class="s-label" style="margin-bottom:14px;">CAPACIDADE — PRÓXIMOS MESES <span style="font-weight:400;color:var(--text-dim);">(% utilização por processo)</span></div>
+        <div id="soep-cap-heatmap"></div>
+    </div>
+    <div class="summary-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <div class="s-label">AÇÕES &amp; DECISÕES</div>
+            <button onclick="soepDash.novaAcao()" style="padding:7px 16px;border-radius:7px;border:1px solid var(--indigo-btn);background:transparent;color:var(--indigo-primary);font-size:.8rem;font-weight:600;cursor:pointer;">+ Nova Ação</button>
+        </div>
+        <div id="soep-nova-acao-form" style="display:none;background:var(--bg-input);border-radius:8px;padding:16px;margin-bottom:16px;">
+            <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+                <input id="soep-acao-desc" type="text" placeholder="Descrição da ação *" style="padding:8px 12px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;">
+                <input id="soep-acao-resp" type="text" placeholder="Responsável" style="padding:8px 12px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;">
+                <input id="soep-acao-prazo" type="date" style="padding:8px 12px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;">
+                <select id="soep-acao-mod" style="padding:8px 10px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;">
+                    <option value="">Módulo (opcional)</option>
+                    <option value="Demanda">Demanda</option>
+                    <option value="Produção">Produção</option>
+                    <option value="Estoque">Estoque</option>
+                    <option value="Capacidade">Capacidade</option>
+                    <option value="Financeiro">Financeiro</option>
+                    <option value="Geral">Geral</option>
+                </select>
+            </div>
+            <div style="display:flex;gap:10px;">
+                <button onclick="soepDash.salvarAcao()" style="padding:8px 20px;border-radius:7px;border:none;background:var(--indigo-btn);color:#fff;font-size:.82rem;font-weight:700;cursor:pointer;">SALVAR</button>
+                <button onclick="soepDash.novaAcao()" style="padding:8px 16px;border-radius:7px;border:1px solid var(--border-color);background:transparent;color:var(--text-dim);font-size:.82rem;cursor:pointer;">Cancelar</button>
+            </div>
+        </div>
+        <div id="soep-acoes-lista"></div>
+    </div>
+</main>
 
 <!-- ── TOC — Teoria das Restrições ───────────────────────────── -->
 <main class="content" id="view-toc" style="display:none;">

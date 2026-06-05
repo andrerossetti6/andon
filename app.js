@@ -261,6 +261,9 @@ function mostrarApp() {
     processosGerenciamento.init();
     capacidade.init();
     toc.init();
+    previsao.init();
+    planoProducao.init();
+    soepDash.init();
     estoque.init();
     op.init();
     costura.init();
@@ -862,7 +865,7 @@ function navigateTo(viewName) {
     if (viewName !== 'dashboard') localStorage.setItem('sin1_lastView', viewName);
     fecharDetalhe();
     fecharDetalheVxe();
-    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','toc','pesquisa','vxe','op-dash','pedidos','comparador','clientes-dash','abc','abc-micro','abc-estoque'].forEach(v => {
+    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','toc','previsao','plano-prod','soep','pesquisa','vxe','op-dash','pedidos','comparador','clientes-dash','abc','abc-micro','abc-estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -881,6 +884,9 @@ function navigateTo(viewName) {
         processos:     'nav-arq',
         capacidade:    'nav-arq',
         toc:           'nav-arq',
+        previsao:      'nav-soep-grp',
+        'plano-prod':  'nav-soep-grp',
+        soep:          'nav-soep-grp',
         pesquisa:      'nav-pesquisa',
         vxe:           'nav-vxe',
         'op-dash':     'nav-op-dash',
@@ -987,6 +993,14 @@ function navigateTo(viewName) {
     } else if (viewName === 'abc-estoque') {
         document.querySelector('[data-view="abc-estoque"]')?.classList.add('sub-active');
         setTimeout(() => abcEstoque.render(), 50);
+    } else if (viewName === 'previsao') {
+        document.querySelector('[data-view="previsao"]')?.classList.add('sub-active');
+    } else if (viewName === 'plano-prod') {
+        document.querySelector('[data-view="plano-prod"]')?.classList.add('sub-active');
+        if (previsao._forecast.length) setTimeout(() => planoProducao.render(), 50);
+    } else if (viewName === 'soep') {
+        document.querySelector('[data-view="soep"]')?.classList.add('sub-active');
+        setTimeout(() => soepDash.render(), 50);
     }
 }
 
@@ -4251,6 +4265,531 @@ const toc = {
                 <td style="padding:7px 12px;text-align:right;font-weight:600;">${(r.carga/60).toFixed(1)}h</td>
                 <td style="padding:7px 12px;text-align:right;color:var(--text-dim);">${pct}%</td>
             </tr>`;
+        }).join('');
+    },
+};
+
+// Extensão do TOC: calcula sem alterar estado (usado por S&OP)
+toc.calcularComDemanda = function(demandaMap) {
+    if (!banco.rawData.length || !demandaMap) return [];
+    const cap  = this._getCap();
+    const dias = parseFloat(document.getElementById('toc-dias')?.value) || 22;
+    const bancoMap = {};
+    banco.rawData.forEach(r => {
+        const cod = String(r.dados?.['Código'] ?? '').trim().toUpperCase();
+        if (cod) bancoMap[cod] = r.dados;
+    });
+    return this._PROCS.map(p => {
+        const capP   = cap[p.id] || { maquinas: 1, horasDia: 8 };
+        const capMin = capP.maquinas * capP.horasDia * 60 * dias;
+        let cargaMin = 0;
+        Object.entries(demandaMap).forEach(([cod, qty]) => {
+            const dados = bancoMap[String(cod).toUpperCase()];
+            if (!dados) return;
+            cargaMin += this._getTempoMinutos(dados, p.cols) * qty;
+        });
+        const util = capMin > 0 ? cargaMin / capMin : null;
+        return { ...p, cargaMin, cargaH: cargaMin / 60, capMin, capH: capMin / 60, util };
+    });
+};
+
+// ====== S&OP — PREVISÃO DE DEMANDA ======
+const previsao = {
+    _ABBR: ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'],
+    _overrides: {},
+    _forecast:  [],
+    _nextMonths:[],
+    _seasonality:{},
+
+    init() { this._loadOverrides(); },
+
+    _loadOverrides() { try { this._overrides = JSON.parse(localStorage.getItem('soep-prev-ov')||'{}'); } catch { this._overrides = {}; } },
+    _saveOverrides()  { localStorage.setItem('soep-prev-ov', JSON.stringify(this._overrides)); },
+
+    _getNextMonths(n) {
+        const now = new Date();
+        return Array.from({ length: n }, (_, i) => {
+            const d    = new Date(now.getFullYear(), now.getMonth() + i + 1, 1);
+            const abbr = this._ABBR[d.getMonth()];
+            const mes  = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+            return { mes, abbr, label: `${abbr.charAt(0).toUpperCase()+abbr.slice(1)}/${String(d.getFullYear()).slice(2)}` };
+        });
+    },
+
+    _calcSeasonality() {
+        const byAbbr = {}, cntAbbr = {};
+        vendas.monthCols.forEach(col => {
+            const tot = vendas.rawData.reduce((s,r) => s+(r[col.key]||0), 0);
+            byAbbr[col.abbr]  = (byAbbr[col.abbr]  || 0) + tot;
+            cntAbbr[col.abbr] = (cntAbbr[col.abbr] || 0) + 1;
+        });
+        const norm = {};
+        Object.keys(byAbbr).forEach(a => norm[a] = byAbbr[a] / (cntAbbr[a]||1));
+        const vals = Object.values(norm);
+        const mean = vals.reduce((s,v)=>s+v,0) / (vals.length||1);
+        const sIdx = {};
+        Object.keys(norm).forEach(a => sIdx[a] = mean > 0 ? norm[a]/mean : 1);
+        return sIdx;
+    },
+
+    calcular() {
+        if (!vendas.rawData.length) { alert('Importe dados de Vendas primeiro.'); return; }
+        const horizonte = parseInt(document.getElementById('prev-horizonte')?.value) || 3;
+        const baseMeses = parseInt(document.getElementById('prev-base-meses')?.value) || 12;
+        const sIdx      = this._calcSeasonality();
+        this._seasonality = sIdx;
+        const nextMonths  = this._getNextMonths(horizonte);
+        this._nextMonths  = nextMonths;
+        const recentCols  = vendas.monthCols.slice(-baseMeses);
+        const forecast    = [];
+
+        vendas.rawData.forEach(r => {
+            const cod = String(r.codigo||'').trim().toUpperCase();
+            if (!cod) return;
+            const total = recentCols.reduce((s,c) => s+(r[c.key]||0), 0);
+            if (!total) return;
+            const baseMedia = total / (recentCols.length||1);
+            nextMonths.forEach(({ mes, abbr, label }) => {
+                const chave  = `${mes}_${cod}`;
+                const rawQty = Math.round(baseMedia * (sIdx[abbr]||1));
+                const qty    = this._overrides[chave] !== undefined ? this._overrides[chave] : rawQty;
+                forecast.push({ mes, abbr, label, chave, codigo: cod,
+                    descricao: String(r.descricao||'').trim(), segmento: String(r.segmento||'').trim(),
+                    modelo: String(r.modelo||'').trim(), baseMedia, rawQty, qty,
+                    isOverride: this._overrides[chave] !== undefined });
+            });
+        });
+
+        this._forecast = forecast;
+        this._renderSazonalidade(sIdx, nextMonths);
+        this._populaSegFiltro();
+        this.render();
+    },
+
+    getQty(codigo, mes) {
+        const cod = String(codigo||'').trim().toUpperCase();
+        const chave = `${mes}_${cod}`;
+        if (this._overrides[chave] !== undefined) return this._overrides[chave];
+        return this._forecast.find(r => r.codigo===cod && r.mes===mes)?.qty || 0;
+    },
+
+    getTotalMes(mes, segmento) {
+        return this._forecast.filter(r => r.mes===mes && (!segmento || r.segmento===segmento)).reduce((s,r)=>s+r.qty,0);
+    },
+
+    getDemandaMapa(mes) {
+        const mapa = {};
+        this._forecast.filter(r => r.mes===mes).forEach(r => { mapa[r.codigo]=(mapa[r.codigo]||0)+r.qty; });
+        return mapa;
+    },
+
+    _setOverride(chave, cod, mes, val) {
+        const qty = Math.max(0, parseInt(val)||0);
+        this._overrides[chave] = qty;
+        this._saveOverrides();
+        const f = this._forecast.find(r => r.codigo===cod && r.mes===mes);
+        if (f) { f.qty=qty; f.isOverride=true; }
+    },
+
+    _populaSegFiltro() {
+        const sel = document.getElementById('prev-seg-sel');
+        if (!sel) return;
+        const cur  = sel.value;
+        const segs = [...new Set(this._forecast.map(r=>r.segmento).filter(Boolean))].sort();
+        sel.innerHTML = '<option value="">Todos</option>' + segs.map(s=>`<option value="${s}"${s===cur?' selected':''}>${s}</option>`).join('');
+    },
+
+    _renderSazonalidade(sIdx, nextMonths) {
+        const wrap = document.getElementById('prev-sazon-wrap');
+        const bars = document.getElementById('prev-sazon-bars');
+        if (!wrap||!bars) return;
+        const entries = Object.entries(sIdx).sort((a,b)=>this._ABBR.indexOf(a[0])-this._ABBR.indexOf(b[0]));
+        const max  = Math.max(...entries.map(e=>e[1]));
+        const next = new Set(nextMonths.map(m=>m.abbr));
+        bars.innerHTML = entries.map(([abbr, idx]) => {
+            const h    = Math.round((idx/max)*60);
+            const isN  = next.has(abbr);
+            const cor  = idx>=1.15?'#f06292':idx>=0.9?'#26a69a':'#ffca28';
+            return `<div style="display:flex;flex-direction:column;align-items:center;gap:3px;flex:1;">
+                <div style="font-size:.68rem;color:${cor};font-weight:700;">${idx.toFixed(2)}×</div>
+                <div style="width:100%;height:${h}px;background:${cor};border-radius:3px 3px 0 0;opacity:${isN?'1':'.35'};"></div>
+                <div style="font-size:.68rem;color:${isN?'var(--text-primary)':'var(--text-dim)'};">${abbr}</div>
+            </div>`;
+        }).join('');
+        wrap.style.display='';
+    },
+
+    render() {
+        const grupo  = document.getElementById('prev-grupo')?.value  || 'familia';
+        const segSel = document.getElementById('prev-seg-sel')?.value || '';
+        const res    = document.getElementById('prev-resultado');
+        const thead  = document.getElementById('prev-thead');
+        const tbody  = document.getElementById('prev-tbody');
+        const label  = document.getElementById('prev-table-label');
+        const count  = document.getElementById('prev-count');
+        if (!res||!this._forecast.length) return;
+        res.style.display='';
+
+        const filtered = this._forecast.filter(r => !segSel || r.segmento===segSel);
+
+        if (grupo==='familia') {
+            label.textContent = 'PREVISÃO POR FAMÍLIA (SEGMENTO)';
+            const segMap = {};
+            filtered.forEach(r => { const s=r.segmento||'—'; if(!segMap[s]) segMap[s]={}; segMap[s][r.mes]=(segMap[s][r.mes]||0)+r.qty; });
+            thead.innerHTML = `<th style="padding:8px 12px;text-align:left;color:var(--text-dim);font-size:.7rem;">SEGMENTO</th>`+
+                this._nextMonths.map(m=>`<th style="padding:8px 12px;text-align:right;color:var(--text-dim);font-size:.7rem;">${m.label.toUpperCase()}</th>`).join('')+
+                `<th style="padding:8px 12px;text-align:right;color:var(--text-dim);font-size:.7rem;">TOTAL 3M</th>`;
+            const segs = Object.keys(segMap).sort();
+            tbody.innerHTML = segs.map((seg,i)=>{
+                const qtds  = this._nextMonths.map(m=>segMap[seg][m.mes]||0);
+                const total = qtds.reduce((s,v)=>s+v,0);
+                return `<tr style="background:${i%2?'var(--bg-input)':'transparent'};">
+                    <td style="padding:8px 12px;font-weight:600;color:var(--indigo-primary);">${escHTML(seg)}</td>
+                    ${qtds.map(q=>`<td style="padding:8px 12px;text-align:right;">${q.toLocaleString('pt-BR')}</td>`).join('')}
+                    <td style="padding:8px 12px;text-align:right;font-weight:700;">${total.toLocaleString('pt-BR')}</td>
+                </tr>`;
+            }).join('');
+            count.textContent = `${segs.length} segmentos`;
+        } else {
+            label.textContent = 'PREVISÃO POR SKU';
+            const skuMap = {};
+            filtered.forEach(r => { if(!skuMap[r.codigo]) skuMap[r.codigo]={...r,meses:{}}; skuMap[r.codigo].meses[r.mes]=r; });
+            thead.innerHTML = `<th style="padding:8px 10px;text-align:left;color:var(--text-dim);font-size:.7rem;">CÓDIGO</th>
+                <th style="padding:8px 10px;text-align:left;color:var(--text-dim);font-size:.7rem;">DESCRIÇÃO</th>
+                <th style="padding:8px 10px;text-align:left;color:var(--text-dim);font-size:.7rem;">SEGMENTO</th>`+
+                this._nextMonths.map(m=>`<th style="padding:8px 10px;text-align:right;color:var(--text-dim);font-size:.7rem;">${m.label.toUpperCase()}</th>`).join('')+
+                `<th style="padding:8px 10px;text-align:right;color:var(--text-dim);font-size:.7rem;">TOTAL</th>`;
+            const skus = Object.values(skuMap).slice(0,400);
+            tbody.innerHTML = skus.map((sku,i)=>{
+                const cells = this._nextMonths.map(m=>{
+                    const f=sku.meses[m.mes]; const qty=f?f.qty:0;
+                    return `<td style="padding:5px 10px;text-align:right;">
+                        <input type="number" value="${qty}" min="0" style="width:72px;padding:3px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:4px;color:${f?.isOverride?'var(--indigo-primary)':'var(--text-primary)'};font-size:.78rem;text-align:right;"
+                            onchange="previsao._setOverride('${m.mes}_${sku.codigo}','${sku.codigo}','${m.mes}',this.value)">
+                    </td>`;
+                }).join('');
+                const total = this._nextMonths.reduce((s,m)=>s+(sku.meses[m.mes]?.qty||0),0);
+                return `<tr style="background:${i%2?'var(--bg-input)':'transparent'};">
+                    <td style="padding:5px 10px;font-weight:600;font-size:.78rem;">${escHTML(sku.codigo)}</td>
+                    <td style="padding:5px 10px;font-size:.78rem;">${escHTML((sku.descricao||'').slice(0,28))}</td>
+                    <td style="padding:5px 10px;font-size:.78rem;color:var(--text-dim);">${escHTML(sku.segmento||'')}</td>
+                    ${cells}
+                    <td style="padding:5px 10px;text-align:right;font-weight:700;">${total.toLocaleString('pt-BR')}</td>
+                </tr>`;
+            }).join('');
+            count.textContent = skus.length<Object.keys(skuMap).length ? `${skus.length} / ${Object.keys(skuMap).length} SKUs (use filtro)` : `${skus.length} SKUs`;
+        }
+    },
+};
+
+// ====== S&OP — PLANO DE PRODUÇÃO ======
+const planoProducao = {
+    _mesSel: '',
+    _plano:  {},
+
+    init() {
+        this._loadPlano();
+        document.getElementById('plano-search')?.addEventListener('input', () => this._renderTabela());
+    },
+
+    _loadPlano()  { try { this._plano = JSON.parse(localStorage.getItem('soep-plano')||'{}'); } catch { this._plano={}; } },
+    _savePlano()  { localStorage.setItem('soep-plano', JSON.stringify(this._plano)); mostrarToast('✓ Plano salvo'); },
+
+    setQty(cod, mes, qty) { this._plano[`${mes}_${String(cod).toUpperCase()}`] = Math.max(0,qty); },
+    getQty(cod, mes)       { return this._plano[`${mes}_${String(cod).toUpperCase()}`] ?? null; },
+
+    render() {
+        if (!previsao._nextMonths.length) {
+            if (vendas.rawData.length) previsao.calcular();
+            else { mostrarToast('Importe Vendas e calcule a Previsão primeiro.','erro'); return; }
+        }
+        if (!this._mesSel) this._mesSel = previsao._nextMonths[0]?.mes || '';
+        this._renderMesTabs();
+        this._renderTabela();
+        this._renderCapacidade();
+    },
+
+    _renderMesTabs() {
+        const el = document.getElementById('plano-mes-tabs');
+        if (!el) return;
+        el.innerHTML = previsao._nextMonths.map(m=>
+            `<button onclick="planoProducao._selMes('${m.mes}')"
+                style="padding:8px 20px;border-radius:8px;border:none;font-size:.82rem;font-weight:600;cursor:pointer;transition:all .15s;
+                background:${m.mes===this._mesSel?'var(--indigo-btn)':'var(--bg-input)'};
+                color:${m.mes===this._mesSel?'#fff':'var(--text-dim)'};">${m.label}</button>`
+        ).join('');
+    },
+
+    _selMes(mes) { this._mesSel=mes; this._renderMesTabs(); this._renderTabela(); this._renderCapacidade(); },
+    salvar()     { this._savePlano(); },
+
+    autoSugerir() {
+        if (!previsao._forecast.length) { alert('Calcule a Previsão de Demanda primeiro.'); return; }
+        if (!this._mesSel) return;
+        const estMap={}, opMap={};
+        estoque.rawData.forEach(r => { estMap[String(r.codigo||'').trim().toUpperCase()] = Number(r.quantidade)||0; });
+        if (op.rawData.length && op._colRef && op._colQtd) {
+            op.rawData.forEach(r => {
+                const cod=String(r.dados?.[op._colRef]||'').trim().toUpperCase();
+                const qty=parseFloat(String(r.dados?.[op._colQtd]||'0').replace(/[^\d.,]/g,'').replace(',','.'))||0;
+                if (cod) opMap[cod]=(opMap[cod]||0)+qty;
+            });
+        }
+        previsao._forecast.filter(r=>r.mes===this._mesSel).forEach(r=>{
+            const sugerido = Math.max(0, r.qty - (estMap[r.codigo]||0) - (opMap[r.codigo]||0));
+            if (sugerido>0) this._plano[`${this._mesSel}_${r.codigo}`]=sugerido;
+        });
+        this._renderTabela(); this._renderCapacidade();
+        mostrarToast('✓ Plano sugerido gerado');
+    },
+
+    _buildMaps() {
+        const estMap={}, opMap={};
+        estoque.rawData.forEach(r=>{ estMap[String(r.codigo||'').trim().toUpperCase()]=Number(r.quantidade)||0; });
+        if (op.rawData.length && op._colRef && op._colQtd) {
+            op.rawData.forEach(r=>{
+                const cod=String(r.dados?.[op._colRef]||'').trim().toUpperCase();
+                const qty=parseFloat(String(r.dados?.[op._colQtd]||'0').replace(/[^\d.,]/g,'').replace(',','.'))||0;
+                if (cod) opMap[cod]=(opMap[cod]||0)+qty;
+            });
+        }
+        return { estMap, opMap };
+    },
+
+    _renderTabela() {
+        const tbody = document.getElementById('plano-tbody');
+        const label = document.getElementById('plano-table-label');
+        const count = document.getElementById('plano-count');
+        if (!tbody||!this._mesSel) return;
+        const mesInfo = previsao._nextMonths.find(m=>m.mes===this._mesSel);
+        if (label) label.textContent = `PLANO — ${mesInfo?.label?.toUpperCase()||this._mesSel}`;
+        const search = (document.getElementById('plano-search')?.value||'').toLowerCase().trim();
+        const { estMap, opMap } = this._buildMaps();
+        const rows = previsao._forecast
+            .filter(r=>r.mes===this._mesSel && (!search || r.codigo.toLowerCase().includes(search)||r.descricao.toLowerCase().includes(search)))
+            .map(r=>({
+                ...r,
+                estqtd: estMap[r.codigo]||0,
+                opQtd:  opMap[r.codigo]||0,
+                sugerido: Math.max(0, r.qty-(estMap[r.codigo]||0)-(opMap[r.codigo]||0)),
+                planejado: this._plano[`${this._mesSel}_${r.codigo}`]??''
+            }))
+            .sort((a,b)=>b.sugerido-a.sugerido).slice(0,500);
+        tbody.innerHTML = rows.map((r,i)=>{
+            const bg=i%2?'var(--bg-input)':'transparent';
+            const planCor = r.planejado>r.qty?'#f06292': r.planejado>0?'#26a69a':'var(--text-dim)';
+            return `<tr style="background:${bg};">
+                <td style="padding:6px 10px;font-weight:600;font-size:.78rem;color:var(--indigo-primary);">${escHTML(r.codigo)}</td>
+                <td style="padding:6px 10px;font-size:.78rem;">${escHTML((r.descricao||'').slice(0,28))}</td>
+                <td style="padding:6px 10px;font-size:.78rem;color:var(--text-dim);">${escHTML(r.segmento||'')}</td>
+                <td style="padding:6px 10px;text-align:right;">${r.qty.toLocaleString('pt-BR')}</td>
+                <td style="padding:6px 10px;text-align:right;color:${r.estqtd<r.qty*.5?'#f06292':'var(--text-primary)'};">${r.estqtd.toLocaleString('pt-BR')}</td>
+                <td style="padding:6px 10px;text-align:right;">${r.opQtd.toLocaleString('pt-BR')}</td>
+                <td style="padding:6px 10px;text-align:right;color:var(--indigo-primary);font-weight:600;">${r.sugerido.toLocaleString('pt-BR')}</td>
+                <td style="padding:6px 10px;text-align:right;">
+                    <input type="number" min="0" value="${r.planejado}" placeholder="${r.sugerido}"
+                        style="width:80px;padding:4px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:${planCor};font-size:.82rem;font-weight:600;text-align:right;"
+                        onchange="planoProducao.setQty('${r.codigo}','${this._mesSel}',parseInt(this.value)||0)">
+                </td>
+            </tr>`;
+        }).join('');
+        if (count) count.textContent = `${rows.length} SKUs`;
+    },
+
+    _renderCapacidade() {
+        const wrap   = document.getElementById('plano-cap-wrap');
+        const barras = document.getElementById('plano-cap-barras');
+        const mesLbl = document.getElementById('plano-cap-mes');
+        if (!wrap||!barras||!this._mesSel||!banco.rawData.length) { if(wrap) wrap.style.display='none'; return; }
+        const demMapa = {};
+        previsao._forecast.filter(r=>r.mes===this._mesSel).forEach(r=>{
+            const qty = this._plano[`${this._mesSel}_${r.codigo}`]??r.qty;
+            if (qty>0) demMapa[r.codigo]=(demMapa[r.codigo]||0)+qty;
+        });
+        const res = toc.calcularComDemanda(demMapa);
+        const mesInfo = previsao._nextMonths.find(m=>m.mes===this._mesSel);
+        if (mesLbl) mesLbl.textContent = mesInfo?.label?.toUpperCase()||'';
+        barras.innerHTML = res.map(p=>{
+            if (!p.cargaMin) return `<div style="display:flex;align-items:center;gap:12px;padding:5px 0;"><div style="width:150px;font-size:.78rem;color:var(--text-dim);">${p.nome}</div><div style="flex:1;height:7px;background:var(--bg-input);border-radius:4px;"></div><div style="width:60px;text-align:right;font-size:.73rem;color:var(--text-dim);">sem dados</div></div>`;
+            const pct=Math.min((p.util||0)*100,300), cor=p.util>=1?'#f06292':p.util>=.8?'#ffca28':'#26a69a';
+            return `<div style="display:flex;align-items:center;gap:12px;padding:5px 0;">
+                <div style="width:150px;font-size:.78rem;font-weight:600;">${p.nome}</div>
+                <div style="flex:1;height:7px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="width:${Math.min(pct/1.5,100)}%;height:100%;background:${cor};border-radius:4px;"></div></div>
+                <div style="width:60px;text-align:right;font-size:.78rem;font-weight:700;color:${cor};">${pct.toFixed(0)}%</div>
+            </div>`;
+        }).join('');
+        wrap.style.display='';
+    },
+};
+
+// ====== S&OP — DASHBOARD EXECUTIVO ======
+const soepDash = {
+    _acoes: [],
+
+    init() { this.carregarAcoes(); },
+
+    async carregarAcoes() {
+        try { this._acoes = await api.get('/api/soep-acoes') || []; } catch { this._acoes=[]; }
+    },
+
+    render() {
+        if (!previsao._forecast.length && vendas.rawData.length) previsao.calcular();
+        this._renderKPIs();
+        this._renderHorizonte();
+        this._renderCapHeatmap();
+        this._renderAcoes();
+    },
+
+    _renderKPIs() {
+        const el = document.getElementById('soep-kpis');
+        if (!el) return;
+        const nextMes    = previsao._nextMonths[0];
+        const demTotal   = nextMes ? previsao.getTotalMes(nextMes.mes) : 0;
+        const planTotal  = nextMes ? Object.entries(planoProducao._plano)
+            .filter(([k])=>k.startsWith(nextMes.mes+'_')).reduce((s,[,v])=>s+(v||0),0) : 0;
+        const estTotal   = estoque.rawData.reduce((s,r)=>s+(Number(r.quantidade)||0),0);
+        const cobertura  = demTotal>0 ? (estTotal/demTotal).toFixed(1) : null;
+        const abertas    = this._acoes.filter(a=>a.status==='aberta').length;
+        const atrasadas  = this._acoes.filter(a=>a.status==='aberta'&&a.prazo&&new Date(a.prazo)<new Date()).length;
+        const cards = [
+            { l:'DEMANDA PRÓXIMO MÊS',    v:demTotal.toLocaleString('pt-BR'),  s:nextMes?.label||'sem previsão', c:'#26c6da' },
+            { l:'PRODUÇÃO PLANEJADA',     v:planTotal.toLocaleString('pt-BR'), s:planTotal?'unidades planejadas':'não planejado', c:planTotal?'#26a69a':'var(--text-dim)' },
+            { l:'COBERTURA DE ESTOQUE',   v:cobertura?cobertura+'×':'—',      s:`${estTotal.toLocaleString('pt-BR')} un em estoque`, c:!cobertura?'var(--text-dim)':parseFloat(cobertura)<1?'#f06292':parseFloat(cobertura)>3?'#ffca28':'#26a69a' },
+            { l:'AÇÕES ABERTAS',          v:abertas,   s:atrasadas>0?`${atrasadas} atrasada${atrasadas>1?'s':''}`:abertas?'em dia':'nenhuma', c:atrasadas>0?'#f06292':'#26a69a' },
+        ];
+        el.innerHTML = cards.map(c=>`<div class="summary-card"><div class="s-label" style="margin-bottom:8px;">${c.l}</div>
+            <div style="font-size:2rem;font-weight:800;color:${c.c};margin-bottom:4px;">${c.v}</div>
+            <div class="s-sub">${c.s}</div></div>`).join('');
+    },
+
+    _renderHorizonte() {
+        const table = document.getElementById('soep-horizonte-table');
+        if (!table||!previsao._nextMonths.length) return;
+        const months = previsao._nextMonths;
+        const segs   = [...new Set(previsao._forecast.map(r=>r.segmento).filter(Boolean))].sort();
+        const header = `<thead>
+            <tr style="color:var(--text-dim);font-size:.68rem;letter-spacing:.08em;border-bottom:1px solid var(--border-color);">
+                <th style="padding:8px 12px;text-align:left;">SEGMENTO</th>
+                ${months.map(m=>`<th colspan="2" style="padding:8px 12px;text-align:center;border-left:1px solid var(--border-color);">${m.label.toUpperCase()}</th>`).join('')}
+            </tr>
+            <tr style="color:var(--text-dim);font-size:.64rem;border-bottom:1px solid var(--border-color);">
+                <th></th>
+                ${months.map(()=>`<th style="padding:4px 8px;text-align:right;">PREV</th><th style="padding:4px 8px;text-align:right;border-right:1px solid var(--border-color);">PLAN</th>`).join('')}
+            </tr></thead>`;
+        const rows = segs.map((seg,i)=>{
+            const bg = i%2?'var(--bg-input)':'transparent';
+            const cells = months.map(m=>{
+                const prev = previsao.getTotalMes(m.mes, seg);
+                const codsSeg = new Set(previsao._forecast.filter(r=>r.segmento===seg).map(r=>r.codigo));
+                const plan = Object.entries(planoProducao._plano)
+                    .filter(([k])=>k.startsWith(m.mes+'_') && codsSeg.has(k.split('_').slice(1).join('_')))
+                    .reduce((s,[,v])=>s+(v||0),0);
+                return `<td style="padding:7px 8px;text-align:right;border-left:1px solid var(--border-color);">${prev.toLocaleString('pt-BR')}</td>
+                    <td style="padding:7px 8px;text-align:right;color:${plan?'var(--indigo-primary)':'var(--text-dim)'};border-right:1px solid var(--border-color);">${plan||'—'}</td>`;
+            }).join('');
+            return `<tr style="background:${bg};"><td style="padding:7px 12px;font-weight:600;">${escHTML(seg)}</td>${cells}</tr>`;
+        }).join('');
+        table.innerHTML = header + `<tbody>${rows}</tbody>`;
+    },
+
+    _renderCapHeatmap() {
+        const el = document.getElementById('soep-cap-heatmap');
+        if (!el) return;
+        if (!banco.rawData.length||!previsao._nextMonths.length) {
+            el.innerHTML='<div style="color:var(--text-dim);font-size:.82rem;">Importe Banco de Dados e calcule a Previsão para ver o mapa.</div>'; return;
+        }
+        const months  = previsao._nextMonths;
+        const results = months.map(m=>({ mes:m, procs:toc.calcularComDemanda(previsao.getDemandaMapa(m.mes)) }));
+        let html = `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+            <thead><tr style="color:var(--text-dim);font-size:.7rem;letter-spacing:.06em;border-bottom:1px solid var(--border-color);">
+                <th style="padding:8px 12px;text-align:left;">PROCESSO</th>
+                ${months.map(m=>`<th style="padding:8px 12px;text-align:center;">${m.label.toUpperCase()}</th>`).join('')}
+                <th style="padding:8px 12px;text-align:center;">TENDÊNCIA</th>
+            </tr></thead><tbody>`;
+        toc._PROCS.forEach((proc,pi)=>{
+            const bg=pi%2?'var(--bg-input)':'transparent';
+            const utilVals = results.map(({procs})=>procs.find(p=>p.id===proc.id));
+            const cells = utilVals.map(r=>{
+                if (!r?.cargaMin) return `<td style="padding:8px 12px;text-align:center;color:var(--text-dim);">—</td>`;
+                const pct=(r.util*100).toFixed(0), cor=r.util>=1?'#f06292':r.util>=.8?'#ffca28':'#26a69a';
+                return `<td style="padding:8px 12px;text-align:center;background:${r.util>=1?'rgba(240,98,146,.1)':r.util>=.8?'rgba(255,202,40,.07)':'transparent'};">
+                    <span style="font-weight:700;color:${cor};">${pct}%</span></td>`;
+            }).join('');
+            // Trend arrow
+            const u0=utilVals[0]?.util||0, uN=utilVals[utilVals.length-1]?.util||0;
+            const trendCor=uN>u0?'#f06292':'#26a69a', trendArrow=uN>u0?'↑':uN<u0?'↓':'→';
+            html += `<tr style="background:${bg};">
+                <td style="padding:8px 12px;font-weight:600;">${proc.nome}</td>
+                ${cells}
+                <td style="padding:8px 12px;text-align:center;font-weight:700;color:${trendCor};">${trendArrow}</td>
+            </tr>`;
+        });
+        html += `</tbody></table></div>`;
+        el.innerHTML = html;
+    },
+
+    novaAcao() {
+        const f = document.getElementById('soep-nova-acao-form');
+        if (f) f.style.display = f.style.display==='none' ? '' : 'none';
+    },
+
+    async salvarAcao() {
+        const desc = document.getElementById('soep-acao-desc')?.value.trim();
+        const resp = document.getElementById('soep-acao-resp')?.value.trim();
+        const prazo= document.getElementById('soep-acao-prazo')?.value;
+        const mod  = document.getElementById('soep-acao-mod')?.value;
+        if (!desc) { alert('Informe a descrição.'); return; }
+        try {
+            const res = await api.post('/api/soep-acoes', { descricao:desc, responsavel:resp, prazo, modulo:mod });
+            if (res?.ok) {
+                this._acoes.unshift(res.acao);
+                ['soep-acao-desc','soep-acao-resp','soep-acao-prazo'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+                document.getElementById('soep-nova-acao-form').style.display='none';
+                this._renderAcoes(); this._renderKPIs();
+                mostrarToast('✓ Ação registrada');
+            }
+        } catch(e) { mostrarToast('Erro: '+e.message,'erro'); }
+    },
+
+    async concluirAcao(id) {
+        try {
+            await api.put(`/api/soep-acoes/${id}`, { status:'concluida' });
+            const a=this._acoes.find(x=>x.id===id); if(a) a.status='concluida';
+            this._renderAcoes(); this._renderKPIs();
+        } catch(e) { mostrarToast('Erro: '+e.message,'erro'); }
+    },
+
+    async deletarAcao(id) {
+        if (!confirm('Remover esta ação?')) return;
+        try {
+            await api.delete(`/api/soep-acoes/${id}`);
+            this._acoes = this._acoes.filter(a=>a.id!==id);
+            this._renderAcoes(); this._renderKPIs();
+        } catch(e) { mostrarToast('Erro: '+e.message,'erro'); }
+    },
+
+    _renderAcoes() {
+        const el = document.getElementById('soep-acoes-lista');
+        if (!el) return;
+        if (!this._acoes.length) { el.innerHTML='<div style="color:var(--text-dim);font-size:.82rem;padding:12px 0;">Nenhuma ação cadastrada.</div>'; return; }
+        const sorted = [...this._acoes].sort((a,b)=>{
+            if (a.status!==b.status) return a.status==='aberta'?-1:1;
+            if (a.prazo&&b.prazo) return new Date(a.prazo)-new Date(b.prazo);
+            return 0;
+        });
+        el.innerHTML = sorted.map(a=>{
+            const atrasada = a.status==='aberta' && a.prazo && new Date(a.prazo)<new Date();
+            const cor      = a.status==='concluida'?'#26a69a':atrasada?'#f06292':'#26c6da';
+            const prazoStr = a.prazo ? new Date(a.prazo+'T00:00:00').toLocaleDateString('pt-BR') : '—';
+            return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border-color);">
+                <div style="width:9px;height:9px;border-radius:50%;background:${cor};flex-shrink:0;"></div>
+                <div style="flex:1;">
+                    <div style="font-size:.85rem;font-weight:600;${a.status==='concluida'?'text-decoration:line-through;color:var(--text-dim);':''}">${escHTML(a.descricao)}</div>
+                    <div style="font-size:.72rem;color:var(--text-dim);margin-top:2px;">${a.responsavel?escHTML(a.responsavel)+' · ':''}Prazo: ${prazoStr}${a.modulo?' · '+escHTML(a.modulo):''}${atrasada?' · <span style="color:#f06292;font-weight:700;">ATRASADA</span>':''}</div>
+                </div>
+                ${a.status==='aberta'?`<button onclick="soepDash.concluirAcao('${a.id}')" style="padding:4px 12px;border-radius:6px;border:1px solid #26a69a;background:transparent;color:#26a69a;font-size:.72rem;cursor:pointer;">Concluir</button>`:`<span style="font-size:.72rem;color:#26a69a;">✓</span>`}
+                <button onclick="soepDash.deletarAcao('${a.id}')" style="padding:4px 8px;border-radius:6px;border:1px solid var(--border-color);background:transparent;color:var(--text-dim);font-size:.72rem;cursor:pointer;">✕</button>
+            </div>`;
         }).join('');
     },
 };

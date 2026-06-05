@@ -468,6 +468,34 @@ app.delete('/api/importacoes-banco/:id', auth, adminOnly, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── S&OP — AÇÕES / DECISÕES ───────────────────────────────────
+app.get('/api/soep-acoes', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('soep_acoes').select('*').order('criado_em', { ascending: false });
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.post('/api/soep-acoes', auth, async (req, res) => {
+    const { descricao, responsavel, prazo, modulo } = req.body;
+    if (!descricao?.trim()) return res.status(400).json({ erro: 'descricao obrigatória' });
+    const { data, error } = await supabase.from('soep_acoes')
+        .insert({ descricao: descricao.trim(), responsavel: responsavel||null, prazo: prazo||null, modulo: modulo||null, status: 'aberta' })
+        .select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, acao: data });
+});
+app.put('/api/soep-acoes/:id', auth, async (req, res) => {
+    const fields = {};
+    ['status','descricao','responsavel','prazo'].forEach(k => { if (req.body[k] !== undefined) fields[k] = req.body[k] || null; });
+    const { error } = await supabase.from('soep_acoes').update(fields).eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+app.delete('/api/soep-acoes/:id', auth, adminOnly, async (req, res) => {
+    const { error } = await supabase.from('soep_acoes').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
 // ── DISPONIBILIDADE: FERIADOS ────────────────────────────────
 app.get('/api/feriados', auth, async (_req, res) => {
     const { data, error } = await supabase.from('feriados').select('*').order('data');
@@ -682,6 +710,7 @@ app.get('/api/setup', async (_req, res) => {
         { nome: 'turnos',               sql: `CREATE TABLE IF NOT EXISTS turnos (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome TEXT NOT NULL, inicio TIME, fim TIME, dias TEXT[] DEFAULT '{}', processo TEXT, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE turnos DISABLE ROW LEVEL SECURITY;` },
         { nome: 'processos_config',     sql: `CREATE TABLE IF NOT EXISTS processos_config (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome TEXT NOT NULL, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE processos_config DISABLE ROW LEVEL SECURITY;` },
         { nome: 'maquinas',             sql: `CREATE TABLE IF NOT EXISTS maquinas (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), processo_id UUID REFERENCES processos_config(id) ON DELETE CASCADE, id_maquina TEXT, modelo TEXT, oee NUMERIC(5,2), status TEXT, n_pessoas INTEGER, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE maquinas DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'soep_acoes',           sql: `CREATE TABLE IF NOT EXISTS soep_acoes (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), descricao TEXT NOT NULL, responsavel TEXT, prazo DATE, status TEXT DEFAULT 'aberta', modulo TEXT, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE soep_acoes DISABLE ROW LEVEL SECURITY;` },
     ];
 
     const faltando = [];
