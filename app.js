@@ -4767,13 +4767,13 @@ const soepDash = {
         if (aba === 'prev-real') this._renderPrevReal();
     },
 
-    render() {
+    async render() {
         if (!previsao._forecast.length && vendas.rawData.length) previsao.calcular();
         this._renderKPIs();
         this._selecionarAba(this._abaAtiva);
         if (this._abaAtiva === 'visao-geral') {
             this._renderHorizonte();
-            this._renderCapHeatmap();
+            await this._renderCapHeatmap();
             this._renderAcoes();
         }
     },

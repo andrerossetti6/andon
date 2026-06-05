@@ -507,7 +507,7 @@ app.post('/api/soep-snapshot/bulk', auth, async (req, res) => {
     if (!mes || !Array.isArray(items) || !items.length) return res.status(400).json({ erro: 'mes e items obrigatórios' });
     // Remove snapshot anterior do mesmo mês e recria
     await supabase.from('soep_snapshot').delete().eq('mes', mes);
-    const rows = items.map(i => ({ mes, codigo: String(i.codigo).toUpperCase(), qty_prevista: i.qty||0, usuario_id: req.user.id }));
+    const rows = items.map(i => ({ mes, codigo: String(i.codigo).toUpperCase(), qty_prevista: i.qty||0, usuario_id: req.usuario.id }));
     const { error } = await supabase.from('soep_snapshot').insert(rows);
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, total: rows.length });
@@ -527,7 +527,7 @@ app.get('/api/soep-plano', auth, async (_req, res) => {
 app.post('/api/soep-plano/bulk', auth, async (req, res) => {
     const { items } = req.body;
     if (!Array.isArray(items) || !items.length) return res.json({ ok: true });
-    const rows = items.map(i => ({ mes: i.mes, codigo: String(i.codigo).toUpperCase(), quantidade: i.quantidade||0, usuario_id: req.user.id }));
+    const rows = items.map(i => ({ mes: i.mes, codigo: String(i.codigo).toUpperCase(), quantidade: i.quantidade||0, usuario_id: req.usuario.id }));
     const { error } = await supabase.from('soep_plano').upsert(rows, { onConflict: 'mes,codigo' });
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true });
@@ -567,7 +567,7 @@ app.get('/api/op-datas', auth, async (_req, res) => {
 app.post('/api/op-datas/bulk', auth, async (req, res) => {
     const { items } = req.body;
     if (!Array.isArray(items)) return res.status(400).json({ erro: 'items obrigatório' });
-    const rows = items.map(i => ({ nop: i.nop||null, codigo: String(i.codigo).toUpperCase(), data_entrega: i.data_entrega||null, cpv: i.cpv||0, usuario_id: req.user.id }));
+    const rows = items.map(i => ({ nop: i.nop||null, codigo: String(i.codigo).toUpperCase(), data_entrega: i.data_entrega||null, cpv: i.cpv||0, usuario_id: req.usuario.id }));
     const { error } = await supabase.from('op_datas').upsert(rows, { onConflict: 'codigo' });
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, total: rows.length });
@@ -607,7 +607,7 @@ app.get('/api/timeline-cenario', auth, async (_req, res) => {
 app.post('/api/timeline-cenario', auth, async (req, res) => {
     const { nome, config, resultado } = req.body;
     if (!nome) return res.status(400).json({ erro: 'Nome obrigatório' });
-    const { data, error } = await supabase.from('timeline_cenario').insert({ nome, config: config||{}, resultado: resultado||{}, usuario_id: req.user.id }).select().single();
+    const { data, error } = await supabase.from('timeline_cenario').insert({ nome, config: config||{}, resultado: resultado||{}, usuario_id: req.usuario.id }).select().single();
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, cenario: data });
 });
