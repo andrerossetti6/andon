@@ -100,6 +100,7 @@
                             <li data-view="previsao"    onclick="navigateTo('previsao')">Previsão de Demanda</li>
                             <li data-view="plano-prod"  onclick="navigateTo('plano-prod')">Plano de Produção</li>
                             <li data-view="soep"        onclick="navigateTo('soep')">Dashboard S&amp;OP</li>
+                            <li data-view="timeline"    onclick="navigateTo('timeline')">Linha do Tempo</li>
                         </ul>
                     </li>
                 </ul>
@@ -2217,6 +2218,87 @@
                 <button onclick="soepDash.salvarSnapshotAtual()" style="padding:8px 18px;border-radius:7px;border:1px solid var(--indigo-btn);background:transparent;color:var(--indigo-primary);font-size:.8rem;font-weight:600;cursor:pointer;">📸 Salvar Snapshot Atual</button>
             </div>
             <div id="soep-prev-real-content"></div>
+        </div>
+    </div>
+</main>
+
+<!-- ── LINHA DO TEMPO DE PRODUÇÃO ────────────────────────────── -->
+<main class="content" id="view-timeline" style="display:none;">
+    <header class="page-header">
+        <div class="page-header-text">
+            <h1 class="page-title">Linha do <span>Tempo</span></h1>
+            <p class="page-subtitle">Sequenciamento de produção — Gantt semanal respeitando capacidade, feriados e turnos</p>
+        </div>
+    </header>
+
+    <!-- Configuração -->
+    <div class="summary-card" style="margin-bottom:20px;">
+        <div class="s-label" style="margin-bottom:16px;">CONFIGURAÇÃO</div>
+        <div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;">
+            <div>
+                <div style="font-size:.72rem;color:var(--text-dim);margin-bottom:6px;">FONTE DAS ORDENS</div>
+                <select id="tl-fonte" style="padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;">
+                    <option value="plano">Plano de Produção (S&OP)</option>
+                    <option value="op">OP Abertas</option>
+                    <option value="ambos">Plano + OP</option>
+                </select>
+            </div>
+            <div>
+                <div style="font-size:.72rem;color:var(--text-dim);margin-bottom:6px;">MÊS DO PLANO</div>
+                <select id="tl-mes-sel" style="padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;">
+                    <option value="">Todos os meses</option>
+                </select>
+            </div>
+            <div>
+                <div style="font-size:.72rem;color:var(--text-dim);margin-bottom:6px;">PRIORIDADE</div>
+                <select id="tl-prioridade" style="padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;">
+                    <option value="fifo">FIFO (data da OP)</option>
+                    <option value="qty">Maior quantidade primeiro</option>
+                    <option value="cpv">CPV — Critical Path Value</option>
+                </select>
+            </div>
+            <div>
+                <div style="font-size:.72rem;color:var(--text-dim);margin-bottom:6px;">HORIZONTE</div>
+                <select id="tl-horizonte" style="padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;">
+                    <option value="4">4 semanas</option>
+                    <option value="6" selected>6 semanas</option>
+                    <option value="8">8 semanas</option>
+                    <option value="12">12 semanas</option>
+                </select>
+            </div>
+            <div>
+                <div style="font-size:.72rem;color:var(--text-dim);margin-bottom:6px;">DATA DE INÍCIO</div>
+                <input id="tl-start-date" type="date" style="padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;">
+            </div>
+            <button onclick="timeline.calcular()" style="padding:10px 28px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.85rem;font-weight:700;cursor:pointer;white-space:nowrap;">CALCULAR</button>
+        </div>
+    </div>
+
+    <!-- Legenda -->
+    <div style="display:flex;align-items:center;gap:20px;margin-bottom:16px;font-size:.75rem;color:var(--text-dim);">
+        <span>Utilização:</span>
+        <span><span style="display:inline-block;width:12px;height:12px;background:#26a69a;border-radius:3px;vertical-align:middle;margin-right:4px;"></span>0–70%</span>
+        <span><span style="display:inline-block;width:12px;height:12px;background:#ffca28;border-radius:3px;vertical-align:middle;margin-right:4px;"></span>70–100%</span>
+        <span><span style="display:inline-block;width:12px;height:12px;background:#f06292;border-radius:3px;vertical-align:middle;margin-right:4px;"></span>&gt;100%</span>
+        <span style="margin-left:8px;"><span style="display:inline-block;width:12px;height:12px;background:repeating-linear-gradient(45deg,#333,#333 2px,transparent 2px,transparent 6px);border-radius:3px;vertical-align:middle;margin-right:4px;border:1px solid #444;"></span>Feriado/Sem turno</span>
+        <span id="tl-summary" style="margin-left:auto;color:var(--indigo-primary);font-weight:600;"></span>
+    </div>
+
+    <!-- Gantt grid -->
+    <div class="summary-card" style="padding:0;overflow:hidden;">
+        <div style="overflow-x:auto;" id="tl-gantt-wrap">
+            <div style="padding:32px;text-align:center;color:var(--text-dim);font-size:.85rem;" id="tl-empty">Configure e clique CALCULAR para gerar a linha do tempo.</div>
+        </div>
+    </div>
+
+    <!-- Detalhe célula (popover) -->
+    <div id="tl-detalhe" style="display:none;margin-top:16px;">
+        <div class="summary-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+                <div class="s-label" id="tl-det-titulo"></div>
+                <button onclick="document.getElementById('tl-detalhe').style.display='none'" style="background:transparent;border:none;color:var(--text-dim);font-size:1.1rem;cursor:pointer;">✕</button>
+            </div>
+            <div id="tl-det-conteudo"></div>
         </div>
     </div>
 </main>
