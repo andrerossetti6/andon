@@ -4070,9 +4070,11 @@ const toc = {
         this._PROCS.forEach(p => {
             const mEl = document.getElementById(`toc-maq-${p.id}`);
             const hEl = document.getElementById(`toc-hdia-${p.id}`);
+            const oEl = document.getElementById(`toc-oee-${p.id}`);
             obj[p.id] = {
                 maquinas: parseFloat(mEl?.value) || 1,
-                horasDia: parseFloat(hEl?.value) || 8
+                horasDia: parseFloat(hEl?.value) || 8,
+                oee: parseFloat(oEl?.value) || 100,
             };
         });
         localStorage.setItem('toc-cap', JSON.stringify(obj));
@@ -4084,7 +4086,7 @@ const toc = {
         if (!grid) return;
         const cap = this._getCap();
         grid.innerHTML = this._PROCS.map(p => {
-            const c = cap[p.id] || { maquinas: 1, horasDia: 8 };
+            const c = cap[p.id] || { maquinas: 1, horasDia: 8, oee: 100 };
             return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-color);">
                 <span style="flex:1;font-size:0.82rem;font-weight:600;color:var(--text-primary);">${p.nome}</span>
                 <input id="toc-maq-${p.id}" type="number" value="${c.maquinas}" min="0" step="0.5"
@@ -4094,7 +4096,11 @@ const toc = {
                 <input id="toc-hdia-${p.id}" type="number" value="${c.horasDia}" min="1" max="24" step="0.5"
                     style="width:52px;padding:5px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.82rem;text-align:center;"
                     title="Horas por dia">
-                <span style="font-size:0.72rem;color:var(--text-dim);">h/dia</span>
+                <span style="font-size:0.72rem;color:var(--text-dim);">h/dia ·</span>
+                <input id="toc-oee-${p.id}" type="number" value="${c.oee ?? 100}" min="10" max="100" step="1"
+                    style="width:52px;padding:5px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.82rem;text-align:center;"
+                    title="OEE % (Eficiência Global do Equipamento)">
+                <span style="font-size:0.72rem;color:var(--text-dim);">% OEE</span>
             </div>`;
         }).join('');
     },
@@ -5062,20 +5068,60 @@ const soepDash = {
 
 // ====== LINHA DO TEMPO DE PRODUÇÃO — GANTT SEMANAL ======
 const timeline = {
-    // Sequência fixa de processos — produto só passa nos que têm tempo > 0
     _SEQ: ['tecelagem','costura_auto','costura_manual','soldagem','silicone','passadoria','embalagem'],
     _resultado: null,
     _turnos: null,
+    _setupMatrix: [],   // [{ processo, familia_de, familia_para, minutos }]
+    _datas: {},         // { codigo → { data_entrega, cpv, id } }
+    _cenarios: [],
+    _manualOverrides: {}, // { `${codigo}_${procId}` → semIdx }
+    _abaAtiva: 'gantt',
+    _dragState: null,
 
     async init() {
         const hoje = new Date();
         const el = document.getElementById('tl-start-date');
         if (el) el.value = hoje.toISOString().slice(0,10);
-        await this._loadTurnos();
+        try { this._manualOverrides = JSON.parse(localStorage.getItem('tl_manual') || '{}'); } catch {}
+        await Promise.all([this._loadTurnos(), this._loadSetupMatrix(), this._loadDatas()]);
+        this._selecionarAba('gantt');
     },
 
     async _loadTurnos() {
         try { this._turnos = await api.get('/api/turnos') || []; } catch { this._turnos = []; }
+    },
+
+    async _loadSetupMatrix() {
+        try { this._setupMatrix = await api.get('/api/setup-matrix') || []; } catch { this._setupMatrix = []; }
+    },
+
+    async _loadDatas() {
+        try {
+            const rows = await api.get('/api/op-datas') || [];
+            this._datas = {};
+            rows.forEach(r => { this._datas[String(r.codigo).toUpperCase()] = { data_entrega: r.data_entrega, cpv: r.cpv||0, id: r.id }; });
+        } catch { this._datas = {}; }
+    },
+
+    async _carregarCenarios() {
+        try { this._cenarios = await api.get('/api/timeline-cenario') || []; } catch { this._cenarios = []; }
+        this._renderCenarios();
+    },
+
+    _selecionarAba(aba) {
+        this._abaAtiva = aba;
+        ['gantt','status','config','cenarios'].forEach(a => {
+            const btn = document.getElementById(`tl-tab-${a}`);
+            const pan = document.getElementById(`tl-pan-${a}`);
+            if (btn) {
+                btn.style.borderBottomColor = a === aba ? 'var(--indigo-primary)' : 'transparent';
+                btn.style.color = a === aba ? 'var(--indigo-primary)' : 'var(--text-dim)';
+            }
+            if (pan) pan.style.display = a === aba ? '' : 'none';
+        });
+        if (aba === 'config') this._renderSetupMatrix();
+        if (aba === 'cenarios') this._carregarCenarios();
+        if (aba === 'status' && this._resultado) this._renderStatus();
     },
 
     _popularMeses() {
@@ -5090,16 +5136,14 @@ const timeline = {
             meses.map(m=>`<option value="${m.mes||m}">${m.label||m}</option>`).join('');
     },
 
-    // Semanas no horizonte a partir de data de início
     _gerarSemanas(startDate, nSemanas) {
         const weeks = [];
         let cur = new Date(startDate);
-        // Garante que começa na segunda-feira
         const dow = cur.getDay();
         if (dow !== 1) cur.setDate(cur.getDate() + (dow === 0 ? 1 : 8 - dow));
         for (let i = 0; i < nSemanas; i++) {
             const ini = new Date(cur);
-            const fim = new Date(cur); fim.setDate(fim.getDate() + 4); // sex
+            const fim = new Date(cur); fim.setDate(fim.getDate() + 4);
             const label = `${ini.getDate().toString().padStart(2,'0')}/${(ini.getMonth()+1).toString().padStart(2,'0')}`;
             weeks.push({ idx: i, ini, fim, label });
             cur.setDate(cur.getDate() + 7);
@@ -5107,7 +5151,6 @@ const timeline = {
         return weeks;
     },
 
-    // Dias úteis de uma semana (seg-sex menos feriados)
     _diasUteisSemana(ini, fim) {
         const feriados = toc._feriadosCache || new Set();
         let count = 0;
@@ -5120,51 +5163,60 @@ const timeline = {
         return count;
     },
 
-    // Minutos disponíveis por processo por semana
     _capSemana(procId, semana) {
-        // Prioridade: turnos configurados → TOC caps
+        const capConfig = toc._getCap()[procId] || { maquinas:1, horasDia:8, oee:100 };
+        const oeeFactor = Math.min((capConfig.oee || 100), 100) / 100;
         const turnProc = (this._turnos || []).filter(t => {
             const nome = (t.processo || '').toLowerCase();
             const pid  = procId.toLowerCase().replace('_','-');
             return nome.includes(pid) || nome.includes(procId.replace('_',' '));
         });
         if (turnProc.length) {
-            // Minutos por dia de turno × dias válidos na semana
             let minsTotal = 0;
             const d = new Date(semana.ini);
             while (d <= semana.fim) {
-                const dow  = d.getDay(); // 0=dom, 1=seg... 6=sab
+                const dow  = d.getDay();
                 const iso  = d.toISOString().slice(0,10);
                 if (toc._feriadosCache?.has(iso)) { d.setDate(d.getDate()+1); continue; }
                 const DIAS_MAP = {0:'domingo',1:'segunda',2:'terca',3:'quarta',4:'quinta',5:'sexta',6:'sabado'};
                 const diaName = DIAS_MAP[dow];
                 turnProc.forEach(t => {
                     const dias = (t.dias_semana || t.dias || []).map(x=>x.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,''));
-                    if (!dias.some(d=>diaName.includes(d.slice(0,4)))) return;
+                    if (!dias.some(dn=>diaName.includes(dn.slice(0,4)))) return;
                     const [hI,mI] = (t.inicio||'08:00').split(':').map(Number);
                     const [hF,mF] = (t.fim  ||'18:00').split(':').map(Number);
                     minsTotal += (hF*60+mF) - (hI*60+mI);
                 });
                 d.setDate(d.getDate() + 1);
             }
-            // Multiplica pelas máquinas do TOC
-            const cap = toc._getCap()[procId] || { maquinas:1, horasDia:8 };
-            return minsTotal * cap.maquinas;
+            return minsTotal * capConfig.maquinas * oeeFactor;
         }
-        // Sem turnos: usa TOC caps × dias úteis
-        const cap    = toc._getCap()[procId] || { maquinas:1, horasDia:8 };
-        const diaCap = cap.maquinas * cap.horasDia * 60;
-        return diaCap * this._diasUteisSemana(semana.ini, semana.fim);
+        const diaCap = capConfig.maquinas * capConfig.horasDia * 60;
+        return diaCap * this._diasUteisSemana(semana.ini, semana.fim) * oeeFactor;
     },
 
-    // Tempo do SKU no processo (em minutos)
     _getTempoProc(dados, procId) {
         const proc = toc._PROCS.find(p => p.id === procId);
         if (!proc) return 0;
         return toc._getTempoMinutos(dados, proc.cols);
     },
 
-    // Monta lista de ordens para sequenciar
+    _getFamilia(dados) {
+        if (!dados) return 'geral';
+        const v = dados['Segmento'] || dados['segmento'] || dados['Família'] || dados['Familia'] || dados['familia'] || 'geral';
+        return String(v).toLowerCase().trim() || 'geral';
+    },
+
+    _getSetupMins(procId, familiaAnterior, familiaAtual) {
+        if (!familiaAnterior || familiaAnterior === familiaAtual) return 0;
+        const row = this._setupMatrix.find(r =>
+            r.processo === procId &&
+            r.familia_de.toLowerCase() === familiaAnterior.toLowerCase() &&
+            r.familia_para.toLowerCase() === familiaAtual.toLowerCase()
+        );
+        return row ? (row.minutos || 0) : 0;
+    },
+
     _buildOrdens(fonte, mesSel, prioridade) {
         const ordens = [];
         const bancoMap = {};
@@ -5181,7 +5233,8 @@ const timeline = {
                 if (mesSel && mes !== mesSel) return;
                 const dados = bancoMap[codigo];
                 const f = previsao._forecast.find(r=>r.codigo===codigo&&r.mes===mes);
-                ordens.push({ codigo, qty, mes, dados, label: f?.descricao||codigo, emissao: mes, cpv: 0, fonte: 'plano' });
+                const dt = this._datas[codigo];
+                ordens.push({ codigo, qty, mes, dados, label: f?.descricao||codigo, emissao: mes, cpv: dt?.cpv||0, data_entrega: dt?.data_entrega||null, fonte: 'plano' });
             });
         }
 
@@ -5196,141 +5249,212 @@ const timeline = {
                     const dados  = bancoMap[codigo];
                     const emissao = r.dados?.['Emissão'] || r.dados?.['Emissao'] || '';
                     const nop    = r.dados?.['N. OP'] || r.dados?.['NOP'] || '';
-                    ordens.push({ codigo, qty, mes: '', dados, label: r.dados?.['Descrição']||codigo, emissao, nop, cpv: 0, fonte: 'op' });
+                    const dt = this._datas[codigo];
+                    ordens.push({ codigo, qty, mes: '', dados, label: r.dados?.['Descrição']||codigo, emissao, nop, cpv: dt?.cpv||0, data_entrega: dt?.data_entrega||null, fonte: 'op' });
                 });
             }
         }
 
-        // Ordena por prioridade
         if (prioridade === 'fifo') {
             ordens.sort((a,b) => String(a.emissao).localeCompare(String(b.emissao)) || String(a.nop||'').localeCompare(String(b.nop||'')));
         } else if (prioridade === 'qty') {
             ordens.sort((a,b) => b.qty - a.qty);
         } else if (prioridade === 'cpv') {
             ordens.sort((a,b) => b.cpv - a.cpv);
+        } else if (prioridade === 'edd') {
+            ordens.sort((a,b) => {
+                if (!a.data_entrega && !b.data_entrega) return String(a.emissao).localeCompare(String(b.emissao));
+                if (!a.data_entrega) return 1;
+                if (!b.data_entrega) return -1;
+                return a.data_entrega.localeCompare(b.data_entrega);
+            });
         }
         return ordens;
     },
 
     async calcular() {
-        // Garante feriados carregados
         if (!toc._feriadosCache) await toc._calcDiasUteisDoMes(new Date().toISOString().slice(0,7));
 
-        const fonte     = document.getElementById('tl-fonte')?.value || 'plano';
-        const mesSel    = document.getElementById('tl-mes-sel')?.value || '';
-        const prioridade= document.getElementById('tl-prioridade')?.value || 'fifo';
-        const nSemanas  = parseInt(document.getElementById('tl-horizonte')?.value) || 6;
-        const startStr  = document.getElementById('tl-start-date')?.value || new Date().toISOString().slice(0,10);
+        const fonte      = document.getElementById('tl-fonte')?.value || 'plano';
+        const mesSel     = document.getElementById('tl-mes-sel')?.value || '';
+        const prioridade = document.getElementById('tl-prioridade')?.value || 'fifo';
+        const nSemanas   = parseInt(document.getElementById('tl-horizonte')?.value) || 6;
+        const startStr   = document.getElementById('tl-start-date')?.value || new Date().toISOString().slice(0,10);
+        const modo       = document.getElementById('tl-modo')?.value || 'forward';
 
         if (!banco.rawData.length) { mostrarToast('Importe o Banco de Dados primeiro.','erro'); return; }
 
         const semanas = this._gerarSemanas(new Date(startStr+'T12:00:00'), nSemanas);
-        const ordens  = this._buildOrdens(fonte, mesSel, prioridade);
+        const prioEfetiva = (modo === 'backward' && prioridade === 'fifo') ? 'edd' : prioridade;
+        const ordens  = this._buildOrdens(fonte, mesSel, prioEfetiva);
 
-        if (!ordens.length) { mostrarToast('Nenhuma ordem encontrada para as configurações selecionadas.','erro'); return; }
+        if (!ordens.length) { mostrarToast('Nenhuma ordem encontrada.','erro'); return; }
 
-        // Capacidade por processo × semana
-        const cap = {}; // cap[procId][semIdx] = minutos disponíveis
+        const cap = {};
+        this._SEQ.forEach(pid => { cap[pid] = semanas.map(s => this._capSemana(pid, s)); });
+
+        const usado      = {};
+        const detalhe    = {};
+        const setupUsado = {};
         this._SEQ.forEach(pid => {
-            cap[pid] = semanas.map(s => this._capSemana(pid, s));
+            usado[pid]      = new Array(nSemanas).fill(0);
+            detalhe[pid]    = Array.from({length:nSemanas}, ()=>[]);
+            setupUsado[pid] = new Array(nSemanas).fill(0);
         });
 
-        // Estado do sequenciamento
-        const usado  = {}; // usado[procId][semIdx] = minutos usados
-        const detalhe= {}; // detalhe[procId][semIdx] = [{codigo,qty,mins}]
-        this._SEQ.forEach(pid => {
-            usado[pid]   = new Array(nSemanas).fill(0);
-            detalhe[pid] = Array.from({length:nSemanas}, ()=>[]);
-        });
+        // Backward mode: estima semana de início mais tarde possível por ordem
+        const firstAvailSem = {};
+        if (modo === 'backward') {
+            ordens.forEach((ordem, oi) => {
+                const id = `${ordem.codigo}_${oi}`;
+                if (!ordem.data_entrega) { firstAvailSem[id] = 0; return; }
+                const entregaDate = new Date(ordem.data_entrega + 'T12:00:00');
+                let deadlineIdx = semanas.length - 1;
+                for (let si = 0; si < semanas.length; si++) {
+                    if (entregaDate <= semanas[si].fim) { deadlineIdx = si; break; }
+                }
+                let totalDias = 0;
+                this._SEQ.forEach(pid => {
+                    if (!ordem.dados) return;
+                    const tempoUn = this._getTempoProc(ordem.dados, pid);
+                    if (!tempoUn) return;
+                    const capConf = toc._getCap()[pid] || { maquinas:1, horasDia:8, oee:100 };
+                    const minsPerDay = capConf.maquinas * capConf.horasDia * 60 * ((capConf.oee||100)/100);
+                    totalDias += Math.ceil((tempoUn * ordem.qty) / minsPerDay);
+                });
+                firstAvailSem[id] = Math.max(0, deadlineIdx - Math.ceil(totalDias / 5));
+            });
+        }
 
-        const finishSem = {}; // finishSem[orderId][procId] = semana onde termina
+        const finishSem  = {};
+        const lastFamilia = {};
         let totalOrdens = 0, totalMinutos = 0;
 
         ordens.forEach((ordem, oi) => {
             const id = `${ordem.codigo}_${oi}`;
             finishSem[id] = {};
-            let anteriorFim = 0; // semana em que o processo anterior terminou
+            let anteriorFim = 0;
 
             this._SEQ.forEach(pid => {
                 if (!ordem.dados) return;
                 const tempoUn = this._getTempoProc(ordem.dados, pid);
                 if (!tempoUn) return;
 
+                const overrideKey = `${ordem.codigo}_${pid}`;
+                const forceStart  = this._manualOverrides[overrideKey];
+                const familia     = this._getFamilia(ordem.dados);
+                const setupMins   = this._getSetupMins(pid, lastFamilia[pid], familia);
+
                 let minRestante = tempoUn * ordem.qty;
-                totalMinutos += minRestante;
-                let semIdx = anteriorFim; // começa depois do processo anterior
+                totalMinutos   += minRestante;
+                let semIdx = forceStart !== undefined ? forceStart : Math.max(anteriorFim, firstAvailSem[id] || 0);
+
+                // Debita setup na semana de início
+                if (setupMins > 0 && semIdx < nSemanas) {
+                    usado[pid][semIdx]      += setupMins;
+                    setupUsado[pid][semIdx] += setupMins;
+                }
 
                 while (minRestante > 0 && semIdx < nSemanas) {
                     const disp = cap[pid][semIdx] - usado[pid][semIdx];
                     if (disp > 0) {
                         const alocado = Math.min(minRestante, disp);
-                        usado[pid][semIdx]    += alocado;
-                        detalhe[pid][semIdx].push({ codigo: ordem.codigo, label: ordem.label, qty: ordem.qty, mins: alocado, fonte: ordem.fonte });
+                        usado[pid][semIdx] += alocado;
+                        detalhe[pid][semIdx].push({ codigo: ordem.codigo, label: ordem.label, qty: ordem.qty, mins: alocado, fonte: ordem.fonte, data_entrega: ordem.data_entrega, cpv: ordem.cpv });
                         minRestante -= alocado;
                     }
                     if (minRestante > 0) semIdx++;
                 }
                 finishSem[id][pid] = semIdx;
-                anteriorFim = semIdx; // processo seguinte começa na mesma semana ou depois
+                lastFamilia[pid]   = familia;
+                anteriorFim        = semIdx;
             });
             totalOrdens++;
         });
 
-        this._resultado = { semanas, cap, usado, detalhe, ordens, totalOrdens, totalMinutos };
+        const statusOrdens = this._calcStatusOrdens(ordens, finishSem, semanas);
+        this._resultado = { semanas, cap, usado, detalhe, setupUsado, ordens, finishSem, statusOrdens, totalOrdens, totalMinutos, modo };
         this._renderGantt();
+        if (this._abaAtiva === 'status') this._renderStatus();
+    },
+
+    _calcStatusOrdens(ordens, finishSem, semanas) {
+        const status = {};
+        ordens.forEach((ordem, oi) => {
+            const id = `${ordem.codigo}_${oi}`;
+            const fs = finishSem[id] || {};
+            const vals = Object.values(fs);
+            const lastSemIdx = vals.length ? Math.max(...vals) : 0;
+            const finishDate = semanas[Math.min(lastSemIdx, semanas.length-1)]?.fim;
+            let s = 'nodate';
+            if (ordem.data_entrega && finishDate) {
+                const deadline = new Date(ordem.data_entrega + 'T12:00:00');
+                const diff = (deadline - finishDate) / (1000*60*60*24);
+                s = diff < 0 ? 'late' : diff < 7 ? 'risk' : 'ok';
+            }
+            status[id] = { ...ordem, lastSemIdx, finishDate, status: s };
+        });
+        return status;
     },
 
     _renderGantt() {
         const r = this._resultado;
         if (!r) return;
-        const { semanas, cap, usado, detalhe } = r;
-
+        const { semanas, cap, usado, detalhe, setupUsado } = r;
         const wrap  = document.getElementById('tl-gantt-wrap');
         const empty = document.getElementById('tl-empty');
-        const sumEl = document.getElementById('tl-summary');
         if (empty) empty.style.display = 'none';
-        if (sumEl) sumEl.textContent = `${r.totalOrdens} ordens · ${(r.totalMinutos/60).toFixed(0)}h carga total`;
 
-        // Filtra processos que têm alguma carga
+        const lateCount = Object.values(r.statusOrdens).filter(s=>s.status==='late').length;
+        const riskCount = Object.values(r.statusOrdens).filter(s=>s.status==='risk').length;
+        const sumEl = document.getElementById('tl-summary');
+        if (sumEl) {
+            let txt = `${r.totalOrdens} ordens · ${(r.totalMinutos/60).toFixed(0)}h carga${r.modo==='backward'?' · EDD':''}`;
+            if (lateCount) txt += ` · <span style="color:#f06292">⚠ ${lateCount} atrasada${lateCount>1?'s':''}</span>`;
+            if (riskCount) txt += ` · <span style="color:#ffca28">⚡ ${riskCount} em risco</span>`;
+            sumEl.innerHTML = txt;
+        }
+
         const procsAtivos = toc._PROCS.filter(p => this._SEQ.includes(p.id) && semanas.some((_,i) => usado[p.id]?.[i] > 0));
 
-        let html = `<table style="width:100%;border-collapse:collapse;min-width:${160+semanas.length*130}px;">
-        <thead>
-            <tr style="border-bottom:2px solid var(--border-color);">
-                <th style="padding:12px 16px;text-align:left;font-size:.72rem;color:var(--text-dim);letter-spacing:.07em;min-width:160px;white-space:nowrap;">PROCESSO</th>`;
+        let html = `<table style="width:100%;border-collapse:collapse;min-width:${160+semanas.length*140}px;">
+        <thead><tr style="border-bottom:2px solid var(--border-color);">
+            <th style="padding:12px 16px;text-align:left;font-size:.72rem;color:var(--text-dim);letter-spacing:.07em;min-width:160px;white-space:nowrap;">PROCESSO</th>`;
         semanas.forEach(s => {
-            const diasUteis = this._diasUteisSemana(s.ini, s.fim);
-            html += `<th style="padding:10px 8px;text-align:center;font-size:.72rem;color:var(--text-dim);letter-spacing:.06em;min-width:120px;">
-                <div>SEM ${s.idx+1}</div>
-                <div style="font-weight:400;font-size:.68rem;opacity:.7;">${s.label}</div>
-                <div style="font-weight:400;font-size:.65rem;color:${diasUteis<5?'#f06292':'var(--text-dim)'};">${diasUteis}d úteis</div>
-            </th>`;
+            const du = this._diasUteisSemana(s.ini, s.fim);
+            html += `<th style="padding:10px 8px;text-align:center;font-size:.72rem;color:var(--text-dim);letter-spacing:.06em;min-width:130px;">
+                <div>SEM ${s.idx+1}</div><div style="font-weight:400;font-size:.68rem;opacity:.7;">${s.label}</div>
+                <div style="font-weight:400;font-size:.65rem;color:${du<5?'#f06292':'var(--text-dim)'};">${du}d úteis</div></th>`;
         });
         html += `<th style="padding:10px 8px;text-align:center;font-size:.72rem;color:var(--text-dim);min-width:80px;">TOTAL</th></tr></thead><tbody>`;
 
         procsAtivos.forEach((proc, pi) => {
             const bg = pi%2 ? 'var(--bg-input)' : 'transparent';
-            const totalCargaH  = semanas.reduce((s,_,i)=>s+(usado[proc.id]?.[i]||0),0)/60;
-            const totalCapH    = semanas.reduce((s,_,i)=>s+(cap[proc.id]?.[i]||0),0)/60;
-            const pctGeral     = totalCapH>0 ? totalCargaH/totalCapH*100 : 0;
-            const corGeral     = pctGeral>=100?'#f06292':pctGeral>=70?'#ffca28':'#26a69a';
+            const totalCargaH = semanas.reduce((s,_,i)=>s+(usado[proc.id]?.[i]||0),0)/60;
+            const totalCapH   = semanas.reduce((s,_,i)=>s+(cap[proc.id]?.[i]||0),0)/60;
+            const pctGeral    = totalCapH>0 ? totalCargaH/totalCapH*100 : 0;
+            const corGeral    = pctGeral>=100?'#f06292':pctGeral>=70?'#ffca28':'#26a69a';
+            const oeeVal      = toc._getCap()[proc.id]?.oee ?? 100;
 
             html += `<tr style="background:${bg};border-bottom:1px solid rgba(255,255,255,.05);">
                 <td style="padding:12px 16px;">
                     <div style="font-size:.85rem;font-weight:700;">${proc.nome}</div>
-                    <div style="font-size:.68rem;color:var(--text-dim);margin-top:2px;">${totalCargaH.toFixed(0)}h / ${totalCapH.toFixed(0)}h cap</div>
+                    <div style="font-size:.68rem;color:var(--text-dim);margin-top:2px;">${totalCargaH.toFixed(0)}h / ${totalCapH.toFixed(0)}h cap · OEE ${oeeVal}%</div>
                 </td>`;
 
             semanas.forEach((s, si) => {
-                const cargaMin = usado[proc.id]?.[si] || 0;
-                const capMin   = cap[proc.id]?.[si]   || 0;
+                const cargaMin = usado[proc.id]?.[si]      || 0;
+                const capMin   = cap[proc.id]?.[si]        || 0;
+                const setupMin = setupUsado[proc.id]?.[si] || 0;
                 const diasU    = this._diasUteisSemana(s.ini, s.fim);
                 const pct      = capMin > 0 ? cargaMin/capMin*100 : 0;
                 const cor      = pct>=100?'#f06292':pct>=70?'#ffca28':'#26a69a';
                 const nSkus    = detalhe[proc.id]?.[si]?.length || 0;
 
                 if (!capMin || !diasU) {
-                    html += `<td style="padding:8px;text-align:center;">
+                    html += `<td style="padding:8px;text-align:center;" data-proc="${proc.id}" data-sem="${si}"
+                        ondragover="event.preventDefault();this.style.outline='2px dashed var(--indigo-primary)';"
+                        ondragleave="this.style.outline='';" ondrop="timeline._onDropCell(event,'${proc.id}',${si})">
                         <div style="background:repeating-linear-gradient(45deg,rgba(255,255,255,.03),rgba(255,255,255,.03) 3px,transparent 3px,transparent 9px);border-radius:6px;padding:10px 4px;border:1px solid rgba(255,255,255,.06);">
                             <div style="font-size:.65rem;color:var(--text-dim);">sem cap.</div>
                         </div></td>`;
@@ -5338,15 +5462,20 @@ const timeline = {
                 }
 
                 const barW = Math.min(pct, 100);
-                html += `<td style="padding:6px 8px;cursor:${nSkus?'pointer':'default'};" ${nSkus?`onclick="timeline._abrirDetalhe('${proc.id}',${si})"`:''}
-                    title="${nSkus} SKUs · ${cargaMin.toFixed(0)}min / ${capMin.toFixed(0)}min cap">
+                html += `<td style="padding:6px 8px;cursor:${nSkus?'pointer':'default'};"
+                    data-proc="${proc.id}" data-sem="${si}"
+                    ondragover="event.preventDefault();this.style.outline='2px dashed var(--indigo-primary)';"
+                    ondragleave="this.style.outline='';" ondrop="timeline._onDropCell(event,'${proc.id}',${si})"
+                    ${nSkus?`onclick="timeline._abrirDetalhe('${proc.id}',${si})"`:''}
+                    title="${nSkus} SKUs · ${cargaMin.toFixed(0)}min/${capMin.toFixed(0)}min cap${setupMin?` · setup ${setupMin.toFixed(0)}min`:''}">
                     <div style="background:var(--bg-card);border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,.07);padding:8px 10px;">
-                        <!-- barra de progresso -->
-                        <div style="width:100%;height:5px;background:rgba(255,255,255,.08);border-radius:3px;margin-bottom:6px;overflow:hidden;">
+                        <div style="width:100%;height:5px;background:rgba(255,255,255,.08);border-radius:3px;margin-bottom:6px;overflow:hidden;position:relative;">
                             <div style="width:${barW}%;height:100%;background:${cor};border-radius:3px;transition:.3s;"></div>
+                            ${setupMin>0?`<div style="position:absolute;right:0;top:0;width:${Math.min(setupMin/capMin*100,30)}%;height:100%;background:#ff9800;opacity:.7;"></div>`:''}
                         </div>
                         <div style="font-size:.82rem;font-weight:800;color:${cor};">${cargaMin?pct.toFixed(0)+'%':'—'}</div>
                         ${nSkus?`<div style="font-size:.65rem;color:var(--text-dim);margin-top:2px;">${nSkus} SKU${nSkus>1?'s':''}</div>`:''}
+                        ${setupMin>0?`<div style="font-size:.6rem;color:#ff9800;">⚙ ${(setupMin/60).toFixed(1)}h setup</div>`:''}
                         ${pct>100?`<div style="font-size:.62rem;color:#f06292;font-weight:700;">+${(pct-100).toFixed(0)}% extra</div>`:''}
                     </div></td>`;
             });
@@ -5358,7 +5487,6 @@ const timeline = {
                 </div></td></tr>`;
         });
 
-        // Linha de feriados da semana
         html += `<tr style="border-top:2px solid var(--border-color);">
             <td style="padding:10px 16px;font-size:.72rem;color:var(--text-dim);">DIAS ÚTEIS</td>`;
         semanas.forEach(s => {
@@ -5366,8 +5494,135 @@ const timeline = {
             html += `<td style="padding:8px;text-align:center;"><div style="font-size:.78rem;font-weight:700;color:${du<5?'#f06292':'var(--text-dim)'};">${du} / 5</div></td>`;
         });
         html += `<td></td></tr></tbody></table>`;
-
         wrap.innerHTML = html;
+    },
+
+    _renderStatus() {
+        const wrap = document.getElementById('tl-pan-status');
+        if (!wrap) return;
+        const r = this._resultado;
+        if (!r) { wrap.innerHTML = '<p style="color:var(--text-dim);padding:20px;">Calcule a linha do tempo primeiro.</p>'; return; }
+
+        const items = Object.values(r.statusOrdens).sort((a,b) => {
+            const ord = { late:0, risk:1, ok:2, nodate:3 };
+            return (ord[a.status]||3)-(ord[b.status]||3) || (a.data_entrega||'9999').localeCompare(b.data_entrega||'9999');
+        });
+        const icons  = { late:'🔴', risk:'🟡', ok:'🟢', nodate:'⚪' };
+        const labels = { late:'ATRASADO', risk:'EM RISCO', ok:'NO PRAZO', nodate:'SEM PRAZO' };
+        const colors = { late:'#f06292', risk:'#ffca28', ok:'#26a69a', nodate:'#666' };
+        const lc = items.filter(s=>s.status==='late').length;
+        const rc = items.filter(s=>s.status==='risk').length;
+        const oc = items.filter(s=>s.status==='ok').length;
+        const nc = items.filter(s=>s.status==='nodate').length;
+
+        let html = `<div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
+            ${[['#f06292',lc,'ATRASADAS'],['#ffca28',rc,'EM RISCO'],['#26a69a',oc,'NO PRAZO'],['#666',nc,'SEM PRAZO']].map(([c,n,l])=>`
+            <div style="background:${c}18;border:1px solid ${c}44;border-radius:8px;padding:12px 20px;min-width:120px;text-align:center;">
+                <div style="font-size:1.5rem;font-weight:800;color:${c};">${n}</div>
+                <div style="font-size:.7rem;color:${c};letter-spacing:.07em;">${l}</div>
+            </div>`).join('')}
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+        <thead><tr style="border-bottom:2px solid var(--border-color);">
+            <th style="padding:10px 14px;text-align:left;font-size:.68rem;color:var(--text-dim);">STATUS</th>
+            <th style="padding:10px 14px;text-align:left;font-size:.68rem;color:var(--text-dim);">CÓDIGO</th>
+            <th style="padding:10px 14px;text-align:left;font-size:.68rem;color:var(--text-dim);">DESCRIÇÃO</th>
+            <th style="padding:10px 14px;text-align:right;font-size:.68rem;color:var(--text-dim);">QTD</th>
+            <th style="padding:10px 14px;text-align:center;font-size:.68rem;color:var(--text-dim);">PRAZO</th>
+            <th style="padding:10px 14px;text-align:center;font-size:.68rem;color:var(--text-dim);">CONCLUSÃO PREV.</th>
+            <th style="padding:10px 14px;text-align:center;font-size:.68rem;color:var(--text-dim);">FONTE</th>
+        </tr></thead><tbody>`;
+
+        items.forEach((item, i) => {
+            const finishStr = item.finishDate ? item.finishDate.toISOString().slice(0,10) : null;
+            const cor = colors[item.status];
+            html += `<tr style="background:${i%2?'var(--bg-input)':'transparent'};border-bottom:1px solid rgba(255,255,255,.04);">
+                <td style="padding:9px 14px;white-space:nowrap;">${icons[item.status]} <span style="font-size:.7rem;color:${cor};font-weight:700;">${labels[item.status]}</span></td>
+                <td style="padding:9px 14px;font-weight:600;color:var(--indigo-primary);">${escHTML(item.codigo)}</td>
+                <td style="padding:9px 14px;">${escHTML((item.label||'').slice(0,30))}</td>
+                <td style="padding:9px 14px;text-align:right;">${item.qty.toLocaleString('pt-BR')}</td>
+                <td style="padding:9px 14px;text-align:center;color:${cor};">${item.data_entrega?new Date(item.data_entrega+'T12:00:00').toLocaleDateString('pt-BR'):'—'}</td>
+                <td style="padding:9px 14px;text-align:center;color:${cor};">${finishStr?new Date(finishStr+'T12:00:00').toLocaleDateString('pt-BR'):'—'}</td>
+                <td style="padding:9px 14px;text-align:center;font-size:.7rem;color:${item.fonte==='op'?'#ffca28':'#26c6da'};">${item.fonte==='op'?'OP':'PLANO'}</td>
+            </tr>`;
+        });
+        html += `</tbody></table></div>`;
+        wrap.innerHTML = html;
+    },
+
+    _renderSetupMatrix() {
+        const wrap = document.getElementById('tl-pan-config');
+        if (!wrap) return;
+        const familias = [...new Set(banco.rawData.map(r => {
+            const d = r.dados || {};
+            return String(d['Segmento']||d['segmento']||d['Família']||d['Familia']||d['familia']||'').toLowerCase().trim();
+        }).filter(Boolean))].sort();
+
+        if (!familias.length) {
+            wrap.innerHTML = `<div style="padding:20px;color:var(--text-dim);">Importe o Banco de Dados para configurar a matriz de setup.</div>`;
+            return;
+        }
+        const procLabels = toc._PROCS.filter(p => this._SEQ.includes(p.id));
+        wrap.innerHTML = `
+        <div class="s-label" style="margin-bottom:12px;">MATRIZ DE SETUP / CHANGEOVER (minutos)</div>
+        <p style="font-size:.78rem;color:var(--text-dim);margin-bottom:16px;">Tempo de troca ao mudar DE família (linha) PARA família (coluna) em cada processo.</p>
+        <select id="tl-setup-proc" onchange="timeline._renderSetupGrid()" style="padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;margin-bottom:16px;">
+            ${procLabels.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('')}
+        </select>
+        <div id="tl-setup-grid" style="overflow-x:auto;"></div>
+        <button onclick="timeline.salvarSetupMatrix()" style="margin-top:16px;padding:10px 24px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.85rem;font-weight:700;cursor:pointer;">SALVAR MATRIZ</button>`;
+        this._renderSetupGrid(familias);
+    },
+
+    _renderSetupGrid(familias) {
+        const gridEl = document.getElementById('tl-setup-grid');
+        if (!gridEl) return;
+        if (!familias) {
+            familias = [...new Set(banco.rawData.map(r=>{const d=r.dados||{};return String(d['Segmento']||d['segmento']||d['Família']||d['Familia']||d['familia']||'').toLowerCase().trim();}).filter(Boolean))].sort();
+        }
+        const procId = document.getElementById('tl-setup-proc')?.value || this._SEQ[0];
+        let html = `<table style="border-collapse:collapse;font-size:.78rem;">
+            <thead><tr>
+                <th style="padding:8px 12px;background:var(--bg-card);color:var(--text-dim);font-size:.65rem;white-space:nowrap;">DE ↓ / PARA →</th>
+                ${familias.map(f=>`<th style="padding:8px 10px;background:var(--bg-card);color:var(--text-dim);font-size:.65rem;min-width:80px;text-align:center;">${escHTML(f)}</th>`).join('')}
+            </tr></thead><tbody>`;
+        familias.forEach((fDe, ri) => {
+            html += `<tr style="background:${ri%2?'var(--bg-input)':'transparent'};">
+                <td style="padding:8px 12px;font-weight:600;color:var(--text-primary);white-space:nowrap;background:var(--bg-card);">${escHTML(fDe)}</td>`;
+            familias.forEach(fPara => {
+                if (fDe === fPara) {
+                    html += `<td style="padding:4px 6px;text-align:center;background:rgba(255,255,255,.04);color:var(--text-dim);">—</td>`;
+                } else {
+                    const ex = this._setupMatrix.find(r=>r.processo===procId&&r.familia_de===fDe&&r.familia_para===fPara);
+                    html += `<td style="padding:4px 6px;text-align:center;">
+                        <input type="number" min="0" max="999" value="${ex?.minutos||0}"
+                            data-proc="${procId}" data-de="${escHTML(fDe)}" data-para="${escHTML(fPara)}"
+                            class="tl-setup-input"
+                            style="width:58px;padding:4px 6px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:5px;color:var(--text-primary);font-size:.8rem;text-align:center;"></td>`;
+                }
+            });
+            html += `</tr>`;
+        });
+        html += `</tbody></table>`;
+        gridEl.innerHTML = html;
+    },
+
+    async salvarSetupMatrix() {
+        const inputs   = document.querySelectorAll('.tl-setup-input');
+        const procAtual = document.getElementById('tl-setup-proc')?.value;
+        const novosProc = [];
+        inputs.forEach(inp => {
+            const v = parseInt(inp.value)||0;
+            if (v > 0) novosProc.push({ processo: inp.dataset.proc, familia_de: inp.dataset.de, familia_para: inp.dataset.para, minutos: v });
+        });
+        const outros = this._setupMatrix.filter(r => r.processo !== procAtual);
+        const todos  = [...outros, ...novosProc];
+        try {
+            await api.post('/api/setup-matrix/bulk', { items: todos });
+            this._setupMatrix = todos;
+            mostrarToast('Matriz de setup salva.', 'ok');
+        } catch(e) { mostrarToast('Erro: ' + e.message, 'erro'); }
     },
 
     _abrirDetalhe(procId, semIdx) {
@@ -5376,39 +5631,169 @@ const timeline = {
         const proc    = toc._PROCS.find(p=>p.id===procId);
         const semana  = r.semanas[semIdx];
         const items   = r.detalhe[procId]?.[semIdx] || [];
-        const cargaMin= r.usado[procId]?.[semIdx]  || 0;
-        const capMin  = r.cap[procId]?.[semIdx]    || 0;
+        const cargaMin= r.usado[procId]?.[semIdx]   || 0;
+        const capMin  = r.cap[procId]?.[semIdx]     || 0;
+        const setupMin= r.setupUsado[procId]?.[semIdx] || 0;
 
         document.getElementById('tl-det-titulo').textContent =
             `${proc?.nome||procId} — Semana ${semIdx+1} (${semana.label}) · ${(cargaMin/60).toFixed(1)}h / ${(capMin/60).toFixed(1)}h cap`;
 
         const sorted = [...items].sort((a,b) => b.mins - a.mins);
-        let html = `<table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+        let html = '';
+        if (setupMin > 0) {
+            html += `<div style="background:rgba(255,152,0,.1);border:1px solid rgba(255,152,0,.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.78rem;color:#ff9800;">
+                ⚙ Setup/Changeover: ${(setupMin/60).toFixed(1)}h nesta semana</div>`;
+        }
+        html += `<table style="width:100%;border-collapse:collapse;font-size:.82rem;">
             <thead><tr style="color:var(--text-dim);font-size:.68rem;letter-spacing:.07em;border-bottom:1px solid var(--border-color);">
+                <th style="padding:8px 12px;width:24px;"></th>
                 <th style="padding:8px 12px;text-align:left;">CÓDIGO</th>
                 <th style="padding:8px 12px;text-align:left;">DESCRIÇÃO</th>
                 <th style="padding:8px 12px;text-align:right;">QTD</th>
                 <th style="padding:8px 12px;text-align:right;">CARGA</th>
-                <th style="padding:8px 12px;text-align:right;">% CÉLULA</th>
-                <th style="padding:8px 12px;text-align:center;">FONTE</th>
+                <th style="padding:8px 12px;text-align:right;">%</th>
+                <th style="padding:8px 12px;text-align:center;">PRAZO</th>
+                <th style="padding:8px 12px;text-align:center;">MOVER PARA SEM.</th>
             </tr></thead><tbody>`;
         sorted.forEach((it, i) => {
             const pct = capMin>0 ? it.mins/capMin*100 : 0;
-            html += `<tr style="background:${i%2?'var(--bg-input)':'transparent'};">
+            const so  = Object.values(r.statusOrdens).find(s=>s.codigo===it.codigo);
+            const sIcon = so ? ({late:'🔴',risk:'🟡',ok:'🟢',nodate:'⚪'}[so.status]||'') : '';
+            const moverOpts = r.semanas.map(s=>`<option value="${s.idx}"${s.idx===semIdx?' selected':''}>Sem ${s.idx+1} (${s.label})</option>`).join('');
+            html += `<tr style="background:${i%2?'var(--bg-input)':'transparent'};"
+                draggable="true" ondragstart="timeline._onDragStart(event,'${escHTML(it.codigo)}','${procId}',${semIdx})">
+                <td style="padding:7px 12px;font-size:1rem;">${sIcon}</td>
                 <td style="padding:7px 12px;font-weight:600;color:var(--indigo-primary);">${escHTML(it.codigo)}</td>
-                <td style="padding:7px 12px;">${escHTML((it.label||'').slice(0,32))}</td>
+                <td style="padding:7px 12px;">${escHTML((it.label||'').slice(0,28))}</td>
                 <td style="padding:7px 12px;text-align:right;">${it.qty.toLocaleString('pt-BR')}</td>
                 <td style="padding:7px 12px;text-align:right;">${(it.mins/60).toFixed(1)}h</td>
                 <td style="padding:7px 12px;text-align:right;font-weight:700;">${pct.toFixed(1)}%</td>
-                <td style="padding:7px 12px;text-align:center;font-size:.72rem;color:${it.fonte==='op'?'#ffca28':'#26c6da'};">${it.fonte==='op'?'OP':'PLANO'}</td>
+                <td style="padding:7px 12px;text-align:center;font-size:.75rem;">${it.data_entrega?new Date(it.data_entrega+'T12:00:00').toLocaleDateString('pt-BR'):'—'}</td>
+                <td style="padding:7px 12px;text-align:center;">
+                    <select onchange="timeline._moverOrdem('${escHTML(it.codigo)}','${procId}',this.value)"
+                        style="font-size:.72rem;padding:3px 6px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:5px;color:var(--text-primary);">
+                        ${moverOpts}
+                    </select>
+                </td>
             </tr>`;
         });
         html += `</tbody></table>`;
-
         document.getElementById('tl-det-conteudo').innerHTML = html;
         const det = document.getElementById('tl-detalhe');
         det.style.display = '';
         det.scrollIntoView({ behavior:'smooth', block:'nearest' });
+    },
+
+    _moverOrdem(codigo, procId, novaSemIdx) {
+        const key = `${codigo}_${procId}`;
+        this._manualOverrides[key] = parseInt(novaSemIdx);
+        localStorage.setItem('tl_manual', JSON.stringify(this._manualOverrides));
+        document.getElementById('tl-detalhe').style.display = 'none';
+        this.calcular();
+    },
+
+    limparOverrides() {
+        this._manualOverrides = {};
+        localStorage.removeItem('tl_manual');
+        mostrarToast('Sobreposições manuais removidas.', 'ok');
+        if (this._resultado) this.calcular();
+    },
+
+    _onDragStart(event, codigo, procId, semIdx) {
+        this._dragState = { codigo, procId, semIdx };
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', `${codigo}|${procId}|${semIdx}`);
+    },
+
+    _onDropCell(event, procId, semIdx) {
+        event.preventDefault();
+        event.stopPropagation();
+        const td = event.target.closest('td');
+        if (td) td.style.outline = '';
+        if (!this._dragState) return;
+        this._moverOrdem(this._dragState.codigo, procId, semIdx);
+        this._dragState = null;
+    },
+
+    _renderCenarios() {
+        const wrap = document.getElementById('tl-pan-cenarios');
+        if (!wrap) return;
+        let html = `<div style="display:flex;gap:12px;align-items:center;margin-bottom:20px;">
+            <input id="tl-cen-nome" placeholder="Nome do cenário (ex: Com OEE 80%, prioridade CPV)"
+                style="flex:1;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.85rem;">
+            <button onclick="timeline.salvarCenario()" style="padding:10px 20px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.82rem;font-weight:700;cursor:pointer;white-space:nowrap;">SALVAR ATUAL</button>
+        </div>`;
+        if (!this._cenarios.length) {
+            html += `<div style="color:var(--text-dim);font-size:.85rem;text-align:center;padding:20px;">Nenhum cenário salvo. Configure e calcule a linha do tempo, depois salve como cenário para comparar.</div>`;
+        } else {
+            html += `<div class="summary-card" style="padding:0;overflow:hidden;">
+            <table style="width:100%;border-collapse:collapse;font-size:.85rem;">
+            <thead><tr style="border-bottom:2px solid var(--border-color);">
+                <th style="padding:10px 14px;text-align:left;font-size:.68rem;color:var(--text-dim);">NOME</th>
+                <th style="padding:10px 14px;text-align:center;font-size:.68rem;color:var(--text-dim);">ORDENS</th>
+                <th style="padding:10px 14px;text-align:center;font-size:.68rem;color:var(--text-dim);">CARGA TOTAL</th>
+                <th style="padding:10px 14px;text-align:center;font-size:.68rem;color:var(--text-dim);">MODO</th>
+                <th style="padding:10px 14px;text-align:center;font-size:.68rem;color:var(--text-dim);">SALVO EM</th>
+                <th style="padding:10px 14px;text-align:center;font-size:.68rem;color:var(--text-dim);">AÇÕES</th>
+            </tr></thead><tbody>`;
+            this._cenarios.forEach((c, i) => {
+                const cfg = c.config || {};
+                const res = c.resultado || {};
+                const dt  = c.criado_em ? new Date(c.criado_em).toLocaleDateString('pt-BR') : '—';
+                html += `<tr style="background:${i%2?'var(--bg-input)':'transparent'};border-bottom:1px solid rgba(255,255,255,.04);">
+                    <td style="padding:10px 14px;font-weight:700;">${escHTML(c.nome)}</td>
+                    <td style="padding:10px 14px;text-align:center;">${res.totalOrdens||'—'}</td>
+                    <td style="padding:10px 14px;text-align:center;">${res.totalMinutos?((res.totalMinutos/60).toFixed(0)+'h'):'—'}</td>
+                    <td style="padding:10px 14px;text-align:center;font-size:.75rem;color:var(--text-dim);">${cfg.modo==='backward'?'Reversa (EDD)':'Progressiva'}</td>
+                    <td style="padding:10px 14px;text-align:center;font-size:.75rem;color:var(--text-dim);">${dt}</td>
+                    <td style="padding:10px 14px;text-align:center;">
+                        <button onclick="timeline._aplicarCenario('${c.id}')" style="padding:4px 10px;border-radius:5px;border:1px solid var(--indigo-primary);background:transparent;color:var(--indigo-primary);font-size:.75rem;cursor:pointer;margin-right:6px;">APLICAR</button>
+                        <button onclick="timeline._deletarCenario('${c.id}')" style="padding:4px 10px;border-radius:5px;border:1px solid rgba(240,98,146,.4);background:transparent;color:#f06292;font-size:.75rem;cursor:pointer;">EXCLUIR</button>
+                    </td>
+                </tr>`;
+            });
+            html += `</tbody></table></div>`;
+        }
+        wrap.innerHTML = html;
+    },
+
+    async salvarCenario() {
+        const nome = document.getElementById('tl-cen-nome')?.value?.trim();
+        if (!nome) { mostrarToast('Digite um nome para o cenário.','erro'); return; }
+        const r = this._resultado;
+        if (!r) { mostrarToast('Calcule a linha do tempo primeiro.','erro'); return; }
+        const config   = { fonte: document.getElementById('tl-fonte')?.value, mes: document.getElementById('tl-mes-sel')?.value, prioridade: document.getElementById('tl-prioridade')?.value, horizonte: document.getElementById('tl-horizonte')?.value, startDate: document.getElementById('tl-start-date')?.value, modo: document.getElementById('tl-modo')?.value };
+        const resultado = { totalOrdens: r.totalOrdens, totalMinutos: r.totalMinutos, modo: r.modo };
+        try {
+            await api.post('/api/timeline-cenario', { nome, config, resultado });
+            mostrarToast(`Cenário "${nome}" salvo.`, 'ok');
+            document.getElementById('tl-cen-nome').value = '';
+            await this._carregarCenarios();
+        } catch(e) { mostrarToast('Erro: ' + e.message, 'erro'); }
+    },
+
+    _aplicarCenario(id) {
+        const c = this._cenarios.find(x=>x.id===id);
+        if (!c?.config) return;
+        const { fonte, mes, prioridade, horizonte, startDate, modo } = c.config;
+        if (fonte)       { const el=document.getElementById('tl-fonte');       if(el) el.value=fonte; }
+        if (mes!==undefined){ const el=document.getElementById('tl-mes-sel');  if(el) el.value=mes; }
+        if (prioridade)  { const el=document.getElementById('tl-prioridade');  if(el) el.value=prioridade; }
+        if (horizonte)   { const el=document.getElementById('tl-horizonte');   if(el) el.value=horizonte; }
+        if (startDate)   { const el=document.getElementById('tl-start-date');  if(el) el.value=startDate; }
+        if (modo)        { const el=document.getElementById('tl-modo');        if(el) el.value=modo; }
+        this._selecionarAba('gantt');
+        this.calcular();
+        mostrarToast(`Cenário "${c.nome}" aplicado.`, 'ok');
+    },
+
+    async _deletarCenario(id) {
+        if (!confirm('Excluir este cenário?')) return;
+        try {
+            await api.delete(`/api/timeline-cenario/${id}`);
+            await this._carregarCenarios();
+            mostrarToast('Cenário excluído.', 'ok');
+        } catch(e) { mostrarToast('Erro: ' + e.message, 'erro'); }
     },
 };
 

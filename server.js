@@ -558,6 +558,71 @@ app.delete('/api/estoque-minimo/:codigo', auth, adminOnly, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── APS — DATAS DE ENTREGA POR SKU ───────────────────────────
+app.get('/api/op-datas', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('op_datas').select('*').order('data_entrega', { ascending: true });
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.post('/api/op-datas/bulk', auth, async (req, res) => {
+    const { items } = req.body;
+    if (!Array.isArray(items)) return res.status(400).json({ erro: 'items obrigatório' });
+    const rows = items.map(i => ({ nop: i.nop||null, codigo: String(i.codigo).toUpperCase(), data_entrega: i.data_entrega||null, cpv: i.cpv||0, usuario_id: req.user.id }));
+    const { error } = await supabase.from('op_datas').upsert(rows, { onConflict: 'codigo' });
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, total: rows.length });
+});
+app.delete('/api/op-datas/:id', auth, adminOnly, async (req, res) => {
+    const { error } = await supabase.from('op_datas').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
+// ── APS — MATRIZ DE SETUP/CHANGEOVER ─────────────────────────
+app.get('/api/setup-matrix', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('setup_matrix').select('*').order('processo').order('familia_de');
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.post('/api/setup-matrix/bulk', auth, async (req, res) => {
+    const { items } = req.body;
+    if (!Array.isArray(items)) return res.status(400).json({ erro: 'items obrigatório' });
+    await supabase.from('setup_matrix').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+    const positivos = items.filter(i => (i.minutos||0) > 0);
+    if (positivos.length) {
+        const { error } = await supabase.from('setup_matrix').insert(
+            positivos.map(i => ({ processo: i.processo, familia_de: i.familia_de, familia_para: i.familia_para, minutos: Math.round(i.minutos)||0 }))
+        );
+        if (error) return res.status(500).json({ erro: error.message });
+    }
+    res.json({ ok: true });
+});
+
+// ── APS — CENÁRIOS DE SIMULAÇÃO ───────────────────────────────
+app.get('/api/timeline-cenario', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('timeline_cenario').select('id,nome,config,resultado,criado_em').order('criado_em', { ascending: false }).limit(20);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.post('/api/timeline-cenario', auth, async (req, res) => {
+    const { nome, config, resultado } = req.body;
+    if (!nome) return res.status(400).json({ erro: 'Nome obrigatório' });
+    const { data, error } = await supabase.from('timeline_cenario').insert({ nome, config: config||{}, resultado: resultado||{}, usuario_id: req.user.id }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, cenario: data });
+});
+app.put('/api/timeline-cenario/:id', auth, async (req, res) => {
+    const { nome } = req.body;
+    const { error } = await supabase.from('timeline_cenario').update({ nome }).eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+app.delete('/api/timeline-cenario/:id', auth, adminOnly, async (req, res) => {
+    const { error } = await supabase.from('timeline_cenario').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
 // ── DISPONIBILIDADE: FERIADOS ────────────────────────────────
 app.get('/api/feriados', auth, async (_req, res) => {
     const { data, error } = await supabase.from('feriados').select('*').order('data');
@@ -776,6 +841,9 @@ app.get('/api/setup', async (_req, res) => {
         { nome: 'soep_plano',           sql: `CREATE TABLE IF NOT EXISTS soep_plano (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), mes TEXT NOT NULL, codigo TEXT NOT NULL, quantidade INTEGER DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), atualizado_em TIMESTAMPTZ DEFAULT NOW(), UNIQUE(mes,codigo)); ALTER TABLE soep_plano DISABLE ROW LEVEL SECURITY;` },
         { nome: 'estoque_minimo',       sql: `CREATE TABLE IF NOT EXISTS estoque_minimo (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), codigo TEXT NOT NULL UNIQUE, quantidade INTEGER DEFAULT 0, atualizado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE estoque_minimo DISABLE ROW LEVEL SECURITY;` },
         { nome: 'soep_snapshot',        sql: `CREATE TABLE IF NOT EXISTS soep_snapshot (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), mes TEXT NOT NULL, codigo TEXT NOT NULL, qty_prevista INTEGER DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), criado_em TIMESTAMPTZ DEFAULT NOW()); CREATE INDEX IF NOT EXISTS idx_soep_snap_mes ON soep_snapshot(mes,codigo); ALTER TABLE soep_snapshot DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'op_datas',             sql: `CREATE TABLE IF NOT EXISTS op_datas (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nop TEXT, codigo TEXT NOT NULL, data_entrega DATE, cpv NUMERIC(14,2) DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), atualizado_em TIMESTAMPTZ DEFAULT NOW(), UNIQUE(codigo)); ALTER TABLE op_datas DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'setup_matrix',         sql: `CREATE TABLE IF NOT EXISTS setup_matrix (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), processo TEXT NOT NULL, familia_de TEXT NOT NULL, familia_para TEXT NOT NULL, minutos INTEGER DEFAULT 0); ALTER TABLE setup_matrix DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'timeline_cenario',     sql: `CREATE TABLE IF NOT EXISTS timeline_cenario (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome TEXT NOT NULL, config JSONB DEFAULT '{}', resultado JSONB DEFAULT '{}', usuario_id UUID REFERENCES usuarios(id), criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE timeline_cenario DISABLE ROW LEVEL SECURITY;` },
     ];
 
     const faltando = [];
