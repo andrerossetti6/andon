@@ -3456,7 +3456,25 @@ function criarModuloArq(id, nomeApi) {
             if (ext === 'csv') Papa.parse(file, { header:true, skipEmptyLines:true, complete: r => this.processData(r.data) });
             else if (['xls','xlsx'].includes(ext)) {
                 const reader = new FileReader();
-                reader.onload = e => { const wb = XLSX.read(e.target.result,{type:'array'}); this.processData(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''})); };
+                reader.onload = e => {
+                    const wb   = XLSX.read(e.target.result, { type: 'array' });
+                    const sheet = wb.Sheets[wb.SheetNames[0]];
+                    // Lê como arrays para detectar onde estão os cabeçalhos reais
+                    const rawRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false, dateNF: 'yyyy-mm-dd' });
+                    // Primeira linha com ≥ 3 células não-vazias é o cabeçalho
+                    let headerIdx = 0;
+                    for (let i = 0; i < rawRows.length; i++) {
+                        const nonEmpty = rawRows[i].filter(c => String(c).trim() !== '');
+                        if (nonEmpty.length >= 3) { headerIdx = i; break; }
+                    }
+                    const headers = rawRows[headerIdx].map((h, i) =>
+                        String(h).trim() !== '' ? String(h).trim() : `__EMPTY_${i}`
+                    );
+                    const dataRows = rawRows.slice(headerIdx + 1)
+                        .filter(row => row.some(c => String(c).trim() !== ''))
+                        .map(row => Object.fromEntries(headers.map((h, i) => [h, row[i] ?? ''])));
+                    this.processData(dataRows);
+                };
                 reader.readAsArrayBuffer(file);
             }
         },
