@@ -496,6 +496,46 @@ app.delete('/api/soep-acoes/:id', auth, adminOnly, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── S&OP — PLANO DE PRODUÇÃO (persiste no banco) ─────────────
+app.get('/api/soep-plano', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('soep_plano').select('mes,codigo,quantidade');
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.post('/api/soep-plano/bulk', auth, async (req, res) => {
+    const { items } = req.body;
+    if (!Array.isArray(items) || !items.length) return res.json({ ok: true });
+    const rows = items.map(i => ({ mes: i.mes, codigo: String(i.codigo).toUpperCase(), quantidade: i.quantidade||0, usuario_id: req.user.id }));
+    const { error } = await supabase.from('soep_plano').upsert(rows, { onConflict: 'mes,codigo' });
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+app.delete('/api/soep-plano/:mes', auth, async (req, res) => {
+    const { error } = await supabase.from('soep_plano').delete().eq('mes', req.params.mes);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
+// ── S&OP — ESTOQUE MÍNIMO POR SKU ────────────────────────────
+app.get('/api/estoque-minimo', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('estoque_minimo').select('codigo,quantidade');
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.post('/api/estoque-minimo/bulk', auth, async (req, res) => {
+    const { items } = req.body;
+    if (!Array.isArray(items) || !items.length) return res.json({ ok: true });
+    const rows = items.map(i => ({ codigo: String(i.codigo).toUpperCase(), quantidade: i.quantidade||0 }));
+    const { error } = await supabase.from('estoque_minimo').upsert(rows, { onConflict: 'codigo' });
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+app.delete('/api/estoque-minimo/:codigo', auth, adminOnly, async (req, res) => {
+    const { error } = await supabase.from('estoque_minimo').delete().eq('codigo', req.params.codigo.toUpperCase());
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
 // ── DISPONIBILIDADE: FERIADOS ────────────────────────────────
 app.get('/api/feriados', auth, async (_req, res) => {
     const { data, error } = await supabase.from('feriados').select('*').order('data');
@@ -711,6 +751,8 @@ app.get('/api/setup', async (_req, res) => {
         { nome: 'processos_config',     sql: `CREATE TABLE IF NOT EXISTS processos_config (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome TEXT NOT NULL, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE processos_config DISABLE ROW LEVEL SECURITY;` },
         { nome: 'maquinas',             sql: `CREATE TABLE IF NOT EXISTS maquinas (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), processo_id UUID REFERENCES processos_config(id) ON DELETE CASCADE, id_maquina TEXT, modelo TEXT, oee NUMERIC(5,2), status TEXT, n_pessoas INTEGER, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE maquinas DISABLE ROW LEVEL SECURITY;` },
         { nome: 'soep_acoes',           sql: `CREATE TABLE IF NOT EXISTS soep_acoes (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), descricao TEXT NOT NULL, responsavel TEXT, prazo DATE, status TEXT DEFAULT 'aberta', modulo TEXT, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE soep_acoes DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'soep_plano',           sql: `CREATE TABLE IF NOT EXISTS soep_plano (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), mes TEXT NOT NULL, codigo TEXT NOT NULL, quantidade INTEGER DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), atualizado_em TIMESTAMPTZ DEFAULT NOW(), UNIQUE(mes,codigo)); ALTER TABLE soep_plano DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'estoque_minimo',       sql: `CREATE TABLE IF NOT EXISTS estoque_minimo (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), codigo TEXT NOT NULL UNIQUE, quantidade INTEGER DEFAULT 0, atualizado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE estoque_minimo DISABLE ROW LEVEL SECURITY;` },
     ];
 
     const faltando = [];

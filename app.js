@@ -4269,11 +4269,30 @@ const toc = {
     },
 };
 
+// Calcula dias úteis de um mês descontando fins de semana e feriados cadastrados
+toc._calcDiasUteisDoMes = async function(mesStr) {
+    const [ano, mes] = mesStr.split('-').map(Number);
+    const diasNoMes  = new Date(ano, mes, 0).getDate();
+    if (!this._feriadosCache) {
+        const data = await api.get('/api/feriados');
+        this._feriadosCache = new Set((data||[]).map(f => f.data?.slice(0,10)));
+    }
+    let uteis = 0;
+    for (let d = 1; d <= diasNoMes; d++) {
+        const dt  = new Date(ano, mes-1, d);
+        const dow = dt.getDay();
+        if (dow === 0 || dow === 6) continue; // fim de semana
+        const iso = `${ano}-${String(mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        if (!this._feriadosCache.has(iso)) uteis++;
+    }
+    return uteis;
+};
+
 // Extensão do TOC: calcula sem alterar estado (usado por S&OP)
-toc.calcularComDemanda = function(demandaMap) {
+toc.calcularComDemanda = function(demandaMap, diasUteis) {
     if (!banco.rawData.length || !demandaMap) return [];
     const cap  = this._getCap();
-    const dias = parseFloat(document.getElementById('toc-dias')?.value) || 22;
+    const dias = diasUteis || parseFloat(document.getElementById('toc-dias')?.value) || 22;
     const bancoMap = {};
     banco.rawData.forEach(r => {
         const cod = String(r.dados?.['Código'] ?? '').trim().toUpperCase();
@@ -4349,13 +4368,20 @@ const previsao = {
             const total = recentCols.reduce((s,c) => s+(r[c.key]||0), 0);
             if (!total) return;
             const baseMedia = total / (recentCols.length||1);
-            nextMonths.forEach(({ mes, abbr, label }) => {
-                const chave  = `${mes}_${cod}`;
-                const rawQty = Math.round(baseMedia * (sIdx[abbr]||1));
-                const qty    = this._overrides[chave] !== undefined ? this._overrides[chave] : rawQty;
+            // Tendência: últimos 3 meses vs 3 anteriores
+            const last3  = recentCols.slice(-3).reduce((s,c)=>s+(r[c.key]||0),0) / 3;
+            const prev3  = recentCols.length>=6 ? recentCols.slice(-6,-3).reduce((s,c)=>s+(r[c.key]||0),0)/3 : last3;
+            const trend  = prev3 > 0 ? (last3 - prev3) / prev3 : 0;
+            const trendSeta = trend > 0.05 ? '↑' : trend < -0.05 ? '↓' : '→';
+            nextMonths.forEach(({ mes, abbr, label }, idx) => {
+                const chave     = `${mes}_${cod}`;
+                // Tendência aplicada progressivamente: mês 1 = 50% do trend, mês 2 = 100%, mês 3 = 150%
+                const trendFator = Math.max(0.1, 1 + trend * (idx + 1) * 0.5);
+                const rawQty    = Math.round(baseMedia * (sIdx[abbr]||1) * trendFator);
+                const qty       = this._overrides[chave] !== undefined ? this._overrides[chave] : rawQty;
                 forecast.push({ mes, abbr, label, chave, codigo: cod,
                     descricao: String(r.descricao||'').trim(), segmento: String(r.segmento||'').trim(),
-                    modelo: String(r.modelo||'').trim(), baseMedia, rawQty, qty,
+                    modelo: String(r.modelo||'').trim(), baseMedia, rawQty, qty, trend, trendSeta,
                     isOverride: this._overrides[chave] !== undefined });
             });
         });
@@ -4484,19 +4510,62 @@ const previsao = {
 
 // ====== S&OP — PLANO DE PRODUÇÃO ======
 const planoProducao = {
-    _mesSel: '',
-    _plano:  {},
+    _mesSel:   '',
+    _plano:    {},  // `${mes}_${cod}` → qty — salvo no banco
+    _estMin:   {},  // `${cod}` → qty mínima — salvo no banco
+    _dirty:    new Set(),
+    _dirtyMin: new Set(),
 
-    init() {
-        this._loadPlano();
+    async init() {
         document.getElementById('plano-search')?.addEventListener('input', () => this._renderTabela());
+        await Promise.all([this._loadPlanoFromDB(), this._loadEstMinFromDB()]);
     },
 
-    _loadPlano()  { try { this._plano = JSON.parse(localStorage.getItem('soep-plano')||'{}'); } catch { this._plano={}; } },
-    _savePlano()  { localStorage.setItem('soep-plano', JSON.stringify(this._plano)); mostrarToast('✓ Plano salvo'); },
+    async _loadPlanoFromDB() {
+        const data = await api.get('/api/soep-plano');
+        if (!data) return;
+        this._plano = {};
+        data.forEach(r => { this._plano[`${r.mes}_${r.codigo}`] = r.quantidade; });
+    },
 
-    setQty(cod, mes, qty) { this._plano[`${mes}_${String(cod).toUpperCase()}`] = Math.max(0,qty); },
-    getQty(cod, mes)       { return this._plano[`${mes}_${String(cod).toUpperCase()}`] ?? null; },
+    async _loadEstMinFromDB() {
+        const data = await api.get('/api/estoque-minimo');
+        if (!data) return;
+        this._estMin = {};
+        data.forEach(r => { this._estMin[r.codigo] = r.quantidade; });
+    },
+
+    setQty(cod, mes, qty) {
+        const k = `${mes}_${String(cod).toUpperCase()}`;
+        this._plano[k] = Math.max(0, qty);
+        this._dirty.add(k);
+    },
+
+    getQty(cod, mes) { return this._plano[`${mes}_${String(cod).toUpperCase()}`] ?? null; },
+
+    setEstMin(cod, qty) {
+        const c = String(cod).toUpperCase();
+        this._estMin[c] = Math.max(0, qty);
+        this._dirtyMin.add(c);
+    },
+
+    async salvar() {
+        let salvou = false;
+        if (this._dirty.size) {
+            const items = [...this._dirty].map(k => {
+                const [mes, ...rest] = k.split('_');
+                return { mes, codigo: rest.join('_'), quantidade: this._plano[k]||0 };
+            });
+            const r = await api.post('/api/soep-plano/bulk', { items });
+            if (r?.ok) { this._dirty.clear(); salvou = true; }
+        }
+        if (this._dirtyMin.size) {
+            const items = [...this._dirtyMin].map(c => ({ codigo: c, quantidade: this._estMin[c]||0 }));
+            const r = await api.post('/api/estoque-minimo/bulk', { items });
+            if (r?.ok) { this._dirtyMin.clear(); salvou = true; }
+        }
+        mostrarToast(salvou ? '✓ Plano salvo' : '✓ Sem alterações pendentes');
+    },
 
     render() {
         if (!previsao._nextMonths.length) {
@@ -4521,23 +4590,16 @@ const planoProducao = {
     },
 
     _selMes(mes) { this._mesSel=mes; this._renderMesTabs(); this._renderTabela(); this._renderCapacidade(); },
-    salvar()     { this._savePlano(); },
 
     autoSugerir() {
         if (!previsao._forecast.length) { alert('Calcule a Previsão de Demanda primeiro.'); return; }
         if (!this._mesSel) return;
-        const estMap={}, opMap={};
-        estoque.rawData.forEach(r => { estMap[String(r.codigo||'').trim().toUpperCase()] = Number(r.quantidade)||0; });
-        if (op.rawData.length && op._colRef && op._colQtd) {
-            op.rawData.forEach(r => {
-                const cod=String(r.dados?.[op._colRef]||'').trim().toUpperCase();
-                const qty=parseFloat(String(r.dados?.[op._colQtd]||'0').replace(/[^\d.,]/g,'').replace(',','.'))||0;
-                if (cod) opMap[cod]=(opMap[cod]||0)+qty;
-            });
-        }
+        const { estMap, opMap } = this._buildMaps();
         previsao._forecast.filter(r=>r.mes===this._mesSel).forEach(r=>{
-            const sugerido = Math.max(0, r.qty - (estMap[r.codigo]||0) - (opMap[r.codigo]||0));
-            if (sugerido>0) this._plano[`${this._mesSel}_${r.codigo}`]=sugerido;
+            const min      = this._estMin[r.codigo] || 0;
+            // Fórmula: produzir = previsão + estoque_min - estoque_atual - op_aberta
+            const sugerido = Math.max(0, r.qty + min - (estMap[r.codigo]||0) - (opMap[r.codigo]||0));
+            if (sugerido>0) { this._plano[`${this._mesSel}_${r.codigo}`]=sugerido; this._dirty.add(`${this._mesSel}_${r.codigo}`); }
         });
         this._renderTabela(); this._renderCapacidade();
         mostrarToast('✓ Plano sugerido gerado');
@@ -4569,15 +4631,17 @@ const planoProducao = {
             .filter(r=>r.mes===this._mesSel && (!search || r.codigo.toLowerCase().includes(search)||r.descricao.toLowerCase().includes(search)))
             .map(r=>({
                 ...r,
-                estqtd: estMap[r.codigo]||0,
-                opQtd:  opMap[r.codigo]||0,
-                sugerido: Math.max(0, r.qty-(estMap[r.codigo]||0)-(opMap[r.codigo]||0)),
+                estqtd:   estMap[r.codigo]||0,
+                opQtd:    opMap[r.codigo]||0,
+                estMin:   this._estMin[r.codigo]||0,
+                sugerido: Math.max(0, r.qty + (this._estMin[r.codigo]||0) - (estMap[r.codigo]||0) - (opMap[r.codigo]||0)),
                 planejado: this._plano[`${this._mesSel}_${r.codigo}`]??''
             }))
             .sort((a,b)=>b.sugerido-a.sugerido).slice(0,500);
         tbody.innerHTML = rows.map((r,i)=>{
-            const bg=i%2?'var(--bg-input)':'transparent';
+            const bg      = i%2?'var(--bg-input)':'transparent';
             const planCor = r.planejado>r.qty?'#f06292': r.planejado>0?'#26a69a':'var(--text-dim)';
+            const minCor  = r.estMin>0?'var(--indigo-primary)':'var(--text-dim)';
             return `<tr style="background:${bg};">
                 <td style="padding:6px 10px;font-weight:600;font-size:.78rem;color:var(--indigo-primary);">${escHTML(r.codigo)}</td>
                 <td style="padding:6px 10px;font-size:.78rem;">${escHTML((r.descricao||'').slice(0,28))}</td>
@@ -4585,6 +4649,11 @@ const planoProducao = {
                 <td style="padding:6px 10px;text-align:right;">${r.qty.toLocaleString('pt-BR')}</td>
                 <td style="padding:6px 10px;text-align:right;color:${r.estqtd<r.qty*.5?'#f06292':'var(--text-primary)'};">${r.estqtd.toLocaleString('pt-BR')}</td>
                 <td style="padding:6px 10px;text-align:right;">${r.opQtd.toLocaleString('pt-BR')}</td>
+                <td style="padding:6px 10px;text-align:right;">
+                    <input type="number" min="0" value="${r.estMin||''}" placeholder="0"
+                        style="width:68px;padding:3px 7px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:${minCor};font-size:.78rem;text-align:right;"
+                        onchange="planoProducao.setEstMin('${r.codigo}',parseInt(this.value)||0)">
+                </td>
                 <td style="padding:6px 10px;text-align:right;color:var(--indigo-primary);font-weight:600;">${r.sugerido.toLocaleString('pt-BR')}</td>
                 <td style="padding:6px 10px;text-align:right;">
                     <input type="number" min="0" value="${r.planejado}" placeholder="${r.sugerido}"
@@ -4692,14 +4761,16 @@ const soepDash = {
         table.innerHTML = header + `<tbody>${rows}</tbody>`;
     },
 
-    _renderCapHeatmap() {
+    async _renderCapHeatmap() {
         const el = document.getElementById('soep-cap-heatmap');
         if (!el) return;
         if (!banco.rawData.length||!previsao._nextMonths.length) {
             el.innerHTML='<div style="color:var(--text-dim);font-size:.82rem;">Importe Banco de Dados e calcule a Previsão para ver o mapa.</div>'; return;
         }
         const months  = previsao._nextMonths;
-        const results = months.map(m=>({ mes:m, procs:toc.calcularComDemanda(previsao.getDemandaMapa(m.mes)) }));
+        // Busca dias úteis de cada mês com feriados
+        const diasPorMes = await Promise.all(months.map(m => toc._calcDiasUteisDoMes(m.mes)));
+        const results = months.map((m, i)=>({ mes:m, procs:toc.calcularComDemanda(previsao.getDemandaMapa(m.mes), diasPorMes[i]) }));
         let html = `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">
             <thead><tr style="color:var(--text-dim);font-size:.7rem;letter-spacing:.06em;border-bottom:1px solid var(--border-color);">
                 <th style="padding:8px 12px;text-align:left;">PROCESSO</th>
