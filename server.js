@@ -9,6 +9,19 @@ const supabase = require('./db');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
+// Insere rows em batches com rollback automático se algum falhar
+async function batchInsert(tabela, importacaoTabela, importacaoId, rows, batchSize = 200) {
+    for (let i = 0; i < rows.length; i += batchSize) {
+        const { error } = await supabase.from(tabela).insert(rows.slice(i, i + batchSize));
+        if (error) {
+            console.error(`batchInsert ${tabela} falhou no lote ${i}/${rows.length}: ${error.message}`);
+            await supabase.from(importacaoTabela).delete().eq('id', importacaoId);
+            return { erro: `Falha ao salvar (lote ${i}–${Math.min(i+batchSize, rows.length)} de ${rows.length}): ${error.message}` };
+        }
+    }
+    return { ok: true };
+}
+
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 app.use(express.static(__dirname, { etag: false, lastModified: false, setHeaders: res => res.set('Cache-Control', 'no-store') }));
@@ -31,6 +44,9 @@ function adminOnly(req, res, next) {
     }
     next();
 }
+
+// ── GET /api/ping — wake-up sem auth ─────────────────────────
+app.get('/api/ping', (_req, res) => res.json({ ok: true, ts: Date.now() }));
 
 // ── POST /api/auth/login ──────────────────────────────────────
 app.post('/api/auth/login', async (req, res) => {
@@ -61,7 +77,7 @@ app.post('/api/auth/login', async (req, res) => {
         const token = jwt.sign(
             { id: usuario.id, nome: usuario.nome, email: usuario.email, perfil: usuario.perfil },
             process.env.JWT_SECRET,
-            { expiresIn: '12h' }
+            { expiresIn: '7d' }
         );
 
         res.json({
@@ -130,7 +146,7 @@ app.get('/api/importacoes', auth, async (_req, res) => {
 });
 
 // ── POST /api/vendas/import ───────────────────────────────────
-app.post('/api/vendas/import', auth, async (req, res) => {
+app.post("/api/vendas/import", auth, adminOnly, async (req, res) => {
     const { nomeArquivo, linhas, anos } = req.body;
     if (!Array.isArray(linhas) || !linhas.length)
         return res.status(400).json({ erro: 'Dados inválidos' });
@@ -163,10 +179,8 @@ app.post('/api/vendas/import', auth, async (req, res) => {
         valor:      Number(l.valor)      || 0
     }));
 
-    for (let i = 0; i < rows.length; i += 200) {
-        const { error } = await supabase.from('vendas').insert(rows.slice(i, i + 200));
-        if (error) return res.status(500).json({ erro: 'Erro ao salvar linhas' });
-    }
+    const result = await batchInsert('vendas', 'importacoes', imp.id, rows);
+    if (result.erro) return res.status(500).json({ erro: result.erro });
 
     res.json({ ok: true, importacaoId: imp.id, total: linhas.length });
 });
@@ -181,7 +195,7 @@ app.get('/api/vendas', auth, async (req, res) => {
     if (modelo)        q = q.eq('modelo', modelo);
     if (tamanho)       q = q.eq('tamanho', tamanho);
 
-    const { data, error } = await q.limit(10000);
+    const { data, error } = await q.limit(5000);
     if (error) return res.status(500).json({ erro: 'Erro ao buscar dados' });
     res.json(data);
 });
@@ -198,7 +212,7 @@ app.get('/api/importacoes-estoque', auth, async (req, res) => {
 });
 
 // ── POST /api/estoque/import ──────────────────────────────────
-app.post('/api/estoque/import', auth, async (req, res) => {
+app.post("/api/estoque/import", auth, adminOnly, async (req, res) => {
     const { nomeArquivo, linhas } = req.body;
     if (!Array.isArray(linhas) || !linhas.length)
         return res.status(400).json({ erro: 'Dados inválidos' });
@@ -219,10 +233,8 @@ app.post('/api/estoque/import', auth, async (req, res) => {
         dados:      l.dados || {}
     }));
 
-    for (let i = 0; i < rows.length; i += 200) {
-        const { error } = await supabase.from('estoque').insert(rows.slice(i, i + 200));
-        if (error) return res.status(500).json({ erro: 'Erro ao salvar estoque' });
-    }
+    const r1 = await batchInsert('estoque', 'importacoes_estoque', imp.id, rows);
+    if (r1.erro) return res.status(500).json({ erro: r1.erro });
     res.json({ ok: true, importacaoId: imp.id, total: linhas.length });
 });
 
@@ -231,13 +243,13 @@ app.get('/api/estoque', auth, async (req, res) => {
     const { importacao_id } = req.query;
     let q = supabase.from('estoque').select('*');
     if (importacao_id) q = q.eq('importacao_id', importacao_id);
-    const { data, error } = await q.limit(10000);
+    const { data, error } = await q.limit(5000);
     if (error) return res.status(500).json({ erro: 'Erro ao buscar estoque' });
     res.json(data);
 });
 
 // ── DELETE /api/importacoes-estoque/:id ───────────────────────
-app.delete('/api/importacoes-estoque/:id', auth, async (req, res) => {
+app.delete('/api/importacoes-estoque/:id', auth, adminOnly, async (req, res) => {
     const { error } = await supabase.from('importacoes_estoque').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ erro: 'Erro ao deletar' });
     res.json({ ok: true });
@@ -255,7 +267,7 @@ app.get('/api/importacoes-op', auth, async (_req, res) => {
 });
 
 // ── POST /api/op/import ──────────────────────────────────────
-app.post('/api/op/import', auth, async (req, res) => {
+app.post("/api/op/import", auth, adminOnly, async (req, res) => {
     const { nomeArquivo, linhas } = req.body;
     if (!Array.isArray(linhas) || !linhas.length)
         return res.status(400).json({ erro: 'Dados inválidos' });
@@ -270,25 +282,23 @@ app.post('/api/op/import', auth, async (req, res) => {
     }
 
     const rows = linhas.map(l => ({ importacao_id: imp.id, dados: l.dados || {} }));
-    for (let i = 0; i < rows.length; i += 200) {
-        const { error } = await supabase.from('ordens_producao').insert(rows.slice(i, i + 200));
-        if (error) return res.status(500).json({ erro: 'Erro ao salvar ordens' });
-    }
+    const r2 = await batchInsert('dados_op', 'importacoes_op', imp.id, rows);
+    if (r2.erro) return res.status(500).json({ erro: r2.erro });
     res.json({ ok: true, importacaoId: imp.id, total: linhas.length });
 });
 
 // ── GET /api/op?importacao_id=xxx ────────────────────────────
 app.get('/api/op', auth, async (req, res) => {
     const { importacao_id } = req.query;
-    let q = supabase.from('ordens_producao').select('*');
+    let q = supabase.from('dados_op').select('*');
     if (importacao_id) q = q.eq('importacao_id', importacao_id);
-    const { data, error } = await q.limit(10000);
+    const { data, error } = await q.limit(5000);
     if (error) return res.status(500).json({ erro: 'Erro ao buscar ordens' });
     res.json(data);
 });
 
 // ── DELETE /api/importacoes-op/:id ───────────────────────────
-app.delete('/api/importacoes-op/:id', auth, async (req, res) => {
+app.delete('/api/importacoes-op/:id', auth, adminOnly, async (req, res) => {
     const { error } = await supabase.from('importacoes_op').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ erro: 'Erro ao deletar' });
     res.json({ ok: true });
@@ -306,7 +316,7 @@ app.get('/api/importacoes-costura', auth, async (_req, res) => {
 });
 
 // ── POST /api/costura/import ─────────────────────────────────
-app.post('/api/costura/import', auth, async (req, res) => {
+app.post("/api/costura/import", auth, adminOnly, async (req, res) => {
     const { nomeArquivo, linhas } = req.body;
     if (!Array.isArray(linhas) || !linhas.length)
         return res.status(400).json({ erro: 'Dados inválidos' });
@@ -321,10 +331,8 @@ app.post('/api/costura/import', auth, async (req, res) => {
     }
 
     const rows = linhas.map(l => ({ importacao_id: imp.id, dados: l.dados || {} }));
-    for (let i = 0; i < rows.length; i += 200) {
-        const { error } = await supabase.from('dados_costura').insert(rows.slice(i, i + 200));
-        if (error) return res.status(500).json({ erro: 'Erro ao salvar dados de costura' });
-    }
+    const r3 = await batchInsert('dados_costura', 'importacoes_costura', imp.id, rows);
+    if (r3.erro) return res.status(500).json({ erro: r3.erro });
     res.json({ ok: true, importacaoId: imp.id, total: linhas.length });
 });
 
@@ -333,13 +341,13 @@ app.get('/api/costura', auth, async (req, res) => {
     const { importacao_id } = req.query;
     let q = supabase.from('dados_costura').select('*');
     if (importacao_id) q = q.eq('importacao_id', importacao_id);
-    const { data, error } = await q.limit(10000);
+    const { data, error } = await q.limit(5000);
     if (error) return res.status(500).json({ erro: 'Erro ao buscar dados de costura' });
     res.json(data);
 });
 
 // ── DELETE /api/importacoes-costura/:id ──────────────────────
-app.delete('/api/importacoes-costura/:id', auth, async (req, res) => {
+app.delete('/api/importacoes-costura/:id', auth, adminOnly, async (req, res) => {
     const { error } = await supabase.from('importacoes_costura').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ erro: 'Erro ao deletar' });
     res.json({ ok: true });
@@ -357,7 +365,7 @@ app.get('/api/importacoes-cliente', auth, async (_req, res) => {
 });
 
 // ── POST /api/cliente/import ─────────────────────────────────
-app.post('/api/cliente/import', auth, async (req, res) => {
+app.post("/api/cliente/import", auth, adminOnly, async (req, res) => {
     const { nomeArquivo, linhas } = req.body;
     if (!Array.isArray(linhas) || !linhas.length)
         return res.status(400).json({ erro: 'Dados inválidos' });
@@ -372,10 +380,8 @@ app.post('/api/cliente/import', auth, async (req, res) => {
     }
 
     const rows = linhas.map(l => ({ importacao_id: imp.id, dados: l.dados || {} }));
-    for (let i = 0; i < rows.length; i += 200) {
-        const { error } = await supabase.from('dados_cliente').insert(rows.slice(i, i + 200));
-        if (error) return res.status(500).json({ erro: 'Erro ao salvar dados de cliente' });
-    }
+    const r4 = await batchInsert('dados_cliente', 'importacoes_cliente', imp.id, rows);
+    if (r4.erro) return res.status(500).json({ erro: r4.erro });
     res.json({ ok: true, importacaoId: imp.id, total: linhas.length });
 });
 
@@ -384,13 +390,13 @@ app.get('/api/cliente', auth, async (req, res) => {
     const { importacao_id } = req.query;
     let q = supabase.from('dados_cliente').select('*');
     if (importacao_id) q = q.eq('importacao_id', importacao_id);
-    const { data, error } = await q.limit(10000);
+    const { data, error } = await q.limit(5000);
     if (error) return res.status(500).json({ erro: 'Erro ao buscar dados de cliente' });
     res.json(data);
 });
 
 // ── DELETE /api/importacoes-cliente/:id ──────────────────────
-app.delete('/api/importacoes-cliente/:id', auth, async (req, res) => {
+app.delete('/api/importacoes-cliente/:id', auth, adminOnly, async (req, res) => {
     const { error } = await supabase.from('importacoes_cliente').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ erro: 'Erro ao deletar' });
     res.json({ ok: true });
@@ -408,7 +414,7 @@ app.get('/api/importacoes-banco', auth, async (_req, res) => {
 });
 
 // ── POST /api/banco/import ───────────────────────────────────
-app.post('/api/banco/import', auth, async (req, res) => {
+app.post("/api/banco/import", auth, adminOnly, async (req, res) => {
     const { nomeArquivo, linhas } = req.body;
     if (!Array.isArray(linhas) || !linhas.length)
         return res.status(400).json({ erro: 'Dados inválidos' });
@@ -423,10 +429,8 @@ app.post('/api/banco/import', auth, async (req, res) => {
     }
 
     const rows = linhas.map(l => ({ importacao_id: imp.id, dados: l.dados || {} }));
-    for (let i = 0; i < rows.length; i += 200) {
-        const { error } = await supabase.from('dados_banco').insert(rows.slice(i, i + 200));
-        if (error) return res.status(500).json({ erro: 'Erro ao salvar dados de banco' });
-    }
+    const r5 = await batchInsert('dados_banco', 'importacoes_banco', imp.id, rows);
+    if (r5.erro) return res.status(500).json({ erro: r5.erro });
     res.json({ ok: true, importacaoId: imp.id, total: linhas.length });
 });
 
@@ -435,13 +439,13 @@ app.get('/api/banco', auth, async (req, res) => {
     const { importacao_id } = req.query;
     let q = supabase.from('dados_banco').select('*');
     if (importacao_id) q = q.eq('importacao_id', importacao_id);
-    const { data, error } = await q.limit(10000);
+    const { data, error } = await q.limit(5000);
     if (error) return res.status(500).json({ erro: 'Erro ao buscar dados de banco' });
     res.json(data);
 });
 
 // ── DELETE /api/importacoes-banco/:id ────────────────────────
-app.delete('/api/importacoes-banco/:id', auth, async (req, res) => {
+app.delete('/api/importacoes-banco/:id', auth, adminOnly, async (req, res) => {
     const { error } = await supabase.from('importacoes_banco').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ erro: 'Erro ao deletar' });
     res.json({ ok: true });
@@ -570,7 +574,7 @@ app.delete('/api/maquinas/:id', auth, async (req, res) => {
         res.json(data);
     });
 
-    app.post(`/api/${nome}/import`, auth, async (req, res) => {
+    app.post(`/api/${nome}/import`, auth, adminOnly, async (req, res) => {
         const { nomeArquivo, linhas } = req.body;
         if (!Array.isArray(linhas) || !linhas.length)
             return res.status(400).json({ erro: 'Dados inválidos' });
@@ -579,26 +583,132 @@ app.delete('/api/maquinas/:id', auth, async (req, res) => {
             .select().single();
         if (errImp) return res.status(500).json({ erro: errImp.message });
         const rows = linhas.map(l => ({ importacao_id: imp.id, dados: l.dados || {} }));
-        for (let i = 0; i < rows.length; i += 200) {
-            const { error } = await supabase.from(`dados_${nome}`).insert(rows.slice(i, i + 200));
-            if (error) return res.status(500).json({ erro: `Erro ao salvar dados de ${nome}` });
-        }
+        const rg = await batchInsert(`dados_${nome}`, `importacoes_${nome}`, imp.id, rows);
+        if (rg.erro) return res.status(500).json({ erro: rg.erro });
         res.json({ ok: true, importacaoId: imp.id, total: linhas.length });
     });
 
     app.get(`/api/${nome}`, auth, async (req, res) => {
         let q = supabase.from(`dados_${nome}`).select('*');
         if (req.query.importacao_id) q = q.eq('importacao_id', req.query.importacao_id);
-        const { data, error } = await q.limit(10000);
+        const { data, error } = await q.limit(5000);
         if (error) return res.status(500).json({ erro: `Erro ao buscar ${nome}` });
         res.json(data);
     });
 
-    app.delete(`/api/importacoes-${nome}/:id`, auth, async (req, res) => {
+    app.delete(`/api/importacoes-${nome}/:id`, auth, adminOnly, async (req, res) => {
         const { error } = await supabase.from(`importacoes_${nome}`).delete().eq('id', req.params.id);
         if (error) return res.status(500).json({ erro: 'Erro ao deletar' });
         res.json({ ok: true });
     });
+});
+
+// ── DELETE /api/reset-dados — apaga todos os dados importados ────
+app.delete('/api/reset-dados', auth, adminOnly, async (_req, res) => {
+    // Apaga só os registros de importação — o CASCADE remove os dados filhos automaticamente
+    const IMPORTACOES = [
+        'importacoes',          // vendas (cascade para vendas)
+        'importacoes_estoque',  // cascade para estoque
+        'importacoes_op',
+        'importacoes_costura',  // cascade para dados_costura
+        'importacoes_cliente',  // cascade para dados_cliente
+        'importacoes_banco',    // cascade para dados_banco
+        'importacoes_calendario',
+        'importacoes_capacidade',
+        'feriados',
+        'turnos',
+    ];
+    const erros = [];
+    for (const t of IMPORTACOES) {
+        const { error } = await supabase.from(t).delete().not('id', 'is', null);
+        if (error) erros.push(`${t}: ${error.message}`);
+    }
+    if (erros.length) return res.status(500).json({ erro: erros.join(' | ') });
+    res.json({ ok: true, msg: 'Todos os dados importados foram removidos. Estrutura e usuários mantidos.' });
+});
+
+// ── GET /api/backup — exporta todos os dados como JSON ──────────
+app.get('/api/backup', auth, adminOnly, async (_req, res) => {
+    const TABELAS = ['importacoes','vendas','importacoes_estoque','estoque',
+        'importacoes_op','dados_op','importacoes_costura','dados_costura',
+        'importacoes_cliente','dados_cliente','importacoes_banco','dados_banco',
+        'feriados','turnos','processos_config','maquinas'];
+    const backup = { gerado_em: new Date().toISOString(), tabelas: {} };
+    for (const t of TABELAS) {
+        const { data, error } = await supabase.from(t).select('*').limit(50000);
+        backup.tabelas[t] = error ? { erro: error.message } : data;
+    }
+    res.setHeader('Content-Disposition', `attachment; filename="sigs-backup-${new Date().toISOString().slice(0,10)}.json"`);
+    res.json(backup);
+});
+
+// ── GET /api/setup — verifica tabelas e retorna SQL faltante ─────
+app.get('/api/setup', async (_req, res) => {
+    const TABELAS = [
+        { nome: 'importacoes',          sql: `CREATE TABLE IF NOT EXISTS importacoes (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome_arquivo TEXT NOT NULL, usuario_id UUID REFERENCES usuarios(id), total_linhas INTEGER DEFAULT 0, anos TEXT[] DEFAULT '{}', criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE importacoes DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'vendas',               sql: `CREATE TABLE IF NOT EXISTS vendas (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), importacao_id UUID REFERENCES importacoes(id) ON DELETE CASCADE, codigo TEXT, descricao TEXT, modelo TEXT, segmento TEXT, tamanho TEXT, marca TEXT, meses JSONB DEFAULT '{}', quantidade NUMERIC(14,2) DEFAULT 0, valor NUMERIC(14,2) DEFAULT 0); CREATE INDEX IF NOT EXISTS idx_vendas_importacao ON vendas(importacao_id); ALTER TABLE vendas DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'importacoes_estoque',  sql: `CREATE TABLE IF NOT EXISTS importacoes_estoque (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome_arquivo TEXT NOT NULL, usuario_id UUID REFERENCES usuarios(id), total_linhas INTEGER DEFAULT 0, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE importacoes_estoque DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'estoque',              sql: `CREATE TABLE IF NOT EXISTS estoque (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), importacao_id UUID REFERENCES importacoes_estoque(id) ON DELETE CASCADE, codigo TEXT NOT NULL, quantidade NUMERIC(14,2) DEFAULT 0, dados JSONB DEFAULT '{}'); CREATE INDEX IF NOT EXISTS idx_estoque_importacao ON estoque(importacao_id); ALTER TABLE estoque DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'importacoes_op',       sql: `CREATE TABLE IF NOT EXISTS importacoes_op (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome_arquivo TEXT NOT NULL, usuario_id UUID REFERENCES usuarios(id), total_linhas INTEGER DEFAULT 0, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE importacoes_op DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'dados_op',             sql: `CREATE TABLE IF NOT EXISTS dados_op (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), importacao_id UUID REFERENCES importacoes_op(id) ON DELETE CASCADE, dados JSONB DEFAULT '{}'); CREATE INDEX IF NOT EXISTS idx_dados_op_imp ON dados_op(importacao_id); ALTER TABLE dados_op DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'importacoes_costura',  sql: `CREATE TABLE IF NOT EXISTS importacoes_costura (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome_arquivo TEXT NOT NULL, usuario_id UUID REFERENCES usuarios(id), total_linhas INTEGER DEFAULT 0, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE importacoes_costura DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'dados_costura',        sql: `CREATE TABLE IF NOT EXISTS dados_costura (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), importacao_id UUID REFERENCES importacoes_costura(id) ON DELETE CASCADE, dados JSONB DEFAULT '{}'); CREATE INDEX IF NOT EXISTS idx_dados_costura_imp ON dados_costura(importacao_id); ALTER TABLE dados_costura DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'importacoes_cliente',  sql: `CREATE TABLE IF NOT EXISTS importacoes_cliente (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome_arquivo TEXT NOT NULL, usuario_id UUID REFERENCES usuarios(id), total_linhas INTEGER DEFAULT 0, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE importacoes_cliente DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'dados_cliente',        sql: `CREATE TABLE IF NOT EXISTS dados_cliente (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), importacao_id UUID REFERENCES importacoes_cliente(id) ON DELETE CASCADE, dados JSONB DEFAULT '{}'); CREATE INDEX IF NOT EXISTS idx_dados_cliente_imp ON dados_cliente(importacao_id); ALTER TABLE dados_cliente DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'importacoes_banco',    sql: `CREATE TABLE IF NOT EXISTS importacoes_banco (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome_arquivo TEXT NOT NULL, usuario_id UUID REFERENCES usuarios(id), total_linhas INTEGER DEFAULT 0, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE importacoes_banco DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'dados_banco',          sql: `CREATE TABLE IF NOT EXISTS dados_banco (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), importacao_id UUID REFERENCES importacoes_banco(id) ON DELETE CASCADE, dados JSONB DEFAULT '{}'); CREATE INDEX IF NOT EXISTS idx_dados_banco_imp ON dados_banco(importacao_id); ALTER TABLE dados_banco DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'importacoes_calendario', sql: `CREATE TABLE IF NOT EXISTS importacoes_calendario (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome_arquivo TEXT NOT NULL, usuario_id UUID REFERENCES usuarios(id), total_linhas INTEGER DEFAULT 0, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE importacoes_calendario DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'dados_calendario',     sql: `CREATE TABLE IF NOT EXISTS dados_calendario (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), importacao_id UUID REFERENCES importacoes_calendario(id) ON DELETE CASCADE, dados JSONB DEFAULT '{}'); CREATE INDEX IF NOT EXISTS idx_dados_calendario_imp ON dados_calendario(importacao_id); ALTER TABLE dados_calendario DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'importacoes_capacidade', sql: `CREATE TABLE IF NOT EXISTS importacoes_capacidade (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome_arquivo TEXT NOT NULL, usuario_id UUID REFERENCES usuarios(id), total_linhas INTEGER DEFAULT 0, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE importacoes_capacidade DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'dados_capacidade',     sql: `CREATE TABLE IF NOT EXISTS dados_capacidade (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), importacao_id UUID REFERENCES importacoes_capacidade(id) ON DELETE CASCADE, dados JSONB DEFAULT '{}'); CREATE INDEX IF NOT EXISTS idx_dados_capacidade_imp ON dados_capacidade(importacao_id); ALTER TABLE dados_capacidade DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'feriados',             sql: `CREATE TABLE IF NOT EXISTS feriados (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), data DATE NOT NULL, nome TEXT NOT NULL, tipo TEXT DEFAULT 'nacional', criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE feriados DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'turnos',               sql: `CREATE TABLE IF NOT EXISTS turnos (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome TEXT NOT NULL, inicio TIME, fim TIME, dias TEXT[] DEFAULT '{}', processo TEXT, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE turnos DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'processos_config',     sql: `CREATE TABLE IF NOT EXISTS processos_config (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome TEXT NOT NULL, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE processos_config DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'maquinas',             sql: `CREATE TABLE IF NOT EXISTS maquinas (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), processo_id UUID REFERENCES processos_config(id) ON DELETE CASCADE, id_maquina TEXT, modelo TEXT, oee NUMERIC(5,2), status TEXT, n_pessoas INTEGER, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE maquinas DISABLE ROW LEVEL SECURITY;` },
+    ];
+
+    const faltando = [];
+    for (const t of TABELAS) {
+        const { error } = await supabase.from(t.nome).select('id').limit(1);
+        if (error && error.code === '42P01') faltando.push(t);
+    }
+
+    const todasOk = faltando.length === 0;
+    const sqlCompleto = faltando.map(t => t.sql).join('\n\n');
+
+    res.send(`<!DOCTYPE html><html><head><meta charset="UTF-8">
+<title>SIN1 — Setup</title>
+<style>
+  body{background:#0D1117;color:#E6EDF3;font-family:Inter,sans-serif;padding:32px;max-width:900px;margin:0 auto;}
+  h1{color:#26c6da;margin-bottom:4px;}p{color:#8b949e;}
+  .ok{background:#0d2a1a;border:1px solid #3fb95044;border-radius:8px;padding:16px 20px;color:#3fb950;margin:16px 0;}
+  .warn{background:#2a1a0d;border:1px solid #f06292aa;border-radius:8px;padding:16px 20px;margin:16px 0;}
+  .warn h3{color:#f06292;margin:0 0 8px;}
+  ul{margin:8px 0;padding-left:20px;color:#ffab76;}
+  textarea{width:100%;height:340px;background:#161B22;border:1px solid rgba(255,255,255,0.1);border-radius:8px;
+    color:#E6EDF3;font-family:monospace;font-size:0.82rem;padding:14px;box-sizing:border-box;resize:vertical;}
+  button{margin-top:10px;padding:10px 24px;background:#26c6da;color:#0D1117;border:none;border-radius:6px;
+    font-size:0.9rem;font-weight:700;cursor:pointer;}
+  button:hover{background:#00acc1;}
+  .step{background:#161B22;border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:14px 18px;margin:8px 0;font-size:0.87rem;color:#8b949e;}
+  .step b{color:#E6EDF3;}
+</style></head><body>
+<h1>SIN1 — Setup do Banco de Dados</h1>
+<p>Verificação das tabelas necessárias no Supabase.</p>
+${todasOk
+    ? `<div class="ok">✅ Todas as ${TABELAS.length} tabelas estão criadas e acessíveis. Nenhuma ação necessária.</div>`
+    : `<div class="warn">
+    <h3>⚠️ ${faltando.length} tabela${faltando.length > 1 ? 's' : ''} faltando</h3>
+    <ul>${faltando.map(t => `<li>${t.nome}</li>`).join('')}</ul>
+  </div>
+  <h3 style="margin-bottom:8px;">Como corrigir — copie e execute no Supabase SQL Editor:</h3>
+  <div class="step">1. Acesse <b>supabase.com/dashboard</b> → seu projeto → <b>SQL Editor</b> → <b>New query</b></div>
+  <div class="step">2. Cole o SQL abaixo e clique em <b>Run</b></div>
+  <div class="step">3. Recarregue esta página para confirmar que ficou tudo OK</div>
+  <textarea id="sql">${sqlCompleto}</textarea>
+  <button onclick="navigator.clipboard.writeText(document.getElementById('sql').value).then(()=>this.textContent='✓ Copiado!')">Copiar SQL</button>`
+}
+</body></html>`);
 });
 
 // ── DELETE /api/importacoes/:id (admin) ───────────────────────
@@ -619,8 +729,8 @@ app.get('/emergencia', (_req, res) => {
     button{width:100%;padding:12px;background:#2F81F7;color:white;border:none;border-radius:6px;font-size:0.9rem;cursor:pointer}
     #msg{margin-top:12px;font-size:0.8rem;color:#F85149}</style></head>
     <body><div class="box"><h2>SIN1 — Emergência</h2>
-    <form id="f"><input type="email" id="e" value="admin@stoll.com.br" required>
-    <input type="password" id="s" value="Admin@2025" required>
+    <form id="f"><input type="email" id="e" placeholder="e-mail" required>
+    <input type="password" id="s" placeholder="senha" required>
     <button type="submit">Entrar</button></form>
     <div id="msg"></div></div>
     <script>document.getElementById('f').onsubmit=async e=>{e.preventDefault();
@@ -639,4 +749,12 @@ app.get('/{*path}', (_req, res) => {
 app.listen(PORT, () => {
     console.log(`\n🚀 Servidor SIN1 rodando em: http://localhost:${PORT}`);
     console.log(`📡 Banco: Supabase (${process.env.SUPABASE_URL})\n`);
+
+    // Auto-ping a cada 10min para manter Render ativo (evita sleep no plano gratuito)
+    const selfUrl = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
+    setInterval(() => {
+        fetch(`${selfUrl}/api/ping`)
+            .then(() => console.log(`[keep-alive] ping OK`))
+            .catch(e => console.log(`[keep-alive] ping falhou: ${e.message}`));
+    }, 10 * 60 * 1000);
 });

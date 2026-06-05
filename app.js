@@ -1,5 +1,15 @@
 // Lógica Central do Dashboard SIN1
 
+// Escapa HTML para evitar XSS em dados inseridos via innerHTML
+function escHTML(s) {
+    return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// Normalização de chave única — remove acentos, espaços e caracteres especiais
+function normalizeKey(k) {
+    return String(k).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+}
+
 // ══════════════════════════════════════════════════════════════
 // MÓDULO DE AUTENTICAÇÃO
 // ══════════════════════════════════════════════════════════════
@@ -29,6 +39,16 @@ const auth = {
 
     estaLogado() { return !!this.getToken(); },
 
+    // Decodifica o payload JWT sem biblioteca (apenas base64)
+    _parseToken() {
+        try {
+            const token = this.getToken();
+            if (!token) return null;
+            const payload = token.split('.')[1];
+            return JSON.parse(atob(payload.replace(/-/g,'+').replace(/_/g,'/')));
+        } catch { return null; }
+    },
+
     async verificar() {
         if (!this.estaLogado()) return false;
         try {
@@ -43,27 +63,47 @@ const auth = {
 // ══════════════════════════════════════════════════════════════
 const api = {
     async post(url, body) {
-        const r = await fetch(url, { method: 'POST', headers: auth.cabecalho(), body: JSON.stringify(body) });
-        if (r.status === 401) { auth.sair(); return null; }
-        return r.json();
+        try {
+            const r = await fetch(url, { method: 'POST', headers: auth.cabecalho(), body: JSON.stringify(body) });
+            if (r.status === 401) {
+                mostrarToast('Sessão expirada — fazendo novo login...', 'erro');
+                setTimeout(() => auth.sair(), 1500);
+                return null;
+            }
+            if (r.status === 403) {
+                mostrarToast('Sem permissão para esta ação (perfil Visualizador)', 'erro');
+                return null;
+            }
+            if (!r.ok) { console.error(`API POST ${url}: HTTP ${r.status}`); }
+            return r.json();
+        } catch(e) { console.error(`API POST ${url}:`, e.message); return null; }
     },
 
     async get(url) {
-        const r = await fetch(url, { headers: auth.cabecalho() });
-        if (r.status === 401) { auth.sair(); return null; }
-        return r.json();
+        try {
+            const r = await fetch(url, { headers: auth.cabecalho() });
+            if (r.status === 401) { auth.sair(); return null; }
+            if (!r.ok) { console.error(`API GET ${url}: HTTP ${r.status}`); return null; }
+            return r.json();
+        } catch(e) { console.error(`API GET ${url}:`, e.message); return null; }
     },
 
     async put(url, body) {
-        const r = await fetch(url, { method: 'PUT', headers: auth.cabecalho(), body: JSON.stringify(body) });
-        if (r.status === 401) { auth.sair(); return null; }
-        return r.json();
+        try {
+            const r = await fetch(url, { method: 'PUT', headers: auth.cabecalho(), body: JSON.stringify(body) });
+            if (r.status === 401) { auth.sair(); return null; }
+            if (!r.ok) { console.error(`API PUT ${url}: HTTP ${r.status}`); }
+            return r.json();
+        } catch(e) { console.error(`API PUT ${url}:`, e.message); return null; }
     },
 
     async delete(url) {
-        const r = await fetch(url, { method: 'DELETE', headers: auth.cabecalho() });
-        if (r.status === 401) { auth.sair(); return null; }
-        return r.json();
+        try {
+            const r = await fetch(url, { method: 'DELETE', headers: auth.cabecalho() });
+            if (r.status === 401) { auth.sair(); return null; }
+            if (!r.ok) { console.error(`API DELETE ${url}: HTTP ${r.status}`); }
+            return r.json();
+        } catch(e) { console.error(`API DELETE ${url}:`, e.message); return null; }
     },
 
     async salvarImport(nomeArquivo, rawData, monthCols) {
@@ -128,46 +168,54 @@ const api = {
 // BOOTSTRAP — verifica auth antes de tudo
 // ══════════════════════════════════════════════════════════════
 async function bootstrap() {
+    // Se tem token válido (não expirado pelo JWT), entra direto sem esperar Supabase
     if (auth.estaLogado()) {
-        const ok = await auth.verificar();
-        if (ok) { mostrarApp(); return; }
-        auth.sair();
+        const payload = auth._parseToken();
+        const expOk   = payload && payload.exp && payload.exp * 1000 > Date.now();
+        if (expOk) { mostrarApp(); return; }
+        // Token expirado — limpa sem reload
+        localStorage.removeItem(auth.TOKEN_KEY);
+        localStorage.removeItem(auth.USER_KEY);
     }
 
-    // Mostra tela de carregamento enquanto tenta conectar
+    // Mostra formulário de login
     const loginView = document.getElementById('view-login');
     loginView.style.display = 'flex';
     const statusEl = document.getElementById('login-status');
+    const formWrap = document.getElementById('login-form-wrap');
 
-    // Auto-login com retry — Render pode demorar ~30s para acordar
-    const MAX = 8;
-    for (let i = 1; i <= MAX; i++) {
-        if (statusEl) statusEl.textContent = i === 1
-            ? 'Conectando ao servidor...'
-            : `Aguardando servidor... (${i}/${MAX})`;
-        try {
-            const res = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email: 'admin@stoll.com.br', senha: 'Admin@2025' }),
-                signal: AbortSignal.timeout(10000)
-            });
-            const data = await res.json();
-            if (res.ok) {
-                auth.salvar(data.token, data.usuario);
-                loginView.style.display = 'none';
-                mostrarApp();
-                return;
-            }
-            break; // servidor respondeu mas login falhou — não adianta retry
-        } catch {
-            if (i < MAX) await new Promise(r => setTimeout(r, 5000));
+    // Pré-ping: acorda o servidor em background enquanto usuário digita credenciais
+    if (statusEl) statusEl.textContent = 'Conectando ao servidor...';
+    formWrap.style.display = 'block';
+    fetch('/api/ping')
+        .then(() => { if (statusEl) statusEl.textContent = 'Faça login para continuar.'; })
+        .catch(() => { if (statusEl) statusEl.textContent = 'Servidor iniciando, aguarde alguns instantes...'; });
+}
+
+// ── Sidebar collapse/expand ───────────────────────────────────
+function toggleNavGroup(li) {
+    if (!li) return;
+    li.classList.toggle('nav-collapsed');
+    if (li.id) localStorage.setItem('nav-grp-' + li.id, li.classList.contains('nav-collapsed') ? '1' : '0');
+}
+
+function toggleNavSection(h3) {
+    const section = h3.closest('.nav-section');
+    if (!section) return;
+    section.classList.toggle('nav-section-collapsed');
+    const key = h3.dataset.key || 'sec';
+    localStorage.setItem('nav-sec-' + key, section.classList.contains('nav-section-collapsed') ? '1' : '0');
+}
+
+function initSidebarToggles() {
+    document.querySelectorAll('.has-sub[id]').forEach(li => {
+        if (localStorage.getItem('nav-grp-' + li.id) === '1') li.classList.add('nav-collapsed');
+    });
+    document.querySelectorAll('.nav-section-header[data-key]').forEach(h3 => {
+        if (localStorage.getItem('nav-sec-' + h3.dataset.key) === '1') {
+            h3.closest('.nav-section')?.classList.add('nav-section-collapsed');
         }
-    }
-
-    // Fallback: exibe formulário manual
-    if (statusEl) statusEl.textContent = 'Servidor indisponível. Faça login manualmente.';
-    document.getElementById('login-form-wrap').style.display = 'block';
+    });
 }
 
 function mostrarApp() {
@@ -175,6 +223,7 @@ function mostrarApp() {
     document.getElementById('view-login').style.display  = 'none';
     document.getElementById('app-sidebar').style.display = 'flex';
     navigateTo('dashboard');
+    initSidebarToggles();
 
     // Atualiza nome do usuário na sidebar
     if (usuario) {
@@ -182,6 +231,17 @@ function mostrarApp() {
         const roleEl = document.querySelector('.user-info .role');
         if (nameEl) nameEl.textContent = usuario.nome;
         if (roleEl) roleEl.textContent = usuario.perfil === 'admin' ? 'Administrador' : 'Visualizador';
+
+        // Viewer: oculta botões de importação e salvar
+        if (usuario.perfil !== 'admin') {
+            document.querySelectorAll('.import-btn, #btn-salvar-vendas, [onclick*="perguntarESalvar"], [onclick*="handleFile"]').forEach(el => {
+                el.style.display = 'none';
+            });
+            // Oculta drop zones de importação
+            document.querySelectorAll('.drop-zone').forEach(el => el.style.display = 'none');
+            // Mostra badge de modo leitura
+            mostrarToast('Modo Visualizador — importações desabilitadas');
+        }
     }
 
     // Adiciona botão de sair
@@ -208,6 +268,7 @@ function mostrarApp() {
     abc.init();
     abcMicro.init();
     abcEstoque.init();
+    calendario.init();
     pedidos.init();
     disponibilidade.init().catch(() => {});
     const _modulos = ['Vendas','Banco','Cliente','Calendário','Capacidade','Estoque','OP','Costura'];
@@ -228,6 +289,11 @@ function mostrarApp() {
             console.warn('Módulos com falha ao carregar:', falhos);
             mostrarToast(`⚠ Erro ao carregar: ${falhos.join(', ')}`, 'erro');
         }
+        const lastView = localStorage.getItem('sin1_lastView');
+        if (lastView) navigateTo(lastView);
+        // Dashboard sempre atualizado após dados carregarem
+        homeDash.render();
+        alertas.verificar();
     });
 }
 
@@ -242,198 +308,384 @@ document.addEventListener('DOMContentLoaded', () => {
         const erroEl   = document.getElementById('login-erro');
         const submitBtn = document.getElementById('login-submit');
         submitBtn.disabled = true;
-        submitBtn.textContent = 'Entrando...';
         erroEl.style.display = 'none';
-        try {
-            const res  = await fetch('/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, senha })
-            });
-            const data = await res.json();
-            if (res.ok) {
-                auth.salvar(data.token, data.usuario);
-                document.getElementById('view-login').style.display = 'none';
-                mostrarApp();
+
+        // Retry automático: até 10 tentativas × 5s = 50s (cobre wake-up do Render ~30-60s)
+        const MAX = 10;
+        let ok = false;
+        for (let tentativa = 1; tentativa <= MAX; tentativa++) {
+            if (tentativa === 1) {
+                submitBtn.textContent = 'Entrando...';
             } else {
-                erroEl.textContent = data.erro || 'Credenciais inválidas';
+                submitBtn.textContent = `Aguardando servidor... (${tentativa}/${MAX})`;
+                erroEl.textContent = `Servidor iniciando, aguarde... (tentativa ${tentativa} de ${MAX})`;
                 erroEl.style.display = 'block';
             }
-        } catch {
-            erroEl.textContent = 'Erro de conexão. Tente novamente.';
-            erroEl.style.display = 'block';
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.textContent = 'Entrar';
+            try {
+                const res  = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, senha })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    auth.salvar(data.token, data.usuario);
+                    document.getElementById('view-login').style.display = 'none';
+                    erroEl.style.display = 'none';
+                    mostrarApp();
+                    ok = true;
+                    break;
+                } else {
+                    // Resposta do servidor (ex: credenciais inválidas) — não retry
+                    erroEl.textContent = data.erro || 'Credenciais inválidas';
+                    erroEl.style.display = 'block';
+                    break;
+                }
+            } catch {
+                // Erro de rede — servidor ainda acordando
+                if (tentativa < MAX) {
+                    await new Promise(r => setTimeout(r, 5000));
+                } else {
+                    erroEl.textContent = 'Não foi possível conectar ao servidor. Tente novamente em alguns instantes.';
+                    erroEl.style.display = 'block';
+                }
+            }
         }
+
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Entrar';
     });
 });
 
-const state = {
-    insights: [
-        {
-            id: 1,
-            type: 'MANUTENÇÃO • PREDITIVA',
-            title: 'Máq 12 com 87% de probabilidade de falha em 7 dias',
-            desc: 'Padrão de vibração e ciclo térmico cruzando limites históricos. Manutenção preventiva sugerida pra evitar parada não-planejada de ~6h.',
-            badge: '-6h parada evitada',
-            time: 'há 6min',
-            isNew: true,
-            icon: `<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>`,
-            category: 'manutencao',
-            severity: 'critical',
-            color: '#F85149'
-        },
-        {
-            id: 2,
-            type: 'EFICIÊNCIA • TENDÊNCIA',
-            title: 'Máq 03 perdendo eficiência consistentemente nas últimas 4h',
-            desc: 'Queda gradual de 91% → 78% sem causa óbvia em paradas. Possível desgaste de agulha ou tensão. Recomendado inspeção visual do cilindro 2.',
-            badge: '+3.1% OEE potencial',
-            time: 'há 12min',
-            isNew: true,
-            icon: `<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>`,
-            category: 'eficiencia',
-            severity: 'warning',
-            color: '#D29922'
-        },
-        {
-            id: 3,
-            type: 'QUALIDADE • PADRÃO',
-            title: 'Pico de CNQ na peça #4821-Y entre 14h-16h',
-            desc: 'Refugo cresceu 240% nesta janela em 3 dias seguidos. Correlação com troca de turno e variação térmica sugere ajuste fino de tensão.',
-            badge: '12kg/dia material salvo',
-            time: 'há 28min',
-            isNew: true,
-            icon: `<svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>`,
-            category: 'qualidade',
-            severity: 'warning',
-            color: '#D29922'
-        }
-    ],
-    actions: [
-        { text: 'Insight aplicado: Manutenção M07 agendada', time: 'há 18min • Ricardo S.' },
-        { text: 'Análise concluída: 14 máquinas avaliadas', time: 'há 32min • automático' },
-        { text: 'Meta de turno ajustada pra 76%', time: 'há 1h • Carla M.' },
-        { text: 'Insight ignorado: Loop X em M02', time: 'há 2h • Pedro F.' },
-        { text: 'Novo padrão detectado: peças loop turno noite', time: 'há 3h • automático' }
-    ]
-};
-
 function init() {
-    renderInsights();
-    renderActions();
-    drawMiniCharts();
-    setupEventListeners();
     vendas.init();
 }
 
-function renderInsights() {
-    const container = document.getElementById('insights-container');
-    if (!container) return;
-    container.innerHTML = state.insights.map(insight => `
-        <div class="insight-card" data-category="${insight.category}" data-severity="${insight.severity}">
-            <div class="insight-icon" style="color: ${insight.color}">
-                ${insight.icon}
-            </div>
-            <div class="insight-content">
-                <div class="insight-meta">
-                    <span class="type" style="color: ${insight.color}">${insight.type}</span>
-                    <span class="time">${insight.time}</span>
-                    ${insight.isNew ? '<span class="new-tag">NOVO</span>' : ''}
-                </div>
-                <h4>${insight.title}</h4>
-                <p>${insight.desc}</p>
-                <div class="insight-footer">
-                    <div class="insight-badge">${insight.badge}</div>
-                    <div class="insight-actions">
-                        <button class="btn primary" onclick="applyInsight(${insight.id})">${insight.id === 1 ? 'Agendar' : 'Aplicar'}</button>
-                        <button class="btn secondary">Adiar</button>
-                        <button class="btn secondary" onclick="ignoreInsight(${insight.id})">Ignorar</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `).join('');
-}
+// ====== HOME DASHBOARD ======
+const homeDash = {
+    render() {
+        // Data e saudação
+        const u = auth.getUsuario();
+        const hora = new Date().getHours();
+        const saud = hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite';
+        const el = document.getElementById('home-username');
+        if (el) el.closest('h1').firstChild.textContent = `${saud}, `;
+        if (el) el.textContent = u?.nome?.split(' ')[0] || 'Administrador';
+        const dateEl = document.getElementById('home-date');
+        if (dateEl) dateEl.textContent = new Date().toLocaleDateString('pt-BR',{weekday:'long',day:'2-digit',month:'long',year:'numeric'});
 
-function applyInsight(id) {
-    const insight = state.insights.find(i => i.id === id);
-    if (!insight) return;
-    
-    state.actions.unshift({
-        text: `Insight aplicado: ${insight.title.split(' ')[0]} ${insight.title.split(' ')[1]}`,
-        time: 'agora • andre rossetti'
-    });
-    
-    state.insights = state.insights.filter(i => i.id !== id);
-    renderInsights();
-    renderActions();
-}
+        this._kpis();
+        this._top5();
+        this._alertas();
+        this._atividades();
+    },
 
-function ignoreInsight(id) {
-    state.insights = state.insights.filter(i => i.id !== id);
-    renderInsights();
-}
+    _kpis() {
+        const toNum = v => parseFloat(String(v??'0').replace(/\./g,'').replace(',','.')) || 0;
+        const fmtK  = v => v >= 1000 ? (v/1000).toFixed(1) + 'k' : v.toLocaleString('pt-BR');
 
-function renderActions() {
-    const container = document.getElementById('actions-container');
-    if (!container) return;
-    container.innerHTML = state.actions.slice(0, 6).map(action => `
-        <div class="action-item">
-            <div class="action-indicator"></div>
-            <div class="action-text-info">
-                <span>${action.text}</span>
-                <span class="time-meta">${action.time}</span>
-            </div>
-        </div>
-    `).join('');
-}
-
-function drawMiniCharts() {
-    const canvases = document.querySelectorAll('.mini-chart, .activity-chart');
-    if (!canvases.length) return;
-    canvases.forEach(canvas => {
-        const ctx = canvas.getContext('2d');
-        const width = canvas.width = canvas.offsetWidth;
-        const height = canvas.height = canvas.offsetHeight;
-        
-        const color = canvas.classList.contains('orange') ? '#D29922' : 
-                     canvas.classList.contains('green') ? '#3FB950' : '#58A6FF';
-        
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(0, height * 0.8);
-        
-        for (let i = 0; i < width; i += 15) {
-            ctx.lineTo(i, height * (0.3 + Math.random() * 0.5));
+        // ── Vendas ──
+        let vendasTotal = 0, vendasMes = 0, codigosSet = new Set();
+        if (vendas.rawData.length && vendas.monthCols.length) {
+            // Usa a coluna mais recente disponível para "vendas do mês"
+            const ultimaCol = vendas.monthCols[vendas.monthCols.length - 1];
+            const activeCols = vendas.getActiveCols();
+            vendas.rawData.forEach(r => {
+                if (r.codigo) codigosSet.add(r.codigo);
+                if (ultimaCol) vendasMes += (r[ultimaCol.key] || 0);
+                activeCols.forEach(c => { vendasTotal += (r[c.key] || 0); });
+            });
+            const subLabel = ultimaCol ? `unidades — ${ultimaCol.label}` : 'unidades';
+            this._set('home-vendas-mes-sub', vendasMes > 0 ? subLabel : 'sem dados');
         }
-        
-        ctx.stroke();
-        
-        // Add a subtle gradient fill
-        ctx.lineTo(width, height);
-        ctx.lineTo(0, height);
-        const grad = ctx.createLinearGradient(0, 0, 0, height);
-        grad.addColorStop(0, color + '33');
-        grad.addColorStop(1, 'transparent');
-        ctx.fillStyle = grad;
-        ctx.fill();
-    });
+        this._set('home-vendas-mes', vendasMes > 0 ? fmtK(vendasMes) : (vendasTotal > 0 ? fmtK(vendasTotal) : '—'));
+        this._set('home-codigos', codigosSet.size > 0 ? codigosSet.size.toLocaleString('pt-BR') : '—');
+
+        // ── Faturamento clientes ──
+        let fatClientes = 0;
+        if (cliente.rawData.length) {
+            // Detecta coluna de valor total de forma robusta
+            const colVal = cliente._colValTotal
+                || (cliente.colunas || []).find(c => /total|valor/i.test(c))
+                || null;
+            cliente.rawData.forEach(r => {
+                const v = colVal ? r.dados?.[colVal] : null;
+                if (v != null) fatClientes += toNum(v);
+            });
+        }
+        this._set('home-fat-clientes', fatClientes > 0 ? 'R$ ' + fmtK(fatClientes) : (cliente.rawData.length ? 'R$ 0' : '—'));
+
+        // ── Estoque crítico ──
+        let critico = 0;
+        if (vendas.rawData.length && estoque.rawData.length) {
+            const estMap = {};
+            estoque.rawData.forEach(r => {
+                const k = String(r.codigo||'').toUpperCase();
+                estMap[k] = (estMap[k]||0) + (r.quantidade||0);
+            });
+            const activeCols = vendas.getActiveCols();
+            const nMeses = activeCols.length || 1;
+            const codMap = {};
+            vendas.rawData.forEach(r => {
+                const k = String(r.codigo||'').toUpperCase();
+                if (!codMap[k]) codMap[k] = 0;
+                activeCols.forEach(c => { codMap[k] += (r[c.key]||0); });
+            });
+            Object.entries(codMap).forEach(([cod, total]) => {
+                const media = total / nMeses;
+                const est   = estMap[cod] || 0;
+                if (media > 0 && est / media < 1) critico++;
+            });
+        }
+        const critEl = document.getElementById('home-critico');
+        if (critEl) {
+            critEl.textContent = vendas.rawData.length ? critico.toLocaleString('pt-BR') : '—';
+            critEl.style.color = critico > 0 ? '#f06292' : '#26a69a';
+        }
+
+        // ── OPs ──
+        const ops = op.rawData.length;
+        this._set('home-ops', ops > 0 ? ops.toLocaleString('pt-BR') : '—');
+        this._set('home-ops-sub', ops > 0 ? 'ordens importadas' : 'sem dados de OP');
+    },
+
+    _top5() {
+        const el = document.getElementById('home-top5');
+        if (!el || !vendas.rawData.length) {
+            if (el) el.innerHTML = '<p style="color:#8b949e;font-size:0.8rem;">Importe dados de vendas.</p>';
+            return;
+        }
+        // Usa a coluna mais recente com dados > 0
+        const col = vendas.monthCols.slice().reverse().find(c => {
+            return vendas.rawData.some(r => (r[c.key]||0) > 0);
+        }) || vendas.monthCols[vendas.monthCols.length - 1];
+        if (!col) { el.innerHTML = '<p style="color:#8b949e;font-size:0.8rem;">Sem dados de vendas.</p>'; return; }
+
+        const map = {};
+        vendas.rawData.forEach(r => {
+            const k = String(r.descricao||r.codigo||'').trim();
+            map[k] = (map[k]||0) + (r[col.key]||0);
+        });
+        const top5 = Object.entries(map).filter(([,v])=>v>0).sort((a,b)=>b[1]-a[1]).slice(0,5);
+        if (!top5.length) { el.innerHTML = '<p style="color:#8b949e;font-size:0.8rem;">Sem vendas disponíveis.</p>'; return; }
+        // Atualiza label com o mês sendo exibido
+        const labelEl = document.querySelector('[style*="TOP 5 PRODUTOS"]') || document.querySelector('.s-label');
+        const tituloEl = document.querySelector('#view-dashboard .s-label');
+        if (col?.label) {
+            const titleCards = document.querySelectorAll('#view-dashboard .s-label');
+            titleCards.forEach(t => { if (t.textContent.includes('TOP 5')) t.textContent = `TOP 5 PRODUTOS — ${col.label.toUpperCase()}`; });
+        }
+        const max = top5[0][1];
+        el.innerHTML = top5.map(([nome, val],i) => {
+            const pct = Math.round(val/max*100);
+            return `<div style="margin-bottom:9px;">
+                <div style="display:flex;justify-content:space-between;font-size:0.77rem;margin-bottom:3px;">
+                    <span style="color:#e6edf3;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:70%;">${i+1}. ${escHTML(nome)}</span>
+                    <span style="color:#26c6da;font-weight:700;flex-shrink:0;">${val.toLocaleString('pt-BR')}</span>
+                </div>
+                <div style="background:rgba(255,255,255,0.06);border-radius:3px;height:4px;">
+                    <div style="background:#26c6da;width:${pct}%;height:100%;border-radius:3px;"></div>
+                </div>
+            </div>`;
+        }).join('');
+    },
+
+    _alertas() {
+        const el = document.getElementById('home-alertas');
+        const badge = document.getElementById('home-alertas-badge');
+        if (!el) return;
+        const alertas = [];
+
+        if (!vendas.rawData.length) alertas.push({ tipo: 'info', msg: 'Dados de Vendas não importados', acao: 'vendas' });
+        if (!estoque.rawData.length) alertas.push({ tipo: 'info', msg: 'Dados de Estoque não importados', acao: 'estoque' });
+        if (!op.rawData.length) alertas.push({ tipo: 'info', msg: 'Ordens de Produção não importadas', acao: 'op' });
+
+        if (vendas.rawData.length && estoque.rawData.length) {
+            const estMap = {};
+            estoque.rawData.forEach(r => { estMap[String(r.codigo||'').toUpperCase()] = (estMap[String(r.codigo||'').toUpperCase()]||0)+(r.quantidade||0); });
+            let semEstoque = 0;
+            vendas.rawData.forEach(r => {
+                const cod = String(r.codigo||'').toUpperCase();
+                if ((estMap[cod]||0) === 0) semEstoque++;
+            });
+            if (semEstoque > 0) alertas.push({ tipo: 'critico', msg: `${semEstoque} código(s) com estoque ZERO`, acao: 'vxe' });
+        }
+
+        const critCount = alertas.filter(a => a.tipo === 'critico').length;
+        if (badge) { badge.textContent = critCount; badge.style.display = critCount > 0 ? '' : 'none'; }
+
+        if (!alertas.length) { el.innerHTML = '<p style="color:#26a69a;font-size:0.8rem;">✓ Nenhum alerta no momento.</p>'; return; }
+
+        const cores = { critico: '#f06292', aviso: '#ffab76', info: '#8b949e' };
+        const icons = { critico: '🔴', aviso: '🟡', info: 'ℹ️' };
+        el.innerHTML = alertas.map(a => `
+            <div onclick="navigateTo('${a.acao}')" style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:6px;cursor:pointer;border-left:3px solid ${cores[a.tipo]};">
+                <span style="font-size:0.85rem;">${icons[a.tipo]}</span>
+                <span style="font-size:0.78rem;color:#e6edf3;">${escHTML(a.msg)}</span>
+            </div>`).join('');
+    },
+
+    _atividades() {
+        const el = document.getElementById('home-atividades');
+        if (!el) return;
+        const recentes = historico.recentes(5);
+        if (!recentes.length) { el.innerHTML = '<p style="color:#8b949e;font-size:0.78rem;">Nenhuma atividade ainda.</p>'; return; }
+        const fmtTs = ts => new Date(ts).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+        el.innerHTML = recentes.map(a => `
+            <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05);">
+                <span style="font-size:0.68rem;color:#8b949e;white-space:nowrap;">${fmtTs(a.ts)}</span>
+                <span style="font-size:0.77rem;color:#e6edf3;">${escHTML(a.acao)} <strong style="color:#26c6da;">${escHTML(a.modulo)}</strong> — ${escHTML(a.detalhe)}</span>
+            </div>`).join('');
+    },
+
+    _set(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+};
+
+// ── Histórico de Atividade ────────────────────────────────────────
+const historico = {
+    _KEY: 'sin1_historico',
+    _MAX: 100,
+
+    registrar(acao, modulo, detalhe) {
+        const lista = this._ler();
+        lista.unshift({
+            ts: new Date().toISOString(),
+            usuario: auth.getUsuario()?.nome || '?',
+            acao, modulo, detalhe
+        });
+        if (lista.length > this._MAX) lista.splice(this._MAX);
+        try { localStorage.setItem(this._KEY, JSON.stringify(lista)); } catch(e) {}
+    },
+
+    _ler() {
+        try { return JSON.parse(localStorage.getItem(this._KEY) || '[]'); } catch { return []; }
+    },
+
+    recentes(n = 20) { return this._ler().slice(0, n); }
+};
+
+// ── Sistema de Alertas ────────────────────────────────────────────
+const alertas = {
+    verificar() {
+        if (!vendas.rawData.length) return;
+
+        const estMap = {};
+        estoque.rawData.forEach(r => {
+            const k = String(r.codigo||'').toUpperCase();
+            estMap[k] = (estMap[k]||0) + (r.quantidade||0);
+        });
+
+        const activeCols = vendas.getActiveCols();
+        let criticos = 0, semEstoque = 0;
+
+        const vendMap = {};
+        vendas.rawData.forEach(r => {
+            const k = String(r.codigo||'').toUpperCase();
+            if (!vendMap[k]) vendMap[k] = 0;
+            activeCols.forEach(c => { vendMap[k] += (r[c.key]||0); });
+        });
+
+        Object.entries(vendMap).forEach(([cod, total]) => {
+            const media = total / (activeCols.length||1);
+            const est = estMap[cod] || 0;
+            if (estoque.rawData.length) {
+                if (est === 0) semEstoque++;
+                else if (media > 0 && est/media < 1) criticos++;
+            }
+        });
+
+        const badge = document.getElementById('alert-badge-critico');
+        const total = criticos + semEstoque;
+        if (badge) {
+            badge.textContent = total;
+            badge.style.display = total > 0 ? '' : 'none';
+            badge.title = `${criticos} críticos (< 1 mês) + ${semEstoque} sem estoque`;
+        }
+
+        // Toast pontual só na primeira vez que detecta críticos
+        if (total > 0 && !this._notificado) {
+            this._notificado = true;
+            mostrarToast(`⚠ ${total} item(ns) com estoque crítico — ver Vendas × Estoque`, 'erro');
+        }
+    },
+    _notificado: false
+};
+
+// ── Backup ────────────────────────────────────────────────────────
+async function resetarDados() {
+    const confirmacao = prompt('Digite CONFIRMAR para apagar TODOS os dados importados do Supabase (estrutura e usuários serão mantidos):');
+    if (confirmacao !== 'CONFIRMAR') { mostrarToast('Operação cancelada.'); return; }
+
+    mostrarToast('Apagando dados...');
+    try {
+        const r = await fetch('/api/reset-dados', { method: 'DELETE', headers: auth.cabecalho() });
+        const d = await r.json();
+        if (r.ok) {
+            // Limpa cache local também
+            ['vendas','estoque','op','costura','cliente','banco','calendario','capacidade'].forEach(k => lsCache.limpar(k));
+            localStorage.removeItem('sin1_lastView');
+            historico.registrar('reset', 'sistema', 'Todos os dados importados removidos');
+            mostrarToast('✓ Dados apagados. Recarregando...', 'ok');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            mostrarToast('Erro: ' + d.erro, 'erro');
+        }
+    } catch(e) { mostrarToast('Erro de conexão: ' + e.message, 'erro'); }
 }
 
-function setupEventListeners() {
-    // Add hover effects and other micro-interactions
-    document.querySelectorAll('.btn').forEach(btn => {
-        btn.addEventListener('mouseenter', () => {
-            btn.style.transform = 'scale(1.05)';
-        });
-        btn.addEventListener('mouseleave', () => {
-            btn.style.transform = 'scale(1)';
-        });
-    });
+async function baixarBackup() {
+    mostrarToast('Gerando backup…');
+    try {
+        const r = await fetch('/api/backup', { headers: auth.cabecalho() });
+        if (!r.ok) { mostrarToast('Erro ao gerar backup', 'erro'); return; }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `sigs-backup-${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        historico.registrar('backup', 'sistema', 'Download JSON completo');
+        mostrarToast('✓ Backup baixado com sucesso');
+    } catch(e) { mostrarToast('Erro: ' + e.message, 'erro'); }
 }
+
+// ── Exportação XLS ────────────────────────────────────────────────
+function exportarXLS(dados, nomeArquivo) {
+    if (!dados?.length) { mostrarToast('Nenhum dado para exportar', 'erro'); return; }
+    const ws = XLSX.utils.json_to_sheet(dados);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Dados');
+    XLSX.writeFile(wb, (nomeArquivo || 'exportacao') + '.xlsx');
+    mostrarToast(`✓ ${dados.length.toLocaleString('pt-BR')} linhas exportadas`);
+}
+
+// ── Cache localStorage — fallback quando Supabase indisponível ────
+const lsCache = {
+    salvar(chave, dados) {
+        try {
+            localStorage.setItem('sin1_' + chave, JSON.stringify(dados));
+        } catch(e) {
+            if (e.name === 'QuotaExceededError') {
+                console.warn(`lsCache: quota localStorage excedida para "${chave}". Cache não salvo.`);
+            } else {
+                console.warn(`lsCache: erro ao salvar "${chave}":`, e.message);
+            }
+        }
+    },
+    ler(chave) {
+        try {
+            const d = localStorage.getItem('sin1_' + chave);
+            return d ? JSON.parse(d) : null;
+        } catch(e) {
+            console.warn(`lsCache: erro ao ler "${chave}":`, e.message);
+            return null;
+        }
+    },
+    limpar(chave) {
+        try { localStorage.removeItem('sin1_' + chave); } catch(e) {}
+    }
+};
 
 // ====== NAVIGATION ======
 
@@ -475,7 +727,7 @@ function abrirDetalhe(descricao, segmento) {
     })).sort((a, b) => b.vendQtd - a.vendQtd);
 
     document.getElementById('detail-tbody').innerHTML = variantRows.map(({ r, vendQtd, estQtd }) => `<tr>
-            <td class="td-code">${r.codigo}</td>
+            <td class="td-code">${escHTML(r.codigo)}</td>
             <td>${r.modelo || '<span style="opacity:.3">—</span>'}</td>
             <td>${r.marca  || '<span style="opacity:.3">—</span>'}</td>
             <td class="td-center"><strong>${r.tamanho}</strong></td>
@@ -576,7 +828,7 @@ function abrirDetalheVxe(descricao) {
             : '—';
         const stColor = cores[r.st] || '#8b949e';
         return `<tr>
-            <td class="td-code">${r.codigo}</td>
+            <td class="td-code">${escHTML(r.codigo)}</td>
             <td class="td-center"><strong>${r.tamanho}</strong></td>
             <td class="td-right">${r.vendTotal.toLocaleString('pt-BR')}</td>
             <td class="td-right" style="color:var(--indigo-primary);">${r.vendMedia.toLocaleString('pt-BR')}</td>
@@ -597,9 +849,10 @@ function fecharDetalheVxe() {
 }
 
 function navigateTo(viewName) {
+    if (viewName !== 'dashboard') localStorage.setItem('sin1_lastView', viewName);
     fecharDetalhe();
     fecharDetalheVxe();
-    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','pesquisa','vxe','op-dash','pedidos','abc','abc-micro','abc-estoque'].forEach(v => {
+    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','pesquisa','vxe','op-dash','pedidos','comparador','clientes-dash','abc','abc-micro','abc-estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -621,6 +874,8 @@ function navigateTo(viewName) {
         vxe:           'nav-vxe',
         'op-dash':     'nav-op-dash',
         'pedidos':     'nav-pedidos',
+        'comparador':   'nav-comparador',
+        'clientes-dash':'nav-clientes-dash',
         dashboard:     'nav-analise',
         abc:           'nav-abc-cruzada',
         'abc-micro':   'nav-abc-cruzada',
@@ -629,19 +884,50 @@ function navigateTo(viewName) {
     const navEl = document.getElementById(navMap[viewName]);
     if (navEl) navEl.classList.add('active');
 
-    if (viewName === 'vendas') {
+    if (viewName === 'dashboard') {
+        setTimeout(() => homeDash.render(), 100);
+    } else if (viewName === 'vendas') {
         document.querySelector('[data-view="vendas"]')?.classList.add('sub-active');
-        setTimeout(() => { if (vendas.rawData.length) vendas.render(); }, 50);
-    } else if (viewName === 'cliente') {
-        document.querySelector('[data-view="cliente"]')?.classList.add('sub-active');
+        setTimeout(() => { if (vendas.rawData.length) vendas.render(); else vendas.carregarHistorico(); }, 50);
     } else if (viewName === 'banco') {
         document.querySelector('[data-view="banco"]')?.classList.add('sub-active');
+        setTimeout(() => {
+            if (banco.rawData.length) {
+                document.getElementById('banco-drop-zone').style.display = 'none';
+                document.getElementById('banco-data').classList.add('visible');
+                banco.render();
+            } else { banco.carregarHistorico(); }
+        }, 50);
     } else if (viewName === 'estoque') {
         document.querySelector('[data-view="estoque"]')?.classList.add('sub-active');
+        setTimeout(() => { if (estoque.rawData.length) { estoque.mostrarDados(); estoque.render(); } else { estoque.carregarHistorico(); } }, 50);
     } else if (viewName === 'op') {
         document.querySelector('[data-view="op"]')?.classList.add('sub-active');
+        setTimeout(() => {
+            if (op.rawData.length) {
+                document.getElementById('op-drop-zone').style.display = 'none';
+                document.getElementById('op-data').classList.add('visible');
+                op.render();
+            } else { op.carregarHistorico(); }
+        }, 50);
     } else if (viewName === 'costura') {
         document.querySelector('[data-view="costura"]')?.classList.add('sub-active');
+        setTimeout(() => {
+            if (costura.rawData.length) {
+                document.getElementById('costura-drop-zone').style.display = 'none';
+                document.getElementById('costura-data').classList.add('visible');
+                costura.render();
+            } else { costura.carregarHistorico(); }
+        }, 50);
+    } else if (viewName === 'cliente') {
+        document.querySelector('[data-view="cliente"]')?.classList.add('sub-active');
+        setTimeout(() => {
+            if (cliente.rawData.length) {
+                document.getElementById('cliente-drop-zone').style.display = 'none';
+                document.getElementById('cliente-data').classList.add('visible');
+                cliente.render();
+            } else { cliente.carregarHistorico(); }
+        }, 50);
     } else if (viewName === 'calendario') {
         document.querySelector('[data-view="calendario"]')?.classList.add('sub-active');
         disponibilidade.abrirAba(disponibilidade._abaAtiva);
@@ -660,6 +946,17 @@ function navigateTo(viewName) {
     } else if (viewName === 'pedidos') {
         document.getElementById('nav-pedidos')?.classList.add('active');
         pedidos.render();
+    } else if (viewName === 'comparador') {
+        document.getElementById('nav-comparador')?.classList.add('active');
+        comparador.render();
+    } else if (viewName === 'clientes-dash') {
+        document.getElementById('nav-clientes-dash')?.classList.add('active');
+        if (cliente.rawData.length) {
+            clientesDash.render();
+        } else {
+            // Carrega dados do cliente e depois renderiza o dashboard
+            cliente.carregarHistorico().then(() => clientesDash.render());
+        }
     } else if (viewName === 'op-dash') {
         document.getElementById('nav-op-dash')?.classList.add('active');
         if (opDash._dirty || !opDash._rows.length) opDash.render();
@@ -1087,14 +1384,7 @@ const vendas = {
     // ── Fluxo de salvar ────────────────────────────────────────
     async perguntarESalvar(nomeArquivo) {
         this._nomeArquivoAtual = nomeArquivo;
-        const lista = await api.listarImportacoes();
-        if (!lista || !lista.length) {
-            await this.salvarImportacao('nova');
-        } else {
-            document.getElementById('modal-arquivo').textContent = nomeArquivo;
-            document.getElementById('import-modal').dataset.modulo = 'vendas';
-            document.getElementById('import-modal').style.display = 'flex';
-        }
+        await this.salvarImportacao('nova');
     },
 
     async salvarImportacao(modo) {
@@ -1112,6 +1402,7 @@ const vendas = {
         finally { this.setSalvando(false); }
         await this.carregarHistorico();
         if (sucesso) {
+            historico.registrar('importar', 'vendas', `${this.rawData.length} itens — ${this._nomeArquivoAtual}`);
             mostrarToast(`✓ ${this.rawData.length.toLocaleString('pt-BR')} itens salvos`);
             const list = document.getElementById('history-list');
             const chev = document.getElementById('chevron-vendas');
@@ -1130,11 +1421,28 @@ const vendas = {
     // ── Histórico ─────────────────────────────────────────────
     async carregarHistorico() {
         const lista = await api.listarImportacoes();
-        if (!lista) return;
-        this._importacoes = lista;
-        // Se nenhum dado em memória, carrega o mais recente automaticamente
-        if (!this.rawData.length && lista.length) {
+        this._importacoes = lista || [];
+        if (!this.rawData.length && lista?.length) {
             await this.carregarImportacao(lista[0].id);
+        } else if (!this.rawData.length) {
+            const c = lsCache.ler('vendas');
+            if (c?.rawData?.length) {
+                this.rawData    = c.rawData;
+                this.monthCols  = c.monthCols || [];
+                this.years      = [...new Set(this.monthCols.map(m => m.year).filter(Boolean))].sort();
+                this.selectedYear = this.years[0] || 'all';
+                this._currentId = c.importacaoId;
+                this.filtered   = [...this.rawData];
+                this.mediaMeses = [];
+                this._updateMediaBtn();
+                this.populateFilters();
+                this.populateMediaFilter();
+                this.showDataSection();
+                this.render();
+                mostrarToast('Dados carregados do cache local');
+            } else {
+                this.renderHistorico();
+            }
         } else {
             this.renderHistorico();
         }
@@ -1163,16 +1471,16 @@ const vendas = {
         this.selectedYear = this.years[0] || 'all';
         this._currentId   = id;
 
-        const normK = k => String(k).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+        // normK → usa normalizeKey global
         const KNOWN_LOAD = new Set(['marca']);
         const firstWithDados = rows.find(r => r.dados && Object.keys(r.dados).length > 0);
         this.extraCols = firstWithDados
-            ? Object.keys(firstWithDados.dados).filter(k => !KNOWN_LOAD.has(normK(k)))
+            ? Object.keys(firstWithDados.dados).filter(k => !KNOWN_LOAD.has(normalizeKey(k)))
             : [];
 
         this.rawData  = rows.map((r, i) => {
             const dados = r.dados || {};
-            const marcaKey = Object.keys(dados).find(k => normK(k) === 'marca');
+            const marcaKey = Object.keys(dados).find(k => normalizeKey(k) === 'marca');
             const extras = { ...dados };
             if (marcaKey) delete extras[marcaKey];
             // r.marca vem da coluna DB; fallback para dados['Marca'] de imports antigos
@@ -1195,6 +1503,7 @@ const vendas = {
         this.render();
         this.renderHistorico();
         this._sincronizarDashboards();
+        lsCache.salvar('vendas', { importacaoId: id, rawData: this.rawData, monthCols: this.monthCols });
     },
 
     _sincronizarDashboards() {
@@ -1215,11 +1524,19 @@ const vendas = {
         }
         // opDash — marca dirty
         opDash._dirty = true;
+        // comparador — re-renderiza se visível
+        const compView = document.getElementById('view-comparador');
+        if (compView && compView.style.display !== 'none') {
+            setTimeout(() => comparador.render(), 50);
+        }
+        // Alertas — verifica críticos e atualiza badge
+        setTimeout(() => alertas.verificar(), 200);
     },
 
     renderHistorico() {
         const wrap = document.getElementById('import-history');
         const list = document.getElementById('history-list');
+        const chev = document.getElementById('chevron-vendas');
         if (!this._importacoes?.length) { wrap.style.display = 'none'; return; }
 
         wrap.style.display = 'block';
@@ -1231,12 +1548,14 @@ const vendas = {
             <div class="hi-item${ativo ? ' hi-ativo' : ''}" onclick="vendas.carregarImportacao('${imp.id}')">
                 <span class="hi-dot">${ativo ? '●' : '○'}</span>
                 <div class="hi-info">
-                    <span class="hi-nome">${imp.nome_arquivo}</span>
+                    <span class="hi-nome">${escHTML(imp.nome_arquivo)}</span>
                     <span class="hi-meta">${d} · ${imp.total_linhas} itens${anos ? ' · ' + anos : ''}</span>
                 </div>
                 <button class="hi-del" onclick="event.stopPropagation();vendas.excluirImportacao('${imp.id}')" title="Excluir">✕</button>
             </div>`;
         }).join('');
+        list.style.display = 'flex';
+        if (chev) chev.style.transform = 'rotate(90deg)';
     },
 
     async excluirImportacao(id) {
@@ -1364,19 +1683,23 @@ const vendas = {
         if (btnSalvar) btnSalvar.style.display = '';
     },
 
+    exportar() {
+        if (!this.filtered.length) return;
+        const activeCols = this.getActiveCols();
+        const dados = this.filtered.map(r => {
+            const obj = { Código: r.codigo, Descrição: r.descricao, Marca: r.marca, Modelo: r.modelo, Segmento: r.segmento, Tamanho: r.tamanho };
+            activeCols.forEach(c => { obj[c.label] = r[c.key] || 0; });
+            return obj;
+        });
+        exportarXLS(dados, 'vendas_' + (this.selectedYear || 'todos'));
+    },
+
     async salvarManual() {
         if (!this.rawData.length) return;
         const btn = document.getElementById('btn-salvar-vendas');
         if (btn) { btn.disabled = true; btn.textContent = 'Salvando...'; }
         try {
-            const lista = await api.listarImportacoes();
-            if (lista?.length) {
-                document.getElementById('modal-arquivo').textContent = this._nomeArquivoAtual || 'importacao';
-                document.getElementById('import-modal').dataset.modulo = 'vendas';
-                document.getElementById('import-modal').style.display = 'flex';
-            } else {
-                await this.salvarImportacao('nova');
-            }
+            await this.salvarImportacao('nova');
         } finally {
             if (btn) { btn.disabled = false; btn.textContent = 'Salvar'; }
         }
@@ -1412,6 +1735,33 @@ const vendas = {
         if (elCod) elCod.textContent = codigos.size.toLocaleString('pt-BR');
         if (elMod) elMod.textContent = modelos.size.toLocaleString('pt-BR');
         if (elTam) elTam.textContent = tamanhos.size.toLocaleString('pt-BR');
+
+        // Delta ano anterior — mostra variação se dados de 2 anos disponíveis
+        const anos = this.years || [];
+        const deltaEl = document.getElementById('vendas-delta-card');
+        const deltaValEl = document.getElementById('vendas-delta-val');
+        if (deltaEl && deltaValEl && anos.length >= 2) {
+            const [ano1, ano2] = anos.slice(-2);
+            const cols1 = this.monthCols.filter(c => c.year === ano1);
+            const cols2 = this.monthCols.filter(c => c.year === ano2);
+            const mesComuns = [...new Set(cols1.map(c=>c.abbr))].filter(a => cols2.some(c=>c.abbr===a));
+            if (mesComuns.length) {
+                let v1=0, v2=0;
+                this.rawData.forEach(r => {
+                    mesComuns.forEach(a => {
+                        const c1=cols1.find(c=>c.abbr===a), c2=cols2.find(c=>c.abbr===a);
+                        if (c1) v1+=(r[c1.key]||0); if (c2) v2+=(r[c2.key]||0);
+                    });
+                });
+                const pct = v1>0 ? ((v2-v1)/v1*100).toFixed(1) : null;
+                if (pct !== null) {
+                    deltaValEl.textContent = (pct>0?'+':'')+pct+'%';
+                    deltaValEl.style.color = pct>0?'#26a69a':'#f06292';
+                    deltaEl.querySelector('.s-label').textContent = `${ano1} → ${ano2}`;
+                    deltaEl.style.display = '';
+                }
+            }
+        } else if (deltaEl) { deltaEl.style.display = 'none'; }
 
         // Segmento — usa rawData para mostrar todos sempre (não só os filtrados)
         const segSelecionado = document.getElementById('filter-segmento').value;
@@ -1619,8 +1969,8 @@ const vendas = {
                 : null;
             return `
             <tr onclick="abrirDetalhe('${r.descricao.replace(/'/g, "\\'")}','${r.segmento}')">
-                <td class="td-code">${r.codigo}</td>
-                <td class="td-desc">${r.descricao}</td>
+                <td class="td-code">${escHTML(r.codigo)}</td>
+                <td class="td-desc">${escHTML(r.descricao)}</td>
                 <td>${r.modelo}</td>
                 <td><span class="seg-badge">${r.segmento}</span></td>
                 <td>${r.marca || '<span style="opacity:.3">—</span>'}</td>
@@ -1786,11 +2136,7 @@ const estoque = {
         }
     },
 
-    normalizeKey(key) {
-        return String(key).toLowerCase()
-            .normalize('NFD').replace(/[̀-ͯ]/g,'')
-            .replace(/[^a-z0-9]/g,'');
-    },
+    normalizeKey: normalizeKey,
 
     processData(rows) {
         if (!rows?.length) return;
@@ -1918,13 +2264,7 @@ const estoque = {
     // ── Salvar / Histórico ────────────────────────────────────
     async perguntarESalvar(nome) {
         this._nomeArquivo = nome;
-        const lista = await api.get('/api/importacoes-estoque');
-        if (!lista?.length) { await this.salvar('nova'); }
-        else {
-            document.getElementById('modal-arquivo').textContent = nome;
-            document.getElementById('import-modal').dataset.modulo = 'estoque';
-            document.getElementById('import-modal').style.display = 'flex';
-        }
+        await this.salvar('nova');
     },
 
     async salvar(modo) {
@@ -1943,6 +2283,7 @@ const estoque = {
         finally { this.setSalvando(false); }
         await this.carregarHistorico();
         if (sucesso) {
+            historico.registrar('importar', 'estoque', `${this.rawData.length} itens — ${this._nomeArquivo}`);
             mostrarToast(`✓ ${this.rawData.length.toLocaleString('pt-BR')} itens salvos`);
             // Auto-expande o histórico
             const list = document.getElementById('estoque-history-list');
@@ -1960,13 +2301,34 @@ const estoque = {
     },
 
     async carregarHistorico() {
-        const lista = await api.get('/api/importacoes-estoque');
-        if (!lista) return;
-        this._importacoes = lista;
-        if (!this.rawData.length && lista.length) {
-            await this.carregarImportacao(lista[0].id);
-        } else {
-            this.renderHistorico();
+        try {
+            const lista = await api.get('/api/importacoes-estoque');
+            this._importacoes = Array.isArray(lista) ? lista : [];
+            if (!this.rawData.length && this._importacoes.length) {
+                await this.carregarImportacao(this._importacoes[0].id);
+            } else if (!this.rawData.length) {
+                const c = lsCache.ler('estoque');
+                if (c?.rawData?.length) {
+                    this.rawData = c.rawData; this.colunas = c.colunas || [];
+                    this._currentId = c.importacaoId; this.filtered = [...this.rawData];
+                    this.mostrarDados(); this.populaSelects(); this.render();
+                    mostrarToast('Estoque: cache local carregado');
+                } else {
+                    mostrarToast('Estoque: nenhum dado encontrado');
+                    this.renderHistorico();
+                }
+            } else { this.renderHistorico(); }
+        } catch(e) {
+            console.error('Estoque carregarHistorico erro:', e);
+            const c = lsCache.ler('estoque');
+            if (c?.rawData?.length) {
+                this.rawData = c.rawData; this.colunas = c.colunas || [];
+                this._currentId = c.importacaoId; this.filtered = [...this.rawData];
+                this.mostrarDados(); this.populaSelects(); this.render();
+                mostrarToast('Estoque: cache local carregado');
+            } else {
+                mostrarToast(`Estoque erro: ${e.message}`);
+            }
         }
     },
 
@@ -1974,7 +2336,16 @@ const estoque = {
         this.setSalvando(true);
         const rows = await api.get(`/api/estoque?importacao_id=${id}`);
         this.setSalvando(false);
-        if (!rows?.length) return;
+        if (!rows?.length) {
+            // fallback para cache se Supabase retornar vazio
+            const c = lsCache.ler('estoque');
+            if (c?.rawData?.length && c.importacaoId === id) {
+                this.rawData = c.rawData; this.colunas = c.colunas || [];
+                this._currentId = id; this.filtered = [...this.rawData];
+                this.mostrarDados(); this.populaSelects(); this.render();
+            }
+            return;
+        }
 
         this._currentId = id;
 
@@ -1982,9 +2353,9 @@ const estoque = {
         const sampleDados = rows.find(r => r.dados && Object.keys(r.dados).length)?.dados || {};
         this.colunas = Object.keys(sampleDados).length ? Object.keys(sampleDados) : ['codigo'];
 
-        const normKey = k => String(k).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
+        // normKey → usa normalizeKey global
         const VAL_KEYS = ['total','valor','valortotal','vltotal','preco','price','custo','vl','vlunit','valorunit'];
-        this._colValor = this.colunas.find(c => VAL_KEYS.includes(normKey(c))) || null;
+        this._colValor = this.colunas.find(c => VAL_KEYS.includes(normalizeKey(c))) || null;
 
         this.rawData = rows.map((r, i) => ({
             _id:        i,
@@ -1997,6 +2368,13 @@ const estoque = {
         this.populaSelects();
         this.render();
         this.renderHistorico();
+        lsCache.salvar('estoque', { importacaoId: id, colunas: this.colunas, rawData: this.rawData });
+        setTimeout(() => alertas.verificar(), 300);
+        // Notifica dashboards dependentes
+        vxe._dirty = true;
+        opDash._dirty = true;
+        const vxeView = document.getElementById('view-vxe');
+        if (vxeView && vxeView.style.display !== 'none') setTimeout(() => vxe.render(), 100);
     },
 
     renderHistorico() {
@@ -2010,12 +2388,17 @@ const estoque = {
             return `<div class="hi-item${ativo ? ' hi-ativo' : ''}" onclick="estoque.carregarImportacao('${imp.id}')">
                 <span class="hi-dot">${ativo ? '●' : '○'}</span>
                 <div class="hi-info">
-                    <span class="hi-nome">${imp.nome_arquivo}</span>
+                    <span class="hi-nome">${escHTML(imp.nome_arquivo)}</span>
                     <span class="hi-meta">${d} · ${imp.total_linhas} itens</span>
                 </div>
                 <button class="hi-del" onclick="event.stopPropagation();estoque.excluir('${imp.id}')" title="Excluir">✕</button>
             </div>`;
         }).join('');
+    },
+
+    exportar() {
+        if (!this.filtered.length) return;
+        exportarXLS(this.filtered.map(r => ({ Código: r.codigo, Quantidade: r.quantidade, ...r.dados })), 'estoque');
     },
 
     async excluir(id) {
@@ -2132,9 +2515,13 @@ const op = {
         } else if (['xls','xlsx'].includes(ext)) {
             const reader = new FileReader();
             reader.onload = e => {
-                const wb   = XLSX.read(e.target.result, { type: 'array' });
-                const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
-                this.processData(data);
+                const wb    = XLSX.read(e.target.result, { type: 'array' });
+                const sheet = wb.Sheets[wb.SheetNames[0]];
+                // Lê como array bruto (header:1) para relatórios ERP com células mescladas
+                const raw   = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+                // Converte cada linha para objeto { col0, col1, ... } para compatibilidade
+                const rows  = raw.map(arr => Object.fromEntries(arr.map((v, i) => [i, v])));
+                this.processData(rows);
             };
             reader.readAsArrayBuffer(file);
         }
@@ -2143,105 +2530,186 @@ const op = {
     processData(rows) {
         if (!rows?.length) return;
 
-        // Detecta se é o relatório formatado do ERP (contém "O.P. N°" em alguma célula)
-        const isERPReport = rows.some(r =>
-            Object.values(r).some(v => /O\.P\.?\s*N[°º]/i.test(String(v)))
-        );
+        // Detecta se é o relatório formatado do ERP (contém "O.P. N°" em qualquer célula)
+        const fullText = rows.map(r => Object.values(r).join(' ')).join('\n');
+        const isERPReport = /O\.P\.?\s*N[°º.]/i.test(fullText);
         if (isERPReport) { this._parseERPReport(rows); return; }
 
-        // Formato tabular normal
-        const allHeaders = Object.keys(rows[0]).filter(h => {
-            const n = this.normalizeKey(h);
-            return n && !n.startsWith('__');
-        });
-        const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs','aproduzir'];
-        const qtdNorm  = allHeaders.find(h => QTD_KEYS.includes(this.normalizeKey(h)));
-        this._colQtd   = qtdNorm || null;
-        this.colunas   = allHeaders;
-        this.rawData   = rows.map((r, i) => ({
+        // Formato tabular — primeira linha contém os cabeçalhos
+        const headerRow  = rows[0];
+        const allHeaders = Object.values(headerRow).map(v => String(v ?? '').trim()).filter(Boolean);
+        if (!allHeaders.length) { mostrarToast('Arquivo sem dados reconhecíveis.', 'erro'); return; }
+        const dataRows   = rows.slice(1);
+        const QTD_KEYS   = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs','aproduzir'];
+        const qtdNorm    = allHeaders.find(h => QTD_KEYS.includes(this.normalizeKey(h)));
+        this._colQtd     = qtdNorm || null;
+        this.colunas     = allHeaders;
+        this.rawData     = dataRows.map((r, i) => ({
             _id: i,
-            dados: Object.fromEntries(allHeaders.map(h => [h, r[h] ?? '']))
-        }));
+            dados: Object.fromEntries(allHeaders.map((h, idx) => [h, String(r[idx] ?? '').trim()]))
+        })).filter(r => Object.values(r.dados).some(v => v !== ''));
         this.filtered = [...this.rawData];
         this._finalizarImport();
     },
 
     _parseERPReport(rows) {
-        const toNum = v => parseFloat(String(v ?? '').replace(',', '.')) || 0;
-        const PART_NAMES = ['Produto', 'Cor', 'Tamanho', 'Modelo', 'Versão', 'Caract. 5', 'Caract. 6'];
+        const toNum = v => parseFloat(String(v ?? '').replace(/[^\d,.\-]/g,'').replace(',','.')) || 0;
         const parsed = [];
-        let curOP = null;
+        let curOP = {};
+        let curLote  = '';
+        let ignorados = 0;
+
+        // Concatena todas as células de uma row em string única (relatórios ERP mesclam células)
+        const rowStr = row => Object.values(row).map(v => String(v ?? '').trim()).filter(Boolean).join('  ');
 
         for (const row of rows) {
-            const vals = Object.values(row);
-            const a = String(vals[0] ?? '').trim();
+            const a = String(Object.values(row)[0] ?? '').trim();
+            const full = rowStr(row);
 
-            // Linha de cabeçalho da OP
-            if (/O\.P\.?\s*N[°º]/i.test(a)) {
-                const nMatch  = a.match(/N[°º][^:]*:\s*(\d+)/i);
-                const emMatch = a.match(/Emiss[aã]o:\s*(\d{2}\/\d{2}\/\d{4})/i);
-                const piMatch = a.match(/Previs[aã]o\s+Inicial:\s*(\d{2}\/\d{2}\/\d{4})/i);
-                const pfMatch = a.match(/Previs[aã]o\s+Final:\s*(\d{2}\/\d{2}\/\d{4})/i);
-                const stMatch = a.match(/Status:\s*(.+)$/i);
+            // ── Linha de cabeçalho da OP ────────────────────────────
+            // Formato: "O.P. N°: 17588  Emissão: 07/01/2026  Previsão Inicial: ...  Status: Liberado p/ Produção"
+            if (/O\.P\.?\s*N[°º]/i.test(full)) {
+                const nMatch  = full.match(/N[°º][^:]*:\s*(\d+)/i);
+                const emMatch = full.match(/Emiss[aã]o:\s*(\d{2}\/\d{2}\/\d{4})/i);
+                const piMatch = full.match(/Previs[aã]o\s+Inicial:\s*(\d{2}\/\d{2}\/\d{4})/i);
+                const pfMatch = full.match(/Previs[aã]o\s+Final:\s*(\d{2}\/\d{2}\/\d{4})/i);
+                const stMatch = full.match(/Status:\s*([^\t\n]+)/i);
                 curOP = {
-                    'OP Nº':         nMatch  ? nMatch[1]  : '',
-                    'Emissão':       emMatch ? emMatch[1] : '',
-                    'Prev. Inicial': piMatch ? piMatch[1] : '',
-                    'Prev. Final':   pfMatch ? pfMatch[1] : '',
-                    'Status':        stMatch ? stMatch[1].trim() : '',
+                    'N. OP':          nMatch  ? nMatch[1].trim()  : '',
+                    'Emissão':        emMatch ? emMatch[1] : '',
+                    'Prev. Inicial':  piMatch ? piMatch[1] : '',
+                    'Prev. Final':    pfMatch ? pfMatch[1] : '',
+                    'Status':         stMatch ? stMatch[1].trim() : '',
                 };
+                curLote = '';
+                continue;
             }
-            // Linha de produto
-            else if (/^Produto:/i.test(a) && curOP) {
-                // Extrai código e resto
-                const codeMatch = a.match(/Produto:\s*(\d+)\s*[-–]\s*(.+)/i);
-                if (!codeMatch) continue;
-                const codigo = codeMatch[1].trim();
-                const resto  = codeMatch[2];
 
-                // Extrai "Para Produção" (1º número) do final do texto
-                const numMatch = resto.match(/^(.+?)\s+([\d,]+)\s+[\d,]+\s+[\d,]+\s+[\d,]+\s+[\d,]+\s*$/);
-                let descricao, paraProducao;
+            // ── Linha de Lote / Observação ──────────────────────────
+            // Formato: "Observação OP: LOTE 5741"  ou  "Lote: 5741"
+            if (/lote|observa[çc][aã]o/i.test(full)) {
+                const loteMatch = full.match(/LOTE\s+(\w+)/i) || full.match(/Lote:\s*(\w+)/i);
+                if (loteMatch) curLote = loteMatch[1].trim();
+                continue;
+            }
 
-                if (numMatch) {
-                    descricao    = numMatch[1].trim();
-                    paraProducao = toNum(numMatch[2]);
-                } else {
-                    descricao    = resto.trim();
-                    paraProducao = toNum(vals[2]);
-                }
+            // ── Linha de Produto ─────────────────────────────────────
+            // Formatos suportados:
+            //   "Produto / Referência: 50002 - JOELHEIRA | PRETA | TAM. P | PANVEL Ref: 50002  200  0  200"
+            //   "Referência: 50002" (célula A) + "- JOELHEIRA | PRETA | TAM. P | PANVEL Ref: 50002" (célula B)
+            if (/Produto\s*[\/e]?\s*Refer[eê]ncia:/i.test(full) ||
+                /Refer[eê]ncia:/i.test(full) ||
+                /^Produto:/i.test(a)) {
 
-                // Quebra a descrição por "|" em colunas separadas
-                const parts = descricao.split('|').map(p => p.trim());
-                const record = { ...curOP, 'Código': codigo };
-                parts.forEach((p, i) => { record[PART_NAMES[i] || `Caract. ${i}`] = p; });
-                record['Produção'] = paraProducao;
-                parsed.push(record);
+                // Remove todos os prefixos conhecidos e junta em string limpa
+                const afterColon = full
+                    .replace(/Produto\s*[\/e]?\s*Refer[eê]ncia:\s*/ig, '')
+                    .replace(/Refer[eê]ncia:\s*/ig, '')
+                    .replace(/^Produto:\s*/i, '')
+                    .replace(/\s{2,}/g, ' ')
+                    .trim();
+
+                // Extrai código do produto: "50002 - JOELHEIRA | ..." ou "50002  - JOELHEIRA"
+                const codMatch = afterColon.match(/^(\d+)\s*[-–]\s*/);
+                const ref      = codMatch ? codMatch[1].trim() : '';
+                const resto    = codMatch ? afterColon.slice(codMatch[0].length) : afterColon;
+
+                // Extrai números do final (qtd produção, qtd B, qtd total)
+                const numsMatch = resto.match(/([\d.]+,\d{4})/g) || [];
+                const qtd       = numsMatch.length > 0 ? toNum(numsMatch[0]) : 0;
+
+                // Remove números e referências duplicadas para limpar a descrição
+                const parteDesc = resto
+                    .replace(/([\d.]+,\d{4}[\s]*)*/g, '')
+                    .replace(/\s*Ref:\s*\d+\s*/gi, '')
+                    .replace(/\s{2,}/g, ' ')
+                    .trim();
+
+                // Quebra por "|" — cada parte é um campo
+                const parts = parteDesc.split('|').map(p => p.trim()).filter(Boolean);
+
+                const descricao = parts[0] || '';
+                const cor       = parts[1] || '';
+                // TAM. P → extrai "P"
+                const tamRaw    = parts[2] || '';
+                const tamanho   = tamRaw.replace(/TAM\.?\s*/i, '').trim();
+                // PANVEL Ref: 50002 → extrai apenas "PANVEL", remove tudo após "Ref:"
+                const marcaRaw  = parts[3] || '';
+                const marca     = marcaRaw.replace(/\s*Ref:.*$/i, '').trim();
+
+                if (!ref && !descricao) continue; // linha vazia
+
+                // Regra 1: Ref deve ter exatamente 5 dígitos numéricos
+                if (!/^\d{5}$/.test(ref)) { ignorados++; continue; }
+
+                // Regra 2: campo de tamanho deve conter "TAM" no texto original
+                if (!/TAM/i.test(tamRaw)) { ignorados++; continue; }
+
+                // Regra 3: tamanho extraído deve ser um valor válido
+                const TAMANHOS_VALIDOS = ['PP','P','M','G','GG','XG'];
+                if (!TAMANHOS_VALIDOS.includes(tamanho.toUpperCase())) { ignorados++; continue; }
+
+                parsed.push({
+                    'N. OP':    curOP['N. OP']   || '',
+                    'Emissão':  curOP['Emissão']  || '',
+                    'Lote':     curLote,
+                    'Ref':      ref,
+                    'Descrição':descricao.toUpperCase(),
+                    'Cor':      cor.toUpperCase(),
+                    'Tam':      tamanho.toUpperCase(),
+                    'Marca':    marca.toUpperCase(),
+                    'Qtd':      qtd,
+                    'Status':   curOP['Status']   || '',
+                });
+                continue;
             }
         }
 
         if (!parsed.length) {
-            alert('Nenhuma Ordem de Produção encontrada no arquivo.');
+            mostrarToast('Nenhuma Ordem de Produção encontrada. Verifique o formato do arquivo.', 'erro');
             return;
         }
 
-        // Garante colunas consistentes em todos os registros
-        const allKeys = [...new Set(parsed.flatMap(r => Object.keys(r)))];
-        parsed.forEach(r => { allKeys.forEach(k => { if (!(k in r)) r[k] = ''; }); });
+        if (ignorados > 0)
+            mostrarToast(`${parsed.length} ordens importadas · ${ignorados} ignoradas (ref. fora de 5 dígitos)`);
 
-        this.colunas  = allKeys;
-        this._colQtd  = 'Produção';
+        const COLUNAS_OP = ['N. OP','Emissão','Lote','Ref','Descrição','Cor','Tam','Marca','Qtd','Status'];
+        this.colunas  = COLUNAS_OP;
+        this._colQtd  = 'Qtd';
         this.rawData  = parsed.map((r, i) => ({ _id: i, dados: r }));
         this.filtered = [...this.rawData];
         this._finalizarImport();
     },
 
     _finalizarImport() {
+        this._mapearColunasOP();
         this._detectCombosCols();
         document.getElementById('op-drop-zone').style.display = 'none';
         document.getElementById('op-data').classList.add('visible');
         this.render();
         this.perguntarESalvar(this._nomeArquivo);
+    },
+
+    // Mapeamento de colunas para o formato padrão de OP
+    _mapearColunasOP() {
+        const nk = c => normalizeKey(c);
+        const find = (...keys) => this.colunas.find(c => keys.some(k => nk(c) === k || nk(c).includes(k)));
+
+        // Nomes fixos do parser ERP têm prioridade (match exato primeiro)
+        this._colOP      = this.colunas.find(c => c === 'N. OP')      || find('nop','numop','numeroop','nro') || null;
+        this._colEmissao = this.colunas.find(c => c === 'Emissão')    || find('emissao','emiss','dataemissao') || null;
+        this._colLote    = this.colunas.find(c => c === 'Lote')       || find('lote','lot') || null;
+        this._colRef     = this.colunas.find(c => c === 'Ref')        || find('ref','referencia','codigo','cod') || null;
+        this._colDesc    = this.colunas.find(c => c === 'Descrição')  || find('descricao','descr','desc','produto') || null;
+        this._colCor     = this.colunas.find(c => c === 'Cor')        || find('cor','color') || null;
+        this._colTam     = this.colunas.find(c => c === 'Tam')        || find('tam','tamanho','size') || null;
+        this._colMarca   = this.colunas.find(c => c === 'Marca')      || find('marca','brand') || null;
+        this._colQtd     = this.colunas.find(c => c === 'Qtd')        || find('quantidade','qtd','qty','producao','aproduzir') || null;
+        this._colStatus  = this.colunas.find(c => c === 'Status')     || find('status','situacao') || null;
+
+        const mapeadas = new Set([this._colOP, this._colEmissao, this._colLote, this._colRef,
+            this._colDesc, this._colCor, this._colTam, this._colMarca, this._colQtd, this._colStatus].filter(Boolean));
+        this._colsExtras = this.colunas.filter(c => !mapeadas.has(c));
     },
 
     _detectCombosCols() {
@@ -2296,8 +2764,9 @@ const op = {
     render() {
         const total = this.rawData.length;
         const filt  = this.filtered.length;
+        const toNum = v => parseFloat(String(v ?? '0').replace(',','.')) || 0;
         const qtd   = this._colQtd
-            ? this.filtered.reduce((s, r) => s + (parseFloat(String(r.dados?.[this._colQtd] ?? '0').replace(',','.')) || 0), 0)
+            ? this.filtered.reduce((s, r) => s + toNum(r.dados?.[this._colQtd]), 0)
             : 0;
 
         document.getElementById('op-total').textContent     = total.toLocaleString('pt-BR');
@@ -2306,28 +2775,57 @@ const op = {
         document.getElementById('op-count').textContent     = `${filt.toLocaleString('pt-BR')} ordens${filt > 2000 ? ' (exibindo 2000)' : ''}`;
 
         const table = document.getElementById('op-table');
-        table.querySelector('thead tr').innerHTML =
-            this.colunas.map(h => `<th>${h.toUpperCase()}</th>`).join('');
-        table.querySelector('tbody').innerHTML = this.filtered.slice(0, 2000).map(r => {
-            const cells = this.colunas.map(h => {
-                const v = r.dados?.[h];
-                return `<td>${v !== undefined && v !== '' ? v : '<span style="opacity:.3">—</span>'}</td>`;
+        const empty = '<span style="opacity:.3">—</span>';
+
+        // Se temos mapeamento de colunas OP, usa layout estruturado
+        const temMapa = this._colOP || this._colRef || this._colDesc;
+        if (temMapa) {
+            // Colunas fixas na ordem certa + extras ao final
+            const colsDef = [
+                { key: this._colOP,      label: 'N. OP',      style: 'color:#26c6da;font-family:monospace;font-weight:700;' },
+                { key: this._colEmissao, label: 'EMISSÃO',    style: 'color:#8b949e;' },
+                { key: this._colLote,    label: 'LOTE',       style: 'color:#8b949e;font-family:monospace;' },
+                { key: this._colRef,     label: 'REF',        style: 'color:#26c6da;font-family:monospace;font-weight:600;' },
+                { key: this._colDesc,    label: 'DESCRIÇÃO',  style: 'font-weight:500;', cls: 'td-desc' },
+                { key: this._colCor,     label: 'COR',        style: '' },
+                { key: this._colTam,     label: 'TAM',        style: 'text-align:center;font-weight:700;' },
+                { key: this._colMarca,   label: 'MARCA',      style: '' },
+                { key: this._colQtd,     label: 'QTD',        style: 'text-align:right;color:#ffab76;font-weight:700;' },
+                { key: this._colStatus,  label: 'STATUS',     style: 'font-size:0.75rem;color:#8b949e;' },
+            ].filter(c => c.key);
+
+            // Adiciona colunas extras não mapeadas
+            (this._colsExtras || []).forEach(k => colsDef.push({ key: k, label: k.toUpperCase(), style: '' }));
+
+            table.querySelector('thead tr').innerHTML = colsDef.map(c =>
+                `<th${c.cls ? ` class="${c.cls}"` : ''}>${c.label}</th>`
+            ).join('');
+
+            table.querySelector('tbody').innerHTML = this.filtered.slice(0, 2000).map(r => {
+                const cells = colsDef.map(c => {
+                    const v = r.dados?.[c.key];
+                    const val = (v !== undefined && v !== '') ? escHTML(String(v)) : empty;
+                    return `<td style="${c.style}">${val}</td>`;
+                }).join('');
+                return `<tr>${cells}</tr>`;
             }).join('');
-            return `<tr>${cells}</tr>`;
-        }).join('');
+        } else {
+            // Fallback: mostra todas as colunas como estão
+            table.querySelector('thead tr').innerHTML =
+                this.colunas.map(h => `<th>${h.toUpperCase()}</th>`).join('');
+            table.querySelector('tbody').innerHTML = this.filtered.slice(0, 2000).map(r => {
+                const cells = this.colunas.map(h => {
+                    const v = r.dados?.[h];
+                    return `<td>${(v !== undefined && v !== '') ? escHTML(String(v)) : empty}</td>`;
+                }).join('');
+                return `<tr>${cells}</tr>`;
+            }).join('');
+        }
     },
 
     async perguntarESalvar(nome) {
         this._nomeArquivo = nome;
-        const lista = await api.get('/api/importacoes-op');
-        const temSalvo = lista?.length > 0 || !!this._currentId;
-        if (!temSalvo) {
-            await this.salvar('nova');
-        } else {
-            document.getElementById('modal-arquivo').textContent = nome;
-            document.getElementById('import-modal').dataset.modulo = 'op';
-            document.getElementById('import-modal').style.display = 'flex';
-        }
+        await this.salvar('nova');
     },
 
     async salvar(modo) {
@@ -2341,11 +2839,12 @@ const op = {
             const res = await api.post('/api/op/import', { nomeArquivo: this._nomeArquivo, linhas });
             if (res?.ok) {
                 this._currentId = res.importacaoId;
+                mostrarToast(`✓ ${this.rawData.length.toLocaleString('pt-BR')} ordens salvas`);
             } else {
-                alert('Erro ao salvar no banco. Verifique se as tabelas importacoes_op e ordens_producao foram criadas no Supabase.');
+                mostrarToast(res?.erro || 'Erro ao salvar OP', 'erro');
             }
         } catch(e) {
-            alert('Erro de conexão ao salvar importação.');
+            mostrarToast('Erro de conexão ao salvar', 'erro');
         } finally { this._setSaving(false); }
         await this.carregarHistorico();
     },
@@ -2359,7 +2858,19 @@ const op = {
         const lista = await api.get('/api/importacoes-op');
         this._importacoes = lista || [];
         this.renderHistorico();
-        if (lista?.length && !this._currentId) await this.carregarImportacao(lista[0].id);
+        if (lista?.length && !this._currentId) { await this.carregarImportacao(lista[0].id); return; }
+        if (!this._currentId) {
+            const c = lsCache.ler('op');
+            if (c?.rawData?.length) {
+                this.rawData = c.rawData; this.colunas = c.colunas || [];
+                this._currentId = c.importacaoId; this.filtered = [...this.rawData];
+                this._mapearColunasOP();
+                this._detectCombosCols();
+                document.getElementById('op-drop-zone').style.display = 'none';
+                document.getElementById('op-data').classList.add('visible');
+                this.render(); mostrarToast('Dados OP carregados do cache local');
+            }
+        }
     },
 
     async carregarImportacao(id) {
@@ -2373,11 +2884,17 @@ const op = {
                     || this.colunas.find(h => h === 'Produção')
                     || null;
         this.filtered = [...this.rawData];
+        this._mapearColunasOP();
         this._detectCombosCols();
         document.getElementById('op-drop-zone').style.display = 'none';
         document.getElementById('op-data').classList.add('visible');
         this.render();
         this.renderHistorico();
+        lsCache.salvar('op', { importacaoId: id, colunas: this.colunas, rawData: this.rawData });
+        // Notifica dashboards dependentes
+        opDash._dirty = true;
+        vxe._dirty = true;
+        setTimeout(() => alertas.verificar(), 300);
     },
 
     renderHistorico() {
@@ -2391,7 +2908,7 @@ const op = {
             return `<div class="hi-item${ativo ? ' hi-ativo' : ''}" onclick="op.carregarImportacao('${imp.id}')">
                 <span class="hi-dot">${ativo ? '●' : '○'}</span>
                 <div class="hi-info">
-                    <span class="hi-nome">${imp.nome_arquivo}</span>
+                    <span class="hi-nome">${escHTML(imp.nome_arquivo)}</span>
                     <span class="hi-meta">${d} · ${imp.total_linhas} ordens</span>
                 </div>
                 <button class="hi-del" onclick="event.stopPropagation();op.excluir('${imp.id}')" title="Excluir">✕</button>
@@ -2401,6 +2918,11 @@ const op = {
         list.style.display = 'flex';
         const chev = document.getElementById('chevron-op');
         if (chev) chev.style.transform = 'rotate(90deg)';
+    },
+
+    exportar() {
+        if (!this.filtered.length) return;
+        exportarXLS(this.filtered.map(r => r.dados), 'ordens_producao');
     },
 
     async excluir(id) {
@@ -2684,6 +3206,7 @@ const cliente = {
         const total  = this.rawData.length;
         const filt   = this.filtered.length;
         const toNum  = v => parseFloat(String(v ?? '0').replace(/\./g,'').replace(',','.')) || 0;
+        const up     = v => String(v || '').toUpperCase().trim();
 
         const qtdTotal = this._colQtd
             ? this.filtered.reduce((s, r) => s + toNum(r.dados?.[this._colQtd]), 0) : null;
@@ -2698,52 +3221,81 @@ const cliente = {
         document.getElementById('cliente-filtrados').textContent = filt.toLocaleString('pt-BR');
         document.getElementById('cliente-count').textContent     = `${filt.toLocaleString('pt-BR')} registros${filt > 2000 ? ' (exibindo 2000)' : ''}`;
 
-        const LABELS = {
-            [this._colCodigo]:   'CÓDIGO',
-            [this._colDesc]:     'DESCRIÇÃO',
-            [this._colData]:     'DATA',
-            [this._colCliente]:  'CLIENTE',
-            [this._colQtd]:      'QUANTIDADE',
-            [this._colValUnit]:  'VALOR UNIT.',
-            [this._colValTotal]: 'VALOR TOTAL',
-        };
-
+        const empty = '<span style="opacity:.3">—</span>';
         const table = document.getElementById('cliente-table');
-        table.querySelector('thead tr').innerHTML =
-            this.colunas.map(h => `<th>${LABELS[h] || h.toUpperCase()}</th>`).join('');
 
-        table.querySelector('tbody').innerHTML = this.filtered.slice(0, 2000).map(r => {
-            const cells = this.colunas.map(h => {
-                const v = r.dados?.[h];
-                const empty = '<span style="opacity:.3">—</span>';
-                if (v === undefined || v === '') return `<td>${empty}</td>`;
-                if (h === this._colCodigo)
-                    return `<td><span style="font-family:monospace;color:#26c6da;font-weight:600;">${v}</span></td>`;
-                if (h === this._colQtd)
-                    return `<td style="text-align:right;font-weight:600;">${toNum(v).toLocaleString('pt-BR')}</td>`;
-                if (h === this._colValUnit)
-                    return `<td style="text-align:right;color:#8b949e;">R$ ${toNum(v).toLocaleString('pt-BR',{minimumFractionDigits:3})}</td>`;
-                if (h === this._colValTotal)
-                    return `<td style="text-align:right;color:#26a69a;font-weight:600;">R$ ${toNum(v).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>`;
-                if (h === this._colCliente)
-                    return `<td style="font-weight:500;">${v}</td>`;
-                return `<td>${v}</td>`;
+        // Detecta se a descrição tem padrão pipe: "MODELO | COR | MARCA | TAM. X - Ref. 00000"
+        const sampleDesc = this._colDesc ? String(this.filtered[0]?.dados?.[this._colDesc] || '') : '';
+        const hasPipe = sampleDesc.includes('|');
+
+        if (hasPipe) {
+            table.querySelector('thead tr').innerHTML =
+                ['CÓDIGO','MODELO','COR','MARCA','TAMANHO','DATA','CLIENTE','QUANT.','VALOR UNIT.','VALOR TOTAL']
+                .map(h => `<th>${h}</th>`).join('');
+
+            table.querySelector('tbody').innerHTML = this.filtered.slice(0, 2000).map(r => {
+                const desc   = String(r.dados?.[this._colDesc] || '');
+                const pts    = desc.split('|').map(p => p.trim());
+                const modelo  = up(pts[0]);
+                const cor     = up(pts[1]);
+                const marca   = up(pts[2]);
+                const tamanho = up((pts[3] || '').split(' - ')[0]);
+                const cod     = up(r.dados?.[this._colCodigo]);
+                const data    = up(r.dados?.[this._colData]);
+                const cli     = up(r.dados?.[this._colCliente]);
+                const qtd     = toNum(r.dados?.[this._colQtd]);
+                const vUnit   = toNum(r.dados?.[this._colValUnit]);
+                const vTot    = toNum(r.dados?.[this._colValTotal]);
+                return `<tr>
+                    <td><span style="font-family:monospace;color:#26c6da;font-weight:600;">${cod||empty}</span></td>
+                    <td>${modelo||empty}</td>
+                    <td>${cor||empty}</td>
+                    <td>${marca||empty}</td>
+                    <td style="font-weight:600;">${tamanho||empty}</td>
+                    <td>${data||empty}</td>
+                    <td style="font-weight:500;">${cli||empty}</td>
+                    <td style="text-align:right;font-weight:600;">${qtd?qtd.toLocaleString('pt-BR'):empty}</td>
+                    <td style="text-align:right;color:#8b949e;">${vUnit?'R$ '+vUnit.toLocaleString('pt-BR',{minimumFractionDigits:3}):empty}</td>
+                    <td style="text-align:right;color:#26a69a;font-weight:600;">${vTot?'R$ '+vTot.toLocaleString('pt-BR',{minimumFractionDigits:2}):empty}</td>
+                </tr>`;
             }).join('');
-            return `<tr>${cells}</tr>`;
-        }).join('');
+        } else {
+            const LABELS = {
+                [this._colCodigo]:   'CÓDIGO',
+                [this._colDesc]:     'DESCRIÇÃO',
+                [this._colData]:     'DATA',
+                [this._colCliente]:  'CLIENTE',
+                [this._colQtd]:      'QUANT.',
+                [this._colValUnit]:  'VALOR UNIT.',
+                [this._colValTotal]: 'VALOR TOTAL',
+            };
+            table.querySelector('thead tr').innerHTML =
+                this.colunas.map(h => `<th>${LABELS[h] || h.toUpperCase()}</th>`).join('');
+            table.querySelector('tbody').innerHTML = this.filtered.slice(0, 2000).map(r => {
+                const cells = this.colunas.map(h => {
+                    const v = r.dados?.[h];
+                    if (v === undefined || v === '') return `<td>${empty}</td>`;
+                    const vu = up(v);
+                    if (h === this._colCodigo)
+                        return `<td><span style="font-family:monospace;color:#26c6da;font-weight:600;">${vu}</span></td>`;
+                    if (h === this._colQtd)
+                        return `<td style="text-align:right;font-weight:600;">${toNum(v).toLocaleString('pt-BR')}</td>`;
+                    if (h === this._colValUnit)
+                        return `<td style="text-align:right;color:#8b949e;">R$ ${toNum(v).toLocaleString('pt-BR',{minimumFractionDigits:3})}</td>`;
+                    if (h === this._colValTotal)
+                        return `<td style="text-align:right;color:#26a69a;font-weight:600;">R$ ${toNum(v).toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>`;
+                    if (h === this._colCliente)
+                        return `<td style="font-weight:500;">${vu}</td>`;
+                    return `<td>${vu}</td>`;
+                }).join('');
+                return `<tr>${cells}</tr>`;
+            }).join('');
+        }
     },
 
     async perguntarESalvar(nome) {
         this._nomeArquivo = nome;
-        const lista = await api.get('/api/importacoes-cliente');
-        const temSalvo = lista?.length > 0 || !!this._currentId;
-        if (!temSalvo) {
-            await this.salvar('nova');
-        } else {
-            document.getElementById('modal-arquivo').textContent = nome;
-            document.getElementById('import-modal').dataset.modulo = 'cliente';
-            document.getElementById('import-modal').style.display = 'flex';
-        }
+        await this.salvar('nova');
     },
 
     async salvar(modo) {
@@ -2757,11 +3309,13 @@ const cliente = {
             const res = await api.post('/api/cliente/import', { nomeArquivo: this._nomeArquivo, linhas });
             if (res?.ok) {
                 this._currentId = res.importacaoId;
-            } else {
-                alert('Erro ao salvar. Verifique se as tabelas importacoes_cliente e dados_cliente foram criadas no Supabase.');
+                historico.registrar('importar', 'cliente', `${this.rawData.length} itens — ${this._nomeArquivo}`);
+                mostrarToast(`✓ ${this.rawData.length.toLocaleString('pt-BR')} clientes salvos`);
+            } else if (res) {
+                mostrarToast(res.erro || 'Erro ao salvar dados de cliente', 'erro');
             }
         } catch(e) {
-            alert('Erro de conexão ao salvar importação.');
+            mostrarToast('Erro de conexão: ' + e.message, 'erro');
         } finally { this._setSaving(false); }
         await this.carregarHistorico();
     },
@@ -2775,7 +3329,21 @@ const cliente = {
         const lista = await api.get('/api/importacoes-cliente');
         this._importacoes = lista || [];
         this.renderHistorico();
-        if (lista?.length && !this._currentId) await this.carregarImportacao(lista[0].id);
+        if (lista?.length && !this._currentId) { await this.carregarImportacao(lista[0].id); return; }
+        if (!this._currentId) {
+            const c = lsCache.ler('cliente');
+            if (c?.rawData?.length) {
+                this.rawData = c.rawData; this._currentId = c.importacaoId;
+                this.filtered = [...this.rawData];
+                this._mapearColunas(Object.keys(this.rawData[0]?.dados || {}));
+                this._detectCombosCols();
+                document.getElementById('cliente-drop-zone').style.display = 'none';
+                document.getElementById('cliente-data').classList.add('visible');
+                this.render(); mostrarToast('Dados Cliente carregados do cache local');
+                const cliView = document.getElementById('view-clientes-dash');
+                if (cliView && cliView.style.display !== 'none') clientesDash.render();
+            }
+        }
     },
 
     async carregarImportacao(id) {
@@ -2791,6 +3359,10 @@ const cliente = {
         document.getElementById('cliente-data').classList.add('visible');
         this.render();
         this.renderHistorico();
+        lsCache.salvar('cliente', { importacaoId: id, rawData: this.rawData });
+        // Notifica o dashboard de clientes se estiver aberto
+        const cliView = document.getElementById('view-clientes-dash');
+        if (cliView && cliView.style.display !== 'none') clientesDash.render();
     },
 
     renderHistorico() {
@@ -2804,7 +3376,7 @@ const cliente = {
             return `<div class="hi-item${ativo ? ' hi-ativo' : ''}" onclick="cliente.carregarImportacao('${imp.id}')">
                 <span class="hi-dot">${ativo ? '●' : '○'}</span>
                 <div class="hi-info">
-                    <span class="hi-nome">${imp.nome_arquivo}</span>
+                    <span class="hi-nome">${escHTML(imp.nome_arquivo)}</span>
                     <span class="hi-meta">${d} · ${imp.total_linhas} clientes</span>
                 </div>
                 <button class="hi-del" onclick="event.stopPropagation();cliente.excluir('${imp.id}')" title="Excluir">✕</button>
@@ -2813,6 +3385,11 @@ const cliente = {
         list.style.display = 'flex';
         const chev = document.getElementById('chevron-cliente');
         if (chev) chev.style.transform = 'rotate(90deg)';
+    },
+
+    exportar() {
+        if (!this.filtered.length) return;
+        exportarXLS(this.filtered.map(r => r.dados), 'clientes');
     },
 
     async excluir(id) {
@@ -2880,7 +3457,7 @@ function criarModuloArq(id, nomeApi) {
             });
         },
 
-        normalizeKey(key) { return String(key).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,''); },
+        normalizeKey: normalizeKey,
 
         handleFile(file) {
             this._nomeArquivo = file.name;
@@ -2951,13 +3528,7 @@ function criarModuloArq(id, nomeApi) {
 
         async perguntarESalvar(nome) {
             this._nomeArquivo = nome;
-            const lista = await api.get(`/api/importacoes-${nomeApi}`);
-            if (!lista?.length && !this._currentId) { await this.salvar('nova'); }
-            else {
-                document.getElementById('modal-arquivo').textContent = nome;
-                document.getElementById('import-modal').dataset.modulo = id;
-                document.getElementById('import-modal').style.display = 'flex';
-            }
+            await this.salvar('nova');
         },
 
         async salvar(modo) {
@@ -2966,9 +3537,9 @@ function criarModuloArq(id, nomeApi) {
             try {
                 if (modo === 'substituir' && this._currentId) await api.delete(`/api/importacoes-${nomeApi}/${this._currentId}`);
                 const res = await api.post(`/api/${nomeApi}/import`, { nomeArquivo: this._nomeArquivo, linhas: this.rawData.map(r=>({dados:r.dados})) });
-                if (res?.ok) this._currentId = res.importacaoId;
+                if (res?.ok) { this._currentId = res.importacaoId; mostrarToast(`✓ ${this.rawData.length.toLocaleString('pt-BR')} registros salvos`); }
                 else alert(`Erro ao salvar. Verifique se as tabelas importacoes_${nomeApi} e dados_${nomeApi} foram criadas no Supabase.`);
-            } catch(e) { alert('Erro de conexão.'); } finally { this._setSaving(false); }
+            } catch(e) { mostrarToast('Erro de conexão: ' + e.message, 'erro'); } finally { this._setSaving(false); }
             await this.carregarHistorico();
         },
 
@@ -2978,7 +3549,18 @@ function criarModuloArq(id, nomeApi) {
             const lista = await api.get(`/api/importacoes-${nomeApi}`);
             this._importacoes = lista || [];
             this.renderHistorico();
-            if (lista?.length && !this._currentId) await this.carregarImportacao(lista[0].id);
+            if (lista?.length && !this._currentId) { await this.carregarImportacao(lista[0].id); return; }
+            if (!this._currentId) {
+                const c = lsCache.ler(nomeApi);
+                if (c?.rawData?.length) {
+                    this.rawData = c.rawData; this.colunas = c.colunas || [];
+                    this._currentId = c.importacaoId; this.filtered = [...this.rawData];
+                    this._detectCombosCols();
+                    document.getElementById(`${id}-drop-zone`).style.display = 'none';
+                    document.getElementById(`${id}-data`).classList.add('visible');
+                    this.render(); mostrarToast(`Dados ${id} carregados do cache local`);
+                }
+            }
         },
 
         async carregarImportacao(id_imp) {
@@ -2994,6 +3576,7 @@ function criarModuloArq(id, nomeApi) {
             document.getElementById(`${id}-drop-zone`).style.display = 'none';
             document.getElementById(`${id}-data`).classList.add('visible');
             this.render(); this.renderHistorico();
+            lsCache.salvar(nomeApi, { importacaoId: id_imp, colunas: this.colunas, rawData: this.rawData });
         },
 
         renderHistorico() {
@@ -3005,7 +3588,7 @@ function criarModuloArq(id, nomeApi) {
                 const ativo = imp.id === this._currentId;
                 return `<div class="hi-item${ativo?' hi-ativo':''}" onclick="${id}.carregarImportacao('${imp.id}')">
                     <span class="hi-dot">${ativo?'●':'○'}</span>
-                    <div class="hi-info"><span class="hi-nome">${imp.nome_arquivo}</span><span class="hi-meta">${d} · ${imp.total_linhas} registros</span></div>
+                    <div class="hi-info"><span class="hi-nome">${escHTML(imp.nome_arquivo)}</span><span class="hi-meta">${d} · ${imp.total_linhas} registros</span></div>
                     <button class="hi-del" onclick="event.stopPropagation();${id}.excluir('${imp.id}')" title="Excluir">✕</button>
                 </div>`;
             }).join('');
@@ -3796,15 +4379,7 @@ const banco = {
 
     async perguntarESalvar(nome) {
         this._nomeArquivo = nome;
-        const lista = await api.get('/api/importacoes-banco');
-        const temSalvo = lista?.length > 0 || !!this._currentId;
-        if (!temSalvo) {
-            await this.salvar('nova');
-        } else {
-            document.getElementById('modal-arquivo').textContent = nome;
-            document.getElementById('import-modal').dataset.modulo = 'banco';
-            document.getElementById('import-modal').style.display = 'flex';
-        }
+        await this.salvar('nova');
     },
 
     async salvar(modo) {
@@ -3818,11 +4393,12 @@ const banco = {
             const res = await api.post('/api/banco/import', { nomeArquivo: this._nomeArquivo, linhas });
             if (res?.ok) {
                 this._currentId = res.importacaoId;
+                mostrarToast(`✓ ${this.rawData.length.toLocaleString('pt-BR')} registros salvos`);
             } else {
-                alert('Erro ao salvar. Verifique se as tabelas importacoes_banco e dados_banco foram criadas no Supabase.');
+                mostrarToast(res?.erro || 'Erro ao salvar Banco', 'erro');
             }
         } catch(e) {
-            alert('Erro de conexão ao salvar importação.');
+            mostrarToast('Erro de conexão ao salvar', 'erro');
         } finally { this._setSaving(false); }
         await this.carregarHistorico();
     },
@@ -3836,7 +4412,18 @@ const banco = {
         const lista = await api.get('/api/importacoes-banco');
         this._importacoes = lista || [];
         this.renderHistorico();
-        if (lista?.length && !this._currentId) await this.carregarImportacao(lista[0].id);
+        if (lista?.length && !this._currentId) { await this.carregarImportacao(lista[0].id); return; }
+        if (!this._currentId) {
+            const c = lsCache.ler('banco');
+            if (c?.rawData?.length) {
+                this.rawData = c.rawData; this.colunas = c.colunas || [];
+                this._currentId = c.importacaoId; this.filtered = [...this.rawData];
+                this._detectCombosCols();
+                document.getElementById('banco-drop-zone').style.display = 'none';
+                document.getElementById('banco-data').classList.add('visible');
+                this.render(); mostrarToast('Dados Banco carregados do cache local');
+            }
+        }
     },
 
     async carregarImportacao(id) {
@@ -3853,6 +4440,7 @@ const banco = {
         document.getElementById('banco-data').classList.add('visible');
         this.render();
         this.renderHistorico();
+        lsCache.salvar('banco', { importacaoId: id, colunas: this.colunas, rawData: this.rawData });
     },
 
     renderHistorico() {
@@ -3866,7 +4454,7 @@ const banco = {
             return `<div class="hi-item${ativo ? ' hi-ativo' : ''}" onclick="banco.carregarImportacao('${imp.id}')">
                 <span class="hi-dot">${ativo ? '●' : '○'}</span>
                 <div class="hi-info">
-                    <span class="hi-nome">${imp.nome_arquivo}</span>
+                    <span class="hi-nome">${escHTML(imp.nome_arquivo)}</span>
                     <span class="hi-meta">${d} · ${imp.total_linhas} registros</span>
                 </div>
                 <button class="hi-del" onclick="event.stopPropagation();banco.excluir('${imp.id}')" title="Excluir">✕</button>
@@ -3875,6 +4463,11 @@ const banco = {
         list.style.display = 'flex';
         const chev = document.getElementById('chevron-banco');
         if (chev) chev.style.transform = 'rotate(90deg)';
+    },
+
+    exportar() {
+        if (!this.filtered.length) return;
+        exportarXLS(this.filtered.map(r => r.dados), 'banco_dados');
     },
 
     async excluir(id) {
@@ -4103,15 +4696,7 @@ const costura = {
 
     async perguntarESalvar(nome) {
         this._nomeArquivo = nome;
-        const lista = await api.get('/api/importacoes-costura');
-        const temSalvo = lista?.length > 0 || !!this._currentId;
-        if (!temSalvo) {
-            await this.salvar('nova');
-        } else {
-            document.getElementById('modal-arquivo').textContent = nome;
-            document.getElementById('import-modal').dataset.modulo = 'costura';
-            document.getElementById('import-modal').style.display = 'flex';
-        }
+        await this.salvar('nova');
     },
 
     async salvar(modo) {
@@ -4125,11 +4710,12 @@ const costura = {
             const res = await api.post('/api/costura/import', { nomeArquivo: this._nomeArquivo, linhas });
             if (res?.ok) {
                 this._currentId = res.importacaoId;
+                mostrarToast(`✓ ${this.rawData.length.toLocaleString('pt-BR')} registros salvos`);
             } else {
-                alert('Erro ao salvar. Verifique se as tabelas importacoes_costura e dados_costura foram criadas no Supabase.');
+                mostrarToast(res?.erro || 'Erro ao salvar Costura', 'erro');
             }
         } catch(e) {
-            alert('Erro de conexão ao salvar importação.');
+            mostrarToast('Erro de conexão ao salvar', 'erro');
         } finally { this._setSaving(false); }
         await this.carregarHistorico();
     },
@@ -4143,7 +4729,18 @@ const costura = {
         const lista = await api.get('/api/importacoes-costura');
         this._importacoes = lista || [];
         this.renderHistorico();
-        if (lista?.length && !this._currentId) await this.carregarImportacao(lista[0].id);
+        if (lista?.length && !this._currentId) { await this.carregarImportacao(lista[0].id); return; }
+        if (!this._currentId) {
+            const c = lsCache.ler('costura');
+            if (c?.rawData?.length) {
+                this.rawData = c.rawData; this.colunas = c.colunas || [];
+                this._currentId = c.importacaoId; this.filtered = [...this.rawData];
+                this._detectCombosCols();
+                document.getElementById('costura-drop-zone').style.display = 'none';
+                document.getElementById('costura-data').classList.add('visible');
+                this.render(); mostrarToast('Dados Costura carregados do cache local');
+            }
+        }
     },
 
     async carregarImportacao(id) {
@@ -4166,6 +4763,7 @@ const costura = {
         document.getElementById('costura-data').classList.add('visible');
         this.render();
         this.renderHistorico();
+        lsCache.salvar('costura', { importacaoId: id, colunas: this.colunas, rawData: this.rawData });
     },
 
     renderHistorico() {
@@ -4179,7 +4777,7 @@ const costura = {
             return `<div class="hi-item${ativo ? ' hi-ativo' : ''}" onclick="costura.carregarImportacao('${imp.id}')">
                 <span class="hi-dot">${ativo ? '●' : '○'}</span>
                 <div class="hi-info">
-                    <span class="hi-nome">${imp.nome_arquivo}</span>
+                    <span class="hi-nome">${escHTML(imp.nome_arquivo)}</span>
                     <span class="hi-meta">${d} · ${imp.total_linhas} registros</span>
                 </div>
                 <button class="hi-del" onclick="event.stopPropagation();costura.excluir('${imp.id}')" title="Excluir">✕</button>
@@ -4188,6 +4786,11 @@ const costura = {
         list.style.display = 'flex';
         const chev = document.getElementById('chevron-costura');
         if (chev) chev.style.transform = 'rotate(90deg)';
+    },
+
+    exportar() {
+        if (!this.filtered.length) return;
+        exportarXLS(this.filtered.map(r => r.dados), 'costura');
     },
 
     async excluir(id) {
@@ -5057,8 +5660,8 @@ const abcEstoque = {
             const cls = `abc-${r.classe.toLowerCase()}`;
             return `<tr>
                 <td class="td-rank">${i + 1}</td>
-                <td class="td-code">${r.codigo}</td>
-                <td class="td-desc">${r.descricao || '<span style="opacity:.3">—</span>'}</td>
+                <td class="td-code">${escHTML(r.codigo)}</td>
+                <td class="td-desc">${r.descricao ? escHTML(r.descricao) : '<span style="opacity:.3">—</span>'}</td>
                 <td class="td-right"><strong>${r.qtd.toLocaleString('pt-BR')}</strong></td>
                 <td class="td-right">${r.pct.toFixed(2)}%</td>
                 <td class="td-right">${r.cumPct.toFixed(1)}%</td>
@@ -5278,7 +5881,15 @@ const pedidos = {
             grad.addColorStop(1, 'rgba(38,198,218,0.2)');
             ctx.fillStyle = grad;
             ctx.beginPath();
-            ctx.roundRect(x, y, barW, barH, [3, 3, 0, 0]);
+            const rr = 3;
+            ctx.moveTo(x + rr, y);
+            ctx.lineTo(x + barW - rr, y);
+            ctx.quadraticCurveTo(x + barW, y, x + barW, y + rr);
+            ctx.lineTo(x + barW, y + barH);
+            ctx.lineTo(x, y + barH);
+            ctx.lineTo(x, y + rr);
+            ctx.quadraticCurveTo(x, y, x + rr, y);
+            ctx.closePath();
             ctx.fill();
 
             // Valor no topo
@@ -5318,18 +5929,26 @@ const opDash = {
             const q = qtdCol ? (parseFloat(String(r.dados?.[qtdCol] ?? '0').replace(',', '.')) || 0) : 0;
             if (k) opMap[k] = (opMap[k] || 0) + q;
         });
+        // Usa apenas meses com dados reais para não inflar a cobertura com meses zerados
+        const activeCols = vendas.getActiveCols();
         const map = {};
         vendas.rawData.forEach(r => {
             const cod = String(r.codigo || '').trim().toUpperCase();
-            if (!map[cod]) map[cod] = { codigo: r.codigo, descricao: r.descricao, marca: r.marca, tamanho: r.tamanho, vendTotal: 0, mesesCount: vendas.monthCols.length || 1 };
-            vendas.monthCols.forEach(c => { map[cod].vendTotal += (r[c.key] || 0); });
+            if (!map[cod]) map[cod] = { codigo: r.codigo, descricao: r.descricao, marca: r.marca, tamanho: r.tamanho, vendTotal: 0, mesesAtivos: new Set() };
+            activeCols.forEach(c => {
+                const v = r[c.key] || 0;
+                map[cod].vendTotal += v;
+                if (v > 0) map[cod].mesesAtivos.add(c.key);
+            });
         });
         Object.values(map).forEach(r => {
-            const k = r.codigo.trim().toUpperCase();
-            r.vendMedia  = r.mesesCount > 0 ? Math.round(r.vendTotal / r.mesesCount) : 0;
+            const k   = r.codigo.trim().toUpperCase();
+            const cnt = r.mesesAtivos.size || activeCols.length || 1;
+            r.vendMedia  = Math.round(r.vendTotal / cnt);
             r.estoque    = estMap[k] || 0;
             r.emProcesso = opMap[k]  || 0;
-            r.cobertura  = r.vendMedia > 0 ? (r.estoque + r.emProcesso) / r.vendMedia : null;
+            // Cobertura baseada apenas no estoque atual — emProcesso é mostrado como coluna separada
+            r.cobertura  = r.vendMedia > 0 ? r.estoque / r.vendMedia : null;
         });
         return map;
     },
@@ -5464,8 +6083,8 @@ const opDash = {
 
         document.getElementById('opdash-tbody').innerHTML = visible.slice(0, 2000).map(r => `
             <tr>
-                <td class="td-code" style="color:var(--indigo-primary);">${r.codigo}</td>
-                <td class="td-desc">${r.descricao}</td>
+                <td class="td-code" style="color:var(--indigo-primary);">${escHTML(r.codigo)}</td>
+                <td class="td-desc">${escHTML(r.descricao)}</td>
                 <td style="font-size:0.75rem;">${r.marca}</td>
                 <td class="td-center">${r.tamanho}</td>
                 <td class="td-right" style="color:var(--indigo-primary);font-weight:600;">${fmt(r.vendMedia)}</td>
@@ -5483,6 +6102,15 @@ const opDash = {
             if (el) el.value = '';
         });
         this._renderTabela();
+    },
+
+    exportar() {
+        if (!this._rows.length) return;
+        exportarXLS(this._rows.map(r => ({
+            Código: r.codigo, Descrição: r.descricao, Marca: r.marca, Tamanho: r.tamanho,
+            'Média Vendas': r.vendMedia, Estoque: r.estoque, 'Em Processo': r.emProcesso,
+            Cobertura: r.cobertura != null ? +r.cobertura.toFixed(2) : null
+        })), 'op_dashboard');
     }
 };
 
@@ -5553,39 +6181,55 @@ const pesquisa = {
         return m;
     },
 
-    _getAbcVendasClasse(codigos) {
-        if (!abc._items.length) return null;
-        const keys = codigos.map(c => c.toUpperCase());
-        // Se agrupado por código, busca direto; se por descrição, cruza via rawData
-        if (abc.selectedGrupo === 'codigo') {
-            const found = abc._items.filter(i => keys.includes(String(i.label).toUpperCase()));
-            if (!found.length) return null;
-            // Retorna a melhor classe (A > B > C)
-            const order = ['A','B','C'];
-            return found.sort((a,b) => order.indexOf(a.classe) - order.indexOf(b.classe))[0].classe;
-        } else {
-            // Acha as descrições que pertencem a esses códigos
-            const descs = new Set(vendas.rawData.filter(r => keys.includes(String(r.codigo||'').toUpperCase())).map(r => r.descricao));
-            const found = abc._items.filter(i => descs.has(i.label));
-            if (!found.length) return null;
-            const order = ['A','B','C'];
-            return found.sort((a,b) => order.indexOf(a.classe) - order.indexOf(b.classe))[0].classe;
+    _calcAbcClasse(totaisMap, codigosAlvo) {
+        // Calcula classe ABC direto do mapa {cod: total} — sem depender de _items pré-renderizado
+        const items = Object.entries(totaisMap).filter(([,v]) => v > 0).sort((a,b) => b[1]-a[1]);
+        const totalGeral = items.reduce((s,[,v]) => s+v, 0);
+        if (!totalGeral) return null;
+        let cum = 0;
+        const classes = {};
+        for (const [cod, val] of items) {
+            cum += val;
+            const pct = cum / totalGeral;
+            classes[cod] = pct <= 0.80 ? 'A' : pct <= 0.95 ? 'B' : 'C';
         }
+        const order = ['A','B','C'];
+        const found = codigosAlvo.map(k => classes[k.toUpperCase()]).filter(Boolean);
+        if (!found.length) return null;
+        return found.sort((a,b) => order.indexOf(a)-order.indexOf(b))[0];
+    },
+
+    _getAbcVendasClasse(codigos, cols) {
+        const activeCols = cols || vendas.getActiveCols();
+        if (!vendas.rawData.length || !activeCols.length) return null;
+        const map = {};
+        vendas.rawData.forEach(r => {
+            const cod = String(r.codigo || '').toUpperCase();
+            if (!map[cod]) map[cod] = 0;
+            activeCols.forEach(c => { map[cod] += (Number(r[c.key]) || 0); });
+        });
+        return this._calcAbcClasse(map, codigos);
     },
 
     _getAbcEstoqueClasse(codigos) {
-        if (!abcEstoque._items.length) return null;
-        const keys = codigos.map(c => c.toUpperCase());
-        const found = abcEstoque._items.filter(i => keys.includes(String(i.codigo||'').toUpperCase()));
-        if (!found.length) return null;
-        const order = ['A','B','C'];
-        return found.sort((a,b) => order.indexOf(a.classe) - order.indexOf(b.classe))[0].classe;
+        if (!estoque.rawData?.length) return null;
+        const map = {};
+        estoque.rawData.forEach(r => {
+            const cod = String(r.codigo || '').toUpperCase();
+            map[cod] = (map[cod] || 0) + (Number(r.quantidade) || 0);
+        });
+        // Código existe no cadastro mas com saldo zero → classifica como C
+        const alvo = codigos.map(c => c.toUpperCase());
+        const noEstoque = alvo.some(c => c in map);
+        if (!noEstoque) return null;
+        if (alvo.every(c => (map[c] || 0) === 0)) return 'C';
+        return this._calcAbcClasse(map, codigos);
     },
 
-    _renderAbcBlock(codigos) {
+    _renderAbcBlock(codigos, cols) {
         const block = document.getElementById('pc-abc-block');
         if (!block) return;
-        const cv = this._getAbcVendasClasse(codigos);
+        const cv = this._getAbcVendasClasse(codigos, cols);
         const ce = this._getAbcEstoqueClasse(codigos);
         if (!cv && !ce) { block.style.display = 'none'; return; }
 
@@ -5605,16 +6249,18 @@ const pesquisa = {
                     display:flex;align-items:center;justify-content:center;border:1px dashed var(--border);border-radius:12px;">—</span>
                </div>`;
 
+        const sep = `<span style="font-size:1.4rem;color:var(--text-dim);margin-top:16px;">×</span>`;
+
         const interpretacoes = {
-            AA: { icon:'✅', texto:'Equilíbrio — alto giro e bom estoque.',       cor:'#26a69a' },
-            AB: { icon:'🟡', texto:'Atenção — alto giro, estoque médio.',          cor:'#ffab76' },
-            AC: { icon:'🔴', texto:'Risco de ruptura — alto giro, estoque crítico.', cor:'#f06292' },
-            BA: { icon:'🟡', texto:'Estoque excedente para giro médio.',           cor:'#ffab76' },
-            BB: { icon:'🔵', texto:'Equilíbrio moderado.',                         cor:'#26c6da' },
-            BC: { icon:'🟠', texto:'Atenção — estoque baixo para giro médio.',     cor:'#e3b341' },
-            CA: { icon:'🟠', texto:'Estoque parado — baixo giro, muito estoque.',  cor:'#e3b341' },
-            CB: { icon:'⚪', texto:'Estoque acima do necessário para baixo giro.', cor:'#8b949e' },
-            CC: { icon:'⚪', texto:'Candidato a revisão — baixo giro e estoque.',  cor:'#8b949e' },
+            AA: { icon:'✅', texto:'Equilíbrio — alto giro e bom estoque.',          cor:'#26a69a' },
+            AB: { icon:'🟡', texto:'Atenção — alto giro, estoque médio.',             cor:'#ffab76' },
+            AC: { icon:'🔴', texto:'Risco de ruptura — alto giro, estoque crítico.',  cor:'#f06292' },
+            BA: { icon:'🟡', texto:'Estoque excedente para giro médio.',              cor:'#ffab76' },
+            BB: { icon:'🔵', texto:'Equilíbrio moderado.',                            cor:'#26c6da' },
+            BC: { icon:'🟠', texto:'Atenção — estoque baixo para giro médio.',        cor:'#e3b341' },
+            CA: { icon:'🟠', texto:'Estoque parado — baixo giro, muito estoque.',     cor:'#e3b341' },
+            CB: { icon:'⚪', texto:'Estoque acima do necessário para baixo giro.',    cor:'#8b949e' },
+            CC: { icon:'⚪', texto:'Candidato a revisão — baixo giro e estoque.',     cor:'#8b949e' },
         };
         const chave = cv && ce ? cv+ce : null;
         const interp = chave ? interpretacoes[chave] : null;
@@ -5627,7 +6273,7 @@ const pesquisa = {
                     <div style="font-size:0.62rem;font-weight:700;letter-spacing:.1em;color:var(--text-dim);margin-bottom:10px;">POSIÇÃO NA CURVA ABC</div>
                     <div style="display:flex;align-items:center;gap:12px;">
                         ${badge(cv,'VENDAS')}
-                        <span style="font-size:1.4rem;color:var(--text-dim);margin-top:16px;">×</span>
+                        ${sep}
                         ${badge(ce,'ESTOQUE')}
                     </div>
                 </div>
@@ -5716,8 +6362,8 @@ const pesquisa = {
             sumVendas += totalV; sumMedia += media; sumEst += est; sumOP += opQty; sumCos += cosQty;
 
             return `<tr>
-                <td class="td-code">${r.codigo}</td>
-                <td class="td-desc">${r.descricao}</td>
+                <td class="td-code">${escHTML(r.codigo)}</td>
+                <td class="td-desc">${escHTML(r.descricao)}</td>
                 <td>${r.marca || '<span style="opacity:.3">—</span>'}</td>
                 <td><span class="seg-badge">${r.segmento}</span></td>
                 <td class="td-center">${r.tamanho}</td>
@@ -5743,7 +6389,7 @@ const pesquisa = {
 
         // Bloco ABC cruzado
         const codigos = [...new Set(rows.map(r => String(r.codigo||'').trim().toUpperCase()).filter(Boolean))];
-        this._renderAbcBlock(codigos);
+        this._renderAbcBlock(codigos, allCols);
     }
 };
 
@@ -5859,11 +6505,12 @@ const vxe = {
         // Mapa de OP por código (soma quantidades em produção por código)
         const opMap = {};
         if (op.rawData.length && op.colunas.length) {
-            const normK = k => String(k).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
-            const COD_KEYS = ['codigo','cod','codigodoproduto','cdproduto','cdprod','codprod'];
+            const COD_KEYS = ['codigo','cod','codigodoproduto','cdproduto','cdprod','codprod','ref','referencia'];
             const QTD_KEYS = ['producao','quantidade','qtd','qty','qtde','aproduzir','pecas'];
-            const codCol = op.colunas.find(c => COD_KEYS.includes(normK(c)));
-            const qtdCol = op._colQtd || op.colunas.find(c => QTD_KEYS.includes(normK(c)));
+            // Matching flexível: inclui parcial para cobrir variações de nome de coluna
+            const codCol = op._colRef
+                || op.colunas.find(c => { const n=normalizeKey(c); return COD_KEYS.some(k => n===k || n.includes(k) || k.includes(n)); });
+            const qtdCol = op._colQtd || op.colunas.find(c => { const n=normalizeKey(c); return QTD_KEYS.some(k => n===k || n.includes(k)); });
             if (codCol && qtdCol) {
                 op.rawData.forEach(r => {
                     const cod = String(r.dados?.[codCol] || '').trim();
@@ -5913,11 +6560,39 @@ const vxe = {
         document.getElementById('vxe-card-vendas').textContent      = totalVendas.toLocaleString('pt-BR');
         document.getElementById('vxe-card-estprocesso').textContent = totalEstProc.toLocaleString('pt-BR');
 
+        // Delta 2025 vs 2026
+        const anos = vendas.years || [];
+        if (anos.includes('2025') && anos.includes('2026')) {
+            const cols25 = vendas.monthCols.filter(c => c.year === '2025');
+            const cols26 = vendas.monthCols.filter(c => c.year === '2026');
+            const mesComuns = [...new Set(cols25.map(c=>c.abbr))].filter(a => cols26.some(c=>c.abbr===a));
+            if (mesComuns.length) {
+                let v25 = 0, v26 = 0;
+                vendas.rawData.forEach(r => {
+                    mesComuns.forEach(abbr => {
+                        const c25 = cols25.find(c=>c.abbr===abbr), c26 = cols26.find(c=>c.abbr===abbr);
+                        if (c25) v25 += (r[c25.key]||0);
+                        if (c26) v26 += (r[c26.key]||0);
+                    });
+                });
+                const pct = v25 > 0 ? ((v26-v25)/v25*100).toFixed(1) : null;
+                const deltaEl = document.getElementById('vxe-card-delta');
+                const subEl   = document.getElementById('vxe-card-delta-sub');
+                const card    = document.getElementById('vxe-delta-card');
+                if (deltaEl && pct !== null) {
+                    deltaEl.textContent = (pct > 0 ? '+' : '') + pct + '%';
+                    deltaEl.style.color = pct > 0 ? '#26a69a' : '#f06292';
+                    if (subEl) subEl.textContent = `${mesComuns.length} mes(es) comparados`;
+                    if (card) card.style.display = '';
+                }
+            }
+        }
+
         this._lastRows = rows;
         document.querySelector('#vxe-table tbody').innerHTML = rows.slice(0, 2000).map(r => `
             <tr onclick="abrirDetalheVxe('${r.descricao.replace(/'/g,"\\'")}');" style="cursor:pointer;">
-                <td class="td-code" style="color:var(--indigo-primary);">${r.codigo}</td>
-                <td class="td-desc">${r.descricao}</td>
+                <td class="td-code" style="color:var(--indigo-primary);">${escHTML(r.codigo)}</td>
+                <td class="td-desc">${escHTML(r.descricao)}</td>
                 <td style="font-size:0.75rem;">${r.marca || '<span style="opacity:.3">—</span>'}</td>
                 <td><span class="seg-badge">${r.segmento}</span></td>
                 <td class="td-center">${r.tamanho}</td>
@@ -5947,6 +6622,738 @@ const vxe = {
             opDash.render();
         } else {
             opDash._dirty = true;
+        }
+    },
+
+    exportar() {
+        if (!this._lastRows?.length) return;
+        const dados = this._lastRows.map(r => ({
+            Código: r.codigo, Descrição: r.descricao, Marca: r.marca, Segmento: r.segmento, Tamanho: r.tamanho,
+            'Média Vendas': r.vendMedia, Estoque: r.estQtd, 'Estoque + OP': r.estProcesso,
+            Cobertura: r.vendMedia > 0 ? +(r.estProcesso/r.vendMedia).toFixed(2) : null, Status: r.st
+        }));
+        exportarXLS(dados, 'vendas_x_estoque');
+    }
+};
+
+// ====== DASHBOARD: CLIENTES ======
+const clientesDash = {
+    _rows:     [],
+    _rankMode: 'valor',   // 'valor' | 'qtd'
+    _sortCol:  'valor',
+    _sortAsc:  false,
+    _anoSel:   '',
+
+    _toNum: v => parseFloat(String(v ?? '0').replace(/\./g,'').replace(',','.')) || 0,
+    _parseDt: s => { const [d,m,y]=String(s||'').split('/'); return y?new Date(+y,+m-1,+d):null; },
+    _fmtBRL: v => 'R$ ' + v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}),
+
+    _build() {
+        const anoSel = this._anoSel;
+        const mesSel = document.getElementById('cli-filtro-mes')?.value || '';
+        const diaSel = document.getElementById('cli-filtro-dia')?.value || '';
+        const cliSel = document.getElementById('cli-filtro-cliente')?.value || '';
+        const busca  = (document.getElementById('cli-filtro-busca')?.value||'').toLowerCase().trim();
+        const map = {};
+        (cliente.rawData||[]).forEach(r => {
+            const d    = r.dados||{};
+            const nome = String(d[cliente._colCliente]||'').trim().toUpperCase();
+            const data = String(d[cliente._colData]||'').trim();
+            const qtd  = this._toNum(d[cliente._colQtd]);
+            const val  = this._toNum(d[cliente._colValTotal]);
+            const desc = String(d[cliente._colDesc]||d[cliente._colCodigo]||'').trim().toUpperCase();
+            if (!nome) return;
+            if (cliSel && nome !== cliSel) return;
+            const dt = this._parseDt(data);
+            if (anoSel && dt && String(dt.getFullYear()) !== anoSel) return;
+            if (mesSel && dt && String(dt.getMonth()+1).padStart(2,'0') !== mesSel) return;
+            if (diaSel && dt && String(dt.getDate()).padStart(2,'0') !== diaSel) return;
+            if (!map[nome]) map[nome] = { nome, pedidos:0, qtd:0, valor:0, ultima:null, itens:[] };
+            map[nome].pedidos++;
+            map[nome].qtd   += qtd;
+            map[nome].valor += val;
+            if (dt && (!map[nome].ultima || dt > map[nome].ultima)) map[nome].ultima = dt;
+            map[nome].itens.push({ data, desc, qtd, valor:val });
+        });
+        let rows = Object.values(map);
+        // Ordenação
+        const s = this._sortCol, asc = this._sortAsc;
+        rows.sort((a,b) => {
+            const va = s==='nome' ? a.nome : s==='ultima' ? (a.ultima||0) : a[s];
+            const vb = s==='nome' ? b.nome : s==='ultima' ? (b.ultima||0) : b[s];
+            return asc ? (va>vb?1:-1) : (va<vb?1:-1);
+        });
+        if (busca) rows = rows.filter(r => r.nome.toLowerCase().includes(busca));
+        this._rows = rows;
+        return rows;
+    },
+
+    render() {
+        const empty   = document.getElementById('cli-dash-empty');
+        const content = document.getElementById('cli-dash-content');
+        if (!cliente.rawData?.length) {
+            if (empty) empty.style.display='block';
+            if (content) content.style.display='none';
+            return;
+        }
+        if (empty) empty.style.display='none';
+        if (content) content.style.display='flex';
+        this._populaFiltros();
+        const rows = this._build();
+        const totalVal = rows.reduce((s,r)=>s+r.valor, 0);
+        const totalPed = rows.reduce((s,r)=>s+r.pedidos, 0);
+        const totalQtd = rows.reduce((s,r)=>s+r.qtd, 0);
+        const ticket   = totalPed > 0 ? totalVal/totalPed : 0;  // média por pedido/transação
+        document.getElementById('cli-total-clientes').textContent = rows.length.toLocaleString('pt-BR');
+        document.getElementById('cli-faturamento').textContent    = this._fmtBRL(totalVal);
+        document.getElementById('cli-ticket-medio').textContent   = this._fmtBRL(ticket);
+        document.getElementById('cli-total-pedidos').textContent  = totalPed.toLocaleString('pt-BR');
+        document.getElementById('cli-total-qtd').textContent      = totalQtd.toLocaleString('pt-BR');
+        this._drawRanking(rows, totalVal, totalQtd);
+        this._populaEvolucaoSelect(rows);
+        this._drawEvolucao();
+        this._renderTabela(rows);
+    },
+
+    _populaFiltros() {
+        const anos = new Set(), meses = new Set(), dias = new Set(), nomes = new Set();
+        (cliente.rawData||[]).forEach(r => {
+            const [dd,mm,yy] = String(r.dados?.[cliente._colData]||'').split('/');
+            if (yy) { anos.add(yy); meses.add(mm?.padStart(2,'0')); dias.add(dd?.padStart(2,'0')); }
+            const n = String(r.dados?.[cliente._colCliente]||'').trim().toUpperCase();
+            if (n) nomes.add(n);
+        });
+        // Botões de ano
+        const btnWrap = document.getElementById('cli-ano-btns');
+        if (btnWrap && btnWrap.children.length === 0) {
+            ['', ...[...anos].sort()].forEach(a => {
+                const b = document.createElement('button');
+                b.className = 'btn ' + (a===this._anoSel?'primary':'secondary');
+                b.textContent = a || 'Todos';
+                b.style.cssText = 'font-size:0.75rem;padding:4px 12px;';
+                b.onclick = () => { this._anoSel = a; this.render(); };
+                btnWrap.appendChild(b);
+            });
+        } else if (btnWrap) {
+            [...btnWrap.children].forEach(b => {
+                const a = b.textContent==='Todos'?'':b.textContent;
+                b.className = 'btn '+(a===this._anoSel?'primary':'secondary');
+            });
+        }
+        const MESES_NM = ['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+        // Sempre reconstrói os selects com dados atuais da importação ativa
+        const mesSel = document.getElementById('cli-filtro-mes');
+        if (mesSel) {
+            const cur = mesSel.value;
+            mesSel.innerHTML = '<option value="">Todos os meses</option>';
+            [...meses].filter(Boolean).sort().forEach(m => { const o=document.createElement('option'); o.value=m; o.textContent=MESES_NM[+m]||m; mesSel.appendChild(o); });
+            if (cur) mesSel.value = cur;
+        }
+
+        const diaSel = document.getElementById('cli-filtro-dia');
+        if (diaSel) {
+            const cur = diaSel.value;
+            diaSel.innerHTML = '<option value="">Todos os dias</option>';
+            [...dias].filter(Boolean).sort().forEach(d => { const o=document.createElement('option'); o.value=d; o.textContent='Dia '+String(+d); diaSel.appendChild(o); });
+            if (cur) diaSel.value = cur;
+        }
+
+        const cliSel = document.getElementById('cli-filtro-cliente');
+        if (cliSel) {
+            const cur = cliSel.value;
+            cliSel.innerHTML = '<option value="">Todos os clientes</option>';
+            [...nomes].sort().forEach(n => { const o=document.createElement('option'); o.value=n; o.textContent=n; cliSel.appendChild(o); });
+            if (cur && [...nomes].includes(cur)) cliSel.value = cur;
+        }
+    },
+
+    _limparFiltros() {
+        this._anoSel = '';
+        ['cli-filtro-mes','cli-filtro-dia','cli-filtro-cliente'].forEach(id => {
+            const el = document.getElementById(id); if (el) el.value = '';
+        });
+        const bus = document.getElementById('cli-filtro-busca');
+        if (bus) bus.value = '';
+        this.render();
+    },
+
+    _setRankMode(mode) {
+        this._rankMode = mode;
+        document.getElementById('cli-rank-val-btn').className = 'btn ' + (mode==='valor'?'primary':'secondary');
+        document.getElementById('cli-rank-qtd-btn').className = 'btn ' + (mode==='qtd'?'primary':'secondary');
+        const rows = this._rows;
+        const totalVal = rows.reduce((s,r)=>s+r.valor,0);
+        const totalQtd = rows.reduce((s,r)=>s+r.qtd,0);
+        this._drawRanking(rows, totalVal, totalQtd);
+    },
+
+    _sortBy(col) {
+        this._sortAsc = this._sortCol === col ? !this._sortAsc : false;
+        this._sortCol = col;
+        this.render();
+    },
+
+    _drawRanking(allRows, totalVal, totalQtd) {
+        const el = document.getElementById('cli-ranking');
+        if (!el) return;
+        const byVal = this._rankMode === 'valor';
+        const top   = [...allRows].sort((a,b) => byVal ? b.valor-a.valor : b.qtd-a.qtd).slice(0,10);
+        if (!top.length) { el.innerHTML='<p style="color:#8b949e;font-size:0.8rem;">Sem dados</p>'; return; }
+        const maxPri = byVal ? (top[0]?.valor||1) : (top[0]?.qtd||1);
+        const maxSec = byVal ? (Math.max(...top.map(r=>r.qtd))||1) : (Math.max(...top.map(r=>r.valor))||1);
+
+        el.innerHTML = top.map((r,i) => {
+            const pctPri = Math.round((byVal ? r.valor : r.qtd) / maxPri * 100);
+            const pctSec = Math.round((byVal ? r.qtd : r.valor) / maxSec * 100);
+            const share  = byVal
+                ? (totalVal>0 ? ((r.valor/totalVal)*100).toFixed(1) : '0')
+                : (totalQtd>0 ? ((r.qtd/totalQtd)*100).toFixed(1) : '0');
+            const valStr = this._fmtBRL(r.valor);
+            const qtdStr = r.qtd.toLocaleString('pt-BR');
+            return `<div style="margin-bottom:11px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+                    <span style="font-size:0.77rem;font-weight:600;color:#e6edf3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:55%;flex:1;" title="${r.nome}">
+                        <span style="color:#26c6da;margin-right:5px;">${i+1}.</span>${r.nome}
+                    </span>
+                    <span style="font-size:0.71rem;font-weight:700;margin-left:6px;flex-shrink:0;">
+                        <span style="color:#26a69a;">${valStr}</span>
+                        <span style="color:#8b949e;margin:0 3px;">·</span>
+                        <span style="color:#ffab76;">${qtdStr} un</span>
+                        <span style="color:#8b949e;margin-left:3px;">(${share}%)</span>
+                    </span>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:2px;">
+                    <div style="background:rgba(255,255,255,0.06);border-radius:3px;height:5px;">
+                        <div style="background:linear-gradient(90deg,#26c6da,#26a69a);width:${pctPri}%;height:100%;border-radius:3px;"></div>
+                    </div>
+                    <div style="background:rgba(255,255,255,0.06);border-radius:3px;height:3px;">
+                        <div style="background:rgba(255,171,118,0.7);width:${pctSec}%;height:100%;border-radius:3px;"></div>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+    },
+
+    _populaEvolucaoSelect(rows) {
+        const sel = document.getElementById('cli-evolucao-cliente');
+        if (!sel) return;
+        const cur = sel.value;
+        const sorted = [...rows].sort((a,b) => b.valor - a.valor);
+        sel.innerHTML = '<option value="">Todos os clientes</option>' +
+            sorted.slice(0,50).map(r=>`<option value="${r.nome}"${r.nome===cur?' selected':''}>${r.nome}</option>`).join('');
+    },
+
+    _drawEvolucao() {
+        const canvas  = document.getElementById('cli-evolucao-canvas');
+        if (!canvas) return;
+        const selCli  = document.getElementById('cli-evolucao-cliente')?.value || '';
+        const metrica = document.getElementById('cli-evolucao-metrica')?.value || 'valor';
+        const isVal   = metrica === 'valor';
+
+        const mMap = {};
+        const mesFiltro = document.getElementById('cli-filtro-mes')?.value||'';
+        const diaFiltro = document.getElementById('cli-filtro-dia')?.value||'';
+        const cliFiltro = document.getElementById('cli-filtro-cliente')?.value||'';
+        const busFiltro = (document.getElementById('cli-filtro-busca')?.value||'').toLowerCase().trim();
+        (cliente.rawData||[]).forEach(r => {
+            const d    = r.dados||{};
+            const nome = String(d[cliente._colCliente]||'').trim().toUpperCase();
+            if (selCli && nome !== selCli) return;
+            if (cliFiltro && nome !== cliFiltro) return;
+            if (busFiltro && !nome.toLowerCase().includes(busFiltro)) return;
+            const dataStr = String(d[cliente._colData]||'').trim();
+            const [dd,mm,yy] = dataStr.split('/');
+            if (!yy) return;
+            if (this._anoSel && yy !== this._anoSel) return;
+            if (mesFiltro && mm?.padStart(2,'0') !== mesFiltro) return;
+            if (diaFiltro && dd?.padStart(2,'0') !== diaFiltro) return;
+            const key = `${yy}-${mm?.padStart(2,'0')}`;
+            if (!mMap[key]) mMap[key] = { valor:0, qtd:0 };
+            mMap[key].valor += this._toNum(d[cliente._colValTotal]);
+            mMap[key].qtd   += this._toNum(d[cliente._colQtd]);
+        });
+
+        const keys = Object.keys(mMap).sort();
+        if (!keys.length) return;
+        const vals  = keys.map(k => mMap[k][isVal ? 'valor' : 'qtd']);
+        const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+        const lbls  = keys.map(k => MESES[+k.split('-')[1]-1]+'/'+k.split('-')[0].slice(2));
+        const color = isVal ? '#26a69a' : '#ffab76';
+        const colorA= isVal ? 'rgba(38,166,154,0.25)' : 'rgba(255,171,118,0.25)';
+
+        const W = canvas.width = canvas.offsetWidth || 400;
+        const H = canvas.height = 210;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0,0,W,H);
+
+        const padL=52, padR=16, padT=18, padB=28;
+        const cW=W-padL-padR, cH=H-padT-padB, n=keys.length;
+        const maxV = Math.max(...vals, 1);
+
+        ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1;
+        [0,0.25,0.5,0.75,1].forEach(p => {
+            const y=padT+cH*(1-p);
+            ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+            ctx.fillStyle='#8b949e'; ctx.font='bold 11px Inter'; ctx.textAlign='right';
+            const v=maxV*p;
+            ctx.fillText(isVal?(v>=1000?(v/1000).toFixed(0)+'k':Math.round(v)):Math.round(v), padL-4, y+4);
+        });
+
+        ctx.fillStyle='#c9d1d9'; ctx.font='bold 11px Inter'; ctx.textAlign='center';
+        keys.forEach((_,i) => {
+            const x=n===1?padL+cW/2:padL+(i/(n-1))*cW;
+            if (n<=14 || i%2===0) ctx.fillText(lbls[i], x, H-padB+14);
+        });
+
+        const grad=ctx.createLinearGradient(0,padT,0,padT+cH);
+        grad.addColorStop(0,colorA); grad.addColorStop(1,'rgba(0,0,0,0)');
+
+        ctx.beginPath();
+        vals.forEach((v,i) => {
+            const x=n===1?padL+cW/2:padL+(i/(n-1))*cW, y=padT+cH*(1-v/maxV);
+            i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
+        });
+        ctx.strokeStyle=color; ctx.lineWidth=2.5; ctx.setLineDash([]); ctx.stroke();
+        ctx.lineTo(n===1?padL+cW/2:padL+cW,padT+cH); ctx.lineTo(padL,padT+cH);
+        ctx.closePath(); ctx.fillStyle=grad; ctx.fill();
+
+        vals.forEach((v,i) => {
+            const x=n===1?padL+cW/2:padL+(i/(n-1))*cW, y=padT+cH*(1-v/maxV);
+            ctx.beginPath(); ctx.arc(x,y,4,0,Math.PI*2); ctx.fillStyle=color; ctx.fill();
+            if (v>0) {
+                const lbl=isVal?(v>=1000?(v/1000).toFixed(1)+'k':Math.round(v).toString()):Math.round(v).toString();
+                ctx.font='bold 11px Inter'; ctx.textAlign='center';
+                ctx.strokeStyle='rgba(13,17,23,0.85)'; ctx.lineWidth=3; ctx.lineJoin='round';
+                ctx.strokeText(lbl,x,y-10); ctx.fillStyle=color; ctx.fillText(lbl,x,y-10);
+            }
+        });
+    },
+
+    _renderTabela(rows) {
+        const tbody = document.getElementById('cli-tbody');
+        const count = document.getElementById('cli-table-count');
+        if (!tbody) return;
+        if (count) count.textContent = `${rows.length.toLocaleString('pt-BR')} clientes`;
+        const fmtDt = d => d ? d.toLocaleDateString('pt-BR',{day:'2-digit',month:'short',year:'2-digit'}) : '—';
+
+        tbody.innerHTML = rows.map((r,idx) => `
+            <tr style="cursor:pointer;" onclick="clientesDash._toggleDetalhe(${idx},this)">
+                <td style="font-weight:600;color:#e6edf3;">${r.nome}</td>
+                <td class="td-right">${r.pedidos.toLocaleString('pt-BR')}</td>
+                <td class="td-right" style="color:#ffab76;font-weight:600;">${r.qtd.toLocaleString('pt-BR')}</td>
+                <td class="td-right" style="color:#26a69a;font-weight:600;">${this._fmtBRL(r.valor)}</td>
+                <td class="td-right" style="color:#26c6da;">${this._fmtBRL(r.pedidos>0?r.valor/r.pedidos:0)}</td>
+                <td class="td-right" style="color:#8b949e;">${fmtDt(r.ultima)}</td>
+                <td class="td-right" style="color:#8b949e;font-size:0.8rem;">▼</td>
+            </tr>
+            <tr id="cli-det-${idx}" style="display:none;">
+                <td colspan="7" style="padding:0;">
+                    <div style="background:rgba(255,255,255,0.03);padding:12px 20px;border-top:1px solid var(--border);">
+                        <table style="width:100%;font-size:0.78rem;">
+                            <thead><tr style="color:#8b949e;">
+                                <th style="padding:4px 8px;text-align:left;">DATA</th>
+                                <th style="padding:4px 8px;text-align:left;">PRODUTO</th>
+                                <th style="padding:4px 8px;text-align:right;">QTD</th>
+                                <th style="padding:4px 8px;text-align:right;">VALOR</th>
+                            </tr></thead>
+                            <tbody>${[...r.itens].sort((a,b)=>{
+                                const da=a.data.split('/').reverse().join('-'), db=b.data.split('/').reverse().join('-');
+                                return db.localeCompare(da);
+                            }).slice(0,50).map(it=>`<tr>
+                                <td style="padding:4px 8px;color:#8b949e;">${it.data}</td>
+                                <td style="padding:4px 8px;max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.desc}</td>
+                                <td style="padding:4px 8px;text-align:right;color:#ffab76;">${it.qtd.toLocaleString('pt-BR')}</td>
+                                <td style="padding:4px 8px;text-align:right;color:#26a69a;">R$ ${it.valor.toLocaleString('pt-BR',{minimumFractionDigits:2})}</td>
+                            </tr>`).join('')}</tbody>
+                        </table>
+                        ${r.itens.length>50?`<p style="font-size:0.72rem;color:#8b949e;margin-top:6px;">+ ${r.itens.length-50} outros pedidos</p>`:''}
+                    </div>
+                </td>
+            </tr>`).join('');
+    },
+
+    _toggleDetalhe(idx, tr) {
+        const det = document.getElementById(`cli-det-${idx}`);
+        if (!det) return;
+        const open = det.style.display !== 'none';
+        det.style.display = open ? 'none' : 'table-row';
+        const arrow = tr.querySelector('td:last-child');
+        if (arrow) arrow.textContent = open ? '▼' : '▲';
+    }
+};
+
+// ====== DASHBOARD: COMPARADOR DE TENDÊNCIAS ======
+const comparador = {
+    _ano: 'ambos',
+    _colors: ['#26c6da', '#f06292', '#7c4dff', '#ffb74d', '#66bb6a'],
+    _labels: ['A', 'B', 'C', 'D', 'E'],
+    _slots: [
+        { codigos: [], marca: '' },
+        { codigos: [], marca: '' },
+        { codigos: [], marca: '' },
+        { codigos: [], marca: '' },
+        { codigos: [], marca: '' }
+    ],
+
+    _populateMarcas() {
+        const marcas = [...new Set(vendas.rawData.map(r => r.marca).filter(Boolean))].sort();
+        [0,1,2,3,4].forEach(i => {
+            const sel = document.getElementById(`comp-marca-${i}`);
+            if (!sel) return;
+            const cur = this._slots[i].marca;
+            sel.innerHTML = '<option value="">Todas as marcas</option>' +
+                marcas.map(m => `<option value="${m}"${m===cur?' selected':''}>${m}</option>`).join('');
+        });
+    },
+
+    setAno(ano) {
+        this._ano = ano;
+        ['2025','2026','ambos'].forEach(a => {
+            document.getElementById(`comp-btn-${a}`)?.classList.toggle('active', a === ano);
+        });
+        this.render();
+    },
+
+    onSlotChange(i) {
+        const marEl = document.getElementById(`comp-marca-${i}`);
+        if (marEl) this._slots[i].marca = marEl.value;
+        this.render();
+    },
+
+    onCodeKey(e, i) {
+        if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault();
+            const val = e.target.value.trim().toUpperCase().replace(/,/g, '');
+            if (!val) return;
+            if (this._slots[i].codigos.includes(val)) { e.target.value = ''; return; }
+            if (this._slots[i].codigos.length >= 10) return;
+            this._slots[i].codigos.push(val);
+            e.target.value = '';
+            this._renderTags(i);
+            this.render();
+        } else if (e.key === 'Backspace' && !e.target.value && this._slots[i].codigos.length > 0) {
+            this._slots[i].codigos.pop();
+            this._renderTags(i);
+            this.render();
+        }
+    },
+
+    removeCode(i, j) {
+        this._slots[i].codigos.splice(j, 1);
+        this._renderTags(i);
+        this.render();
+    },
+
+    _renderTags(i) {
+        const listEl = document.getElementById(`comp-tags-list-${i}`);
+        if (!listEl) return;
+        const color = this._colors[i];
+        const slot  = this._slots[i];
+        listEl.innerHTML = slot.codigos.map((cod, j) =>
+            `<span class="comp-tag" style="background:${color}25;color:${color};">
+                ${cod}
+                <span class="comp-tag-remove" onclick="event.stopPropagation();comparador.removeCode(${i},${j})">✕</span>
+            </span>`
+        ).join('');
+        const inp = document.getElementById(`comp-cod-${i}`);
+        if (inp) inp.style.display = slot.codigos.length >= 10 ? 'none' : '';
+    },
+
+    clearSlot(i) {
+        this._slots[i] = { codigos: [], marca: '' };
+        const codEl = document.getElementById(`comp-cod-${i}`);
+        const marEl = document.getElementById(`comp-marca-${i}`);
+        if (codEl) { codEl.value = ''; codEl.style.display = ''; }
+        if (marEl) marEl.value = '';
+        this._renderTags(i);
+        this.render();
+    },
+
+    _getSeries(i) {
+        const slot = this._slots[i];
+        const hasCods = slot.codigos.length > 0;
+        if (!hasCods && !slot.marca) return null;
+        const rows = vendas.rawData.filter(r => {
+            const okCod   = !hasCods || slot.codigos.includes((r.codigo || '').toUpperCase());
+            const okMarca = !slot.marca || r.marca === slot.marca;
+            return okCod && okMarca;
+        });
+        if (!rows.length) return null;
+        const totals = {};
+        vendas.monthCols.forEach(c => { totals[c.key] = 0; });
+        rows.forEach(r => vendas.monthCols.forEach(c => {
+            totals[c.key] += (Number(r[c.key]) || 0);
+        }));
+        return totals;
+    },
+
+    render() {
+        const empty   = document.getElementById('comp-empty');
+        const content = document.getElementById('comp-content');
+        if (!vendas.rawData?.length) {
+            if (empty)   empty.style.display = 'flex';
+            if (content) content.style.display = 'none';
+            return;
+        }
+        if (empty)   empty.style.display = 'none';
+        if (content) content.style.display = 'block';
+        this._populateMarcas();
+        this._drawChart();
+        this._updateLegenda();
+        this._updateResumo();
+    },
+
+    _calcStats(values, labels) {
+        const nonzero = values.filter(v => v > 0);
+        const total   = values.reduce((s, v) => s + v, 0);
+        const avg     = nonzero.length ? Math.round(total / nonzero.length) : 0;
+        const maxIdx  = values.reduce((b, v, i) => v > values[b] ? i : b, 0);
+        const best    = values[maxIdx] > 0 ? `${labels[maxIdx]}` : '—';
+        return { total, avg, best, months: nonzero.length };
+    },
+
+    _updateResumo() {
+        const el = document.getElementById('comp-resumo');
+        if (!el) return;
+
+        const MONTHS_ORDER = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+        const cards = [];
+
+        [0,1,2,3,4].forEach(i => {
+            const slot = this._slots[i];
+            if (!slot.codigos.length && !slot.marca) return;
+            const totals = this._getSeries(i);
+            if (!totals) return;
+
+            const color = this._colors[i];
+            const label = this._labels[i];
+            const codPart = slot.codigos.length > 0
+                ? slot.codigos.slice(0,2).join(', ') + (slot.codigos.length > 2 ? ` +${slot.codigos.length-2}` : '')
+                : '';
+            const name = [codPart, slot.marca].filter(Boolean).join(' · ') || '—';
+
+            const statRow = (values, labels) => {
+                const s = this._calcStats(values, labels);
+                return `<div class="comp-res-stats">
+                    <div class="comp-res-stat">
+                        <span class="comp-res-val" style="color:${color};">${s.avg.toLocaleString('pt-BR')}</span>
+                        <span class="comp-res-key">Média/mês</span>
+                    </div>
+                    <div class="comp-res-stat">
+                        <span class="comp-res-val">${s.total.toLocaleString('pt-BR')}</span>
+                        <span class="comp-res-key">Total</span>
+                    </div>
+                    <div class="comp-res-stat">
+                        <span class="comp-res-val">${s.best}</span>
+                        <span class="comp-res-key">Melhor mês</span>
+                    </div>
+                </div>`;
+            };
+
+            let body = '';
+            if (this._ano === 'ambos') {
+                const get = (year) => MONTHS_ORDER.map(abbr =>
+                    vendas.monthCols.filter(c => c.abbr === abbr && c.year === year)
+                        .reduce((s, c) => s + (totals[c.key] || 0), 0)
+                );
+                const p25 = get('2025'), p26 = get('2026');
+                body = `
+                    <div class="comp-res-year-section">
+                        <div class="comp-res-year-label" style="color:${color};">2025</div>
+                        ${statRow(p25, MONTHS_ORDER)}
+                    </div>
+                    <hr class="comp-res-divider">
+                    <div class="comp-res-year-section">
+                        <div class="comp-res-year-label" style="color:${color};">2026</div>
+                        ${statRow(p26, MONTHS_ORDER)}
+                    </div>`;
+            } else {
+                const cols = vendas.monthCols.filter(c => c.year === this._ano);
+                const vals = cols.map(c => totals[c.key] || 0);
+                const lbls = cols.map(c => c.abbr);
+                body = statRow(vals, lbls);
+            }
+
+            cards.push(`<div class="comp-res-card" style="border-top:3px solid ${color};">
+                <div class="comp-res-header">
+                    <span class="comp-slot-badge" style="background:${color}20;color:${color};">${label}</span>
+                    <span class="comp-res-name" title="${name}">${name}</span>
+                </div>
+                ${body}
+            </div>`);
+        });
+
+        el.innerHTML = cards.join('');
+    },
+
+    _drawChart() {
+        const canvas = document.getElementById('comp-chart');
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width  = canvas.offsetWidth || 800;
+        const H = canvas.height = 320;
+        ctx.clearRect(0, 0, W, H);
+
+        const padL = 62, padR = 24, padT = 28, padB = 44;
+        const chartW = W - padL - padR;
+        const chartH = H - padT - padB;
+
+        const MONTHS_ORDER = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+        // Determine X axis labels and point extractor
+        let xLabels, getPoints;
+        if (this._ano === 'ambos') {
+            xLabels = MONTHS_ORDER;
+            getPoints = (totals, year) => MONTHS_ORDER.map(abbr => {
+                return vendas.monthCols
+                    .filter(c => c.abbr === abbr && c.year === year)
+                    .reduce((s, c) => s + (totals[c.key] || 0), 0);
+            });
+        } else {
+            const cols = vendas.monthCols.filter(c => c.year === this._ano);
+            xLabels = cols.map(c => c.abbr);
+            getPoints = (totals) => cols.map(c => totals[c.key] || 0);
+        }
+
+        const n = xLabels.length;
+        if (!n) return;
+
+        // Build series [{color, pts, dashed, idx}]
+        const series = [];
+        [0,1,2,3,4].forEach(i => {
+            const totals = this._getSeries(i);
+            if (!totals) return;
+            if (this._ano === 'ambos') {
+                const p25 = getPoints(totals, '2025');
+                const p26 = getPoints(totals, '2026');
+                if (p25.some(v => v > 0)) series.push({ color: this._colors[i], pts: p25, dashed: false, idx: i });
+                if (p26.some(v => v > 0)) series.push({ color: this._colors[i], pts: p26, dashed: true,  idx: i });
+            } else {
+                const pts = getPoints(totals);
+                if (pts.some(v => v > 0)) series.push({ color: this._colors[i], pts, dashed: false, idx: i });
+            }
+        });
+
+        const maxVal = series.length ? Math.max(...series.flatMap(s => s.pts), 1) : 1;
+
+        // Grid
+        ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+        ctx.lineWidth = 1;
+        [0, 0.25, 0.5, 0.75, 1].forEach(p => {
+            const y = padT + chartH * (1 - p);
+            ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+            ctx.fillStyle = '#c9d1d9'; ctx.font = 'bold 13px Inter'; ctx.textAlign = 'right';
+            ctx.fillText(Math.round(maxVal * p).toLocaleString('pt-BR'), padL - 6, y + 4);
+        });
+
+        // X labels
+        ctx.fillStyle = '#c9d1d9'; ctx.font = 'bold 13px Inter'; ctx.textAlign = 'center';
+        xLabels.forEach((lbl, i) => {
+            const x = n === 1 ? padL + chartW / 2 : padL + (i / (n - 1)) * chartW;
+            ctx.fillText(lbl, x, H - padB + 16);
+        });
+
+        if (!series.length) {
+            ctx.fillStyle = '#8b949e'; ctx.font = '13px Inter'; ctx.textAlign = 'center';
+            ctx.fillText('Preencha ao menos um slot para ver o gráfico', W / 2, H / 2);
+            return;
+        }
+
+        // Draw lines + dots
+        series.forEach(s => {
+            ctx.beginPath();
+            ctx.strokeStyle = s.color;
+            ctx.lineWidth = s.dashed ? 2 : 2.5;
+            ctx.setLineDash(s.dashed ? [7, 4] : []);
+            s.pts.forEach((v, i) => {
+                const x = n === 1 ? padL + chartW / 2 : padL + (i / (n - 1)) * chartW;
+                const y = padT + chartH * (1 - v / maxVal);
+                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            });
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            s.pts.forEach((v, i) => {
+                const x = n === 1 ? padL + chartW / 2 : padL + (i / (n - 1)) * chartW;
+                const y = padT + chartH * (1 - v / maxVal);
+                ctx.beginPath();
+                ctx.arc(x, y, s.dashed ? 3 : 4.5, 0, Math.PI * 2);
+                ctx.fillStyle = s.color;
+                ctx.fill();
+                if (v > 0) {
+                    const label = v.toLocaleString('pt-BR');
+                    ctx.font = 'bold 12px Inter';
+                    ctx.textAlign = 'center';
+                    ctx.strokeStyle = 'rgba(13,17,23,0.85)';
+                    ctx.lineWidth = 3;
+                    ctx.lineJoin = 'round';
+                    ctx.strokeText(label, x, y - 10);
+                    ctx.fillStyle = s.color;
+                    ctx.fillText(label, x, y - 10);
+                }
+            });
+
+            // Previsão — linha de tendência (regressão linear simples, 2 meses à frente)
+            if (!s.dashed && s.pts.length >= 3) {
+                const pts = s.pts;
+                const m = pts.length;
+                let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+                pts.forEach((v, i) => { sumX += i; sumY += v; sumXY += i * v; sumX2 += i * i; });
+                const slope = (m * sumXY - sumX * sumY) / (m * sumX2 - sumX * sumX);
+                const intercept = (sumY - slope * sumX) / m;
+                if (slope > 0) { // só desenha se tendência é de alta
+                    const prevPts = [m - 1, m, m + 1].map(i => Math.max(0, Math.round(slope * i + intercept)));
+                    ctx.beginPath();
+                    ctx.setLineDash([5, 5]);
+                    ctx.strokeStyle = s.color + '88';
+                    ctx.lineWidth = 1.5;
+                    prevPts.forEach((v, i) => {
+                        const xi = m - 1 + i;
+                        const xp = n === 1 ? padL + chartW / 2 : padL + (xi / (n - 1)) * chartW;
+                        const yp = padT + chartH * (1 - Math.min(v, maxVal) / maxVal);
+                        i === 0 ? ctx.moveTo(xp, yp) : ctx.lineTo(xp, yp);
+                    });
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    // Label de previsão
+                    const lastX = padL + ((m + 1) / (n - 1)) * chartW;
+                    const lastY = padT + chartH * (1 - Math.min(prevPts[2], maxVal) / maxVal);
+                    if (lastX <= W - padR + 20) {
+                        ctx.font = 'bold 10px Inter'; ctx.textAlign = 'left';
+                        ctx.fillStyle = s.color + 'aa';
+                        ctx.fillText('▸ ' + prevPts[2].toLocaleString('pt-BR'), lastX + 4, lastY + 4);
+                    }
+                }
+            }
+        });
+    },
+
+    _updateLegenda() {
+        const el = document.getElementById('comp-legenda');
+        if (!el) return;
+        const items = [];
+        [0,1,2,3,4].forEach(i => {
+            const slot = this._slots[i];
+            if (!slot.codigos.length && !slot.marca) return;
+            const color = this._colors[i];
+            const codPart = slot.codigos.length > 0
+                ? slot.codigos.slice(0,3).join(', ') + (slot.codigos.length > 3 ? ` +${slot.codigos.length - 3}` : '')
+                : '';
+            const name = [codPart, slot.marca].filter(Boolean).join(' · ') || '—';
+            items.push(`<span class="comp-leg-item">
+                <span class="comp-leg-line" style="background:${color};"></span>
+                <span class="comp-leg-badge" style="background:${color}20;color:${color};">${this._labels[i]}</span>
+                <span class="comp-leg-name">${name}</span>
+                ${this._ano === 'ambos' ? `<span class="comp-leg-dash" style="border-color:${color};"></span><span class="comp-leg-year">2026</span>` : ''}
+            </span>`);
+        });
+        el.innerHTML = items.length
+            ? items.join('')
+            : '<span style="color:#8b949e;font-size:0.82rem;">Nenhuma série configurada</span>';
+        if (this._ano === 'ambos' && items.length) {
+            el.innerHTML += `<div style="margin-top:8px;font-size:0.75rem;color:#8b949e;width:100%;">
+                ─── sólido = 2025 &nbsp;·&nbsp; - - - tracejado = 2026
+            </div>`;
         }
     }
 };

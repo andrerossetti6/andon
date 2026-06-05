@@ -55,42 +55,49 @@
             <nav class="nav-section">
                 <h3>IMPORTAÇÃO DE DADOS</h3>
                 <ul>
-                    <li class="active has-sub" id="nav-analise" onclick="navigateTo('dashboard')">
-                        <div class="item-content">Importação de Dados</div>
+                    <li class="active has-sub" id="nav-analise">
+                        <div class="item-content" onclick="toggleNavGroup(this.closest('.has-sub'))">
+                            <span>Importação de Dados</span>
+                            <span class="nav-toggle">▾</span>
+                        </div>
                         <ul class="sub-menu">
-                            <li data-view="banco" onclick="event.stopPropagation(); navigateTo('banco')">Banco de Dados</li>
-                            <li data-view="vendas" onclick="event.stopPropagation(); navigateTo('vendas')">Vendas</li>
-                            <li data-view="cliente" onclick="event.stopPropagation(); navigateTo('cliente')">Cliente</li>
-                            <li data-view="estoque" onclick="event.stopPropagation(); navigateTo('estoque')">Estoque</li>
-                            <li data-view="op" onclick="event.stopPropagation(); navigateTo('op')">Ordens de Produção</li>
-                            <li data-view="costura" onclick="event.stopPropagation(); navigateTo('costura')">Costura</li>
+                            <li data-view="banco" onclick="navigateTo('banco')">Banco de Dados</li>
+                            <li data-view="vendas" onclick="navigateTo('vendas')">Vendas</li>
+                            <li data-view="cliente" onclick="navigateTo('cliente')">Cliente</li>
+                            <li data-view="estoque" onclick="navigateTo('estoque')">Estoque</li>
+                            <li data-view="op" onclick="navigateTo('op')">Ordens de Produção</li>
+                            <li data-view="costura" onclick="navigateTo('costura')">Costura</li>
                         </ul>
                     </li>
                 </ul>
             </nav>
 
             <nav class="nav-section">
-                <h3>ARQUITETURA DE DADOS</h3>
                 <ul>
-                    <li class="has-sub" id="nav-arq" onclick="navigateTo('calendario')">
-                        <div class="item-content">Arquitetura de Dados</div>
+                    <li class="has-sub" id="nav-arq">
+                        <div class="item-content" onclick="toggleNavGroup(this.closest('.has-sub'))">
+                            <span>Arquitetura de Dados</span>
+                            <span class="nav-toggle">▾</span>
+                        </div>
                         <ul class="sub-menu">
-                            <li data-view="calendario" onclick="event.stopPropagation(); navigateTo('calendario')">Calendário</li>
-                            <li data-view="processos"  onclick="event.stopPropagation(); navigateTo('processos')">Processos</li>
-                            <li data-view="capacidade" onclick="event.stopPropagation(); navigateTo('capacidade')">Matriz de Set Up</li>
+                            <li data-view="calendario" onclick="navigateTo('calendario')">Calendário</li>
+                            <li data-view="processos"  onclick="navigateTo('processos')">Processos</li>
+                            <li data-view="capacidade" onclick="navigateTo('capacidade')">Matriz de Set Up</li>
                         </ul>
                     </li>
                 </ul>
             </nav>
 
-            <nav class="nav-section">
-                <h3>DASHBOARDS</h3>
-                <ul>
+            <nav class="nav-section" id="nav-section-dashboards">
+                <h3 class="nav-section-header" data-key="dashboards" onclick="toggleNavSection(this)">
+                    DASHBOARDS <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
                     <li id="nav-pesquisa" onclick="navigateTo('pesquisa')">
                         <div class="item-content">Pesquisa por Código</div>
                     </li>
                     <li id="nav-vxe" onclick="navigateTo('vxe')">
-                        <div class="item-content">Vendas × Estoque</div>
+                        <div class="item-content">Vendas × Estoque <span class="alert-badge" id="alert-badge-critico" style="display:none;"></span></div>
                     </li>
                     <li id="nav-op-dash" onclick="navigateTo('op-dash')">
                         <div class="item-content">Ordem de Produção</div>
@@ -98,12 +105,21 @@
                     <li id="nav-pedidos" onclick="navigateTo('pedidos')">
                         <div class="item-content">Pedidos</div>
                     </li>
-                    <li class="has-sub" id="nav-abc-cruzada" onclick="navigateTo('abc')">
-                        <div class="item-content">Curva ABC</div>
+                    <li id="nav-comparador" onclick="navigateTo('comparador')">
+                        <div class="item-content">Comparador</div>
+                    </li>
+                    <li id="nav-clientes-dash" onclick="navigateTo('clientes-dash')">
+                        <div class="item-content">Clientes</div>
+                    </li>
+                    <li class="has-sub" id="nav-abc-cruzada">
+                        <div class="item-content" onclick="toggleNavGroup(this.closest('.has-sub'))">
+                            <span>Curva ABC</span>
+                            <span class="nav-toggle">▾</span>
+                        </div>
                         <ul class="sub-menu">
-                            <li data-view="abc" onclick="event.stopPropagation(); navigateTo('abc')">ABC Vendas</li>
-                            <li data-view="abc-micro" onclick="event.stopPropagation(); navigateTo('abc-micro')">ABC Vendas Micro</li>
-                            <li data-view="abc-estoque" onclick="event.stopPropagation(); navigateTo('abc-estoque')">ABC Estoque</li>
+                            <li data-view="abc" onclick="navigateTo('abc')">ABC Vendas</li>
+                            <li data-view="abc-micro" onclick="navigateTo('abc-micro')">ABC Vendas Micro</li>
+                            <li data-view="abc-estoque" onclick="navigateTo('abc-estoque')">ABC Estoque</li>
                         </ul>
                     </li>
                 </ul>
@@ -123,29 +139,109 @@
     </aside>
 
     <!-- Main Content -->
-    <main class="content" id="view-dashboard" style="display:none;position:relative;overflow:hidden;padding:0;">
-        <!-- Fundo -->
-        <div style="position:absolute;inset:0;background:url('dashboard-bg.jpg') center right/cover no-repeat;opacity:0.5;"></div>
-        <!-- Gradiente da esquerda para cobrir texto -->
-        <div style="position:absolute;inset:0;background:linear-gradient(to right, #0d1117 38%, rgba(13,17,23,0.7) 60%, transparent 100%);"></div>
-        <!-- Conteúdo -->
-        <div style="position:relative;z-index:1;padding:48px 56px;display:flex;flex-direction:column;justify-content:center;height:100%;">
-            <div style="max-width:520px;">
-                <p style="font-size:0.7rem;font-weight:700;letter-spacing:.15em;color:var(--indigo-btn);margin-bottom:12px;text-transform:uppercase;">Sistema de Gestão Industrial</p>
-                <h1 style="font-size:3rem;font-weight:800;line-height:1.1;margin:0 0 8px;color:#fff;">SIGS</h1>
-                <p style="font-size:1.1rem;color:#8b949e;margin:0 0 40px;font-weight:300;">Gestão <span style="color:#fff;font-weight:500;">Stoll</span></p>
-                <div style="width:40px;height:2px;background:var(--indigo-btn);margin-bottom:40px;border-radius:2px;"></div>
-                <p style="font-size:0.9rem;color:#8b949e;line-height:1.7;margin:0;">
-                    Plataforma integrada de análise de vendas,<br>
-                    estoque, produção e processos industriais.
-                </p>
-                <div style="margin-top:48px;display:flex;gap:12px;flex-wrap:wrap;">
-                    <button onclick="navigateTo('pesquisa')" style="padding:10px 22px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:0.85rem;font-weight:600;cursor:pointer;">
-                        Pesquisar Código
-                    </button>
-                    <button onclick="navigateTo('abc')" style="padding:10px 22px;border-radius:8px;border:1px solid var(--border);background:transparent;color:var(--text-primary);font-size:0.85rem;font-weight:500;cursor:pointer;">
-                        Curva ABC
-                    </button>
+    <main class="content" id="view-dashboard" style="display:none;flex-direction:column;gap:20px;padding:28px 32px;overflow-y:auto;">
+
+        <!-- Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <div>
+                <h1 style="font-size:1.6rem;font-weight:800;margin:0;color:#fff;">
+                    Bom dia, <span style="color:var(--indigo-primary);" id="home-username">—</span>
+                </h1>
+                <p style="color:#8b949e;font-size:0.82rem;margin:2px 0 0;" id="home-date">—</p>
+            </div>
+            <div style="display:flex;gap:8px;">
+                <button onclick="homeDash.render()" style="padding:6px 16px;border-radius:8px;border:1px solid var(--border);background:transparent;color:#8b949e;font-size:0.78rem;cursor:pointer;">↻ Atualizar</button>
+                <button onclick="baixarBackup()" style="padding:6px 16px;border-radius:8px;border:1px solid rgba(38,198,218,0.3);background:transparent;color:#26c6da;font-size:0.78rem;cursor:pointer;">⬇ Backup</button>
+                <button onclick="resetarDados()" style="padding:6px 16px;border-radius:8px;border:1px solid rgba(240,98,146,0.3);background:transparent;color:#f06292;font-size:0.78rem;cursor:pointer;">🗑 Limpar dados</button>
+            </div>
+        </div>
+
+        <!-- KPI Cards -->
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px;">
+            <div class="summary-card" style="border-top:3px solid #26c6da;">
+                <span class="s-label">VENDAS NO MÊS</span>
+                <span class="s-value" id="home-vendas-mes" style="color:#26c6da;font-size:1.5rem;">—</span>
+                <span class="s-sub" id="home-vendas-mes-sub">unidades</span>
+            </div>
+            <div class="summary-card" style="border-top:3px solid #26a69a;">
+                <span class="s-label">FATURAMENTO CLIENTES</span>
+                <span class="s-value" id="home-fat-clientes" style="color:#26a69a;font-size:1.3rem;">—</span>
+                <span class="s-sub">acumulado</span>
+            </div>
+            <div class="summary-card" style="border-top:3px solid #f06292;">
+                <span class="s-label">ESTOQUE CRÍTICO</span>
+                <span class="s-value" id="home-critico" style="color:#f06292;">—</span>
+                <span class="s-sub">itens &lt; 1 mês cobertura</span>
+            </div>
+            <div class="summary-card" style="border-top:3px solid #ffab76;">
+                <span class="s-label">OPs EM ABERTO</span>
+                <span class="s-value" id="home-ops" style="color:#ffab76;">—</span>
+                <span class="s-sub" id="home-ops-sub">ordens</span>
+            </div>
+            <div class="summary-card" style="border-top:3px solid #7c4dff;">
+                <span class="s-label">CÓDIGOS ATIVOS</span>
+                <span class="s-value" id="home-codigos" style="color:#7c4dff;">—</span>
+                <span class="s-sub">em vendas</span>
+            </div>
+        </div>
+
+        <!-- Top Produtos + Alertas -->
+        <div style="display:grid;grid-template-columns:1.2fr 0.8fr;gap:16px;">
+
+            <!-- Top 5 produtos -->
+            <div class="summary-card" style="padding:18px 20px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                    <span class="s-label" style="margin:0;">TOP 5 PRODUTOS DO MÊS</span>
+                    <button onclick="navigateTo('pesquisa')" style="font-size:0.7rem;color:var(--indigo-primary);background:none;border:none;cursor:pointer;">ver todos →</button>
+                </div>
+                <div id="home-top5"></div>
+            </div>
+
+            <!-- Alertas -->
+            <div class="summary-card" style="padding:18px 20px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+                    <span class="s-label" style="margin:0;">ALERTAS</span>
+                    <span id="home-alertas-badge" style="display:none;background:#f06292;color:#fff;border-radius:10px;padding:1px 8px;font-size:0.68rem;font-weight:700;"></span>
+                </div>
+                <div id="home-alertas" style="display:flex;flex-direction:column;gap:8px;">
+                    <p style="color:#8b949e;font-size:0.8rem;">Importe dados para ver alertas.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Últimas atividades -->
+        <div class="summary-card" style="padding:16px 20px;">
+            <span class="s-label" style="margin-bottom:10px;display:block;">ÚLTIMAS ATIVIDADES</span>
+            <div id="home-atividades"></div>
+        </div>
+
+        <!-- Acesso rápido -->
+        <div>
+            <span class="s-label" style="margin-bottom:10px;display:block;">ACESSO RÁPIDO</span>
+            <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;" id="home-quick-access">
+                <div class="summary-card" onclick="navigateTo('vendas')" style="cursor:pointer;text-align:center;padding:14px 8px;transition:border-color .2s;" onmouseenter="this.style.borderColor='#26c6da'" onmouseleave="this.style.borderColor=''">
+                    <div style="font-size:1.4rem;margin-bottom:4px;">📦</div>
+                    <div style="font-size:0.72rem;color:#8b949e;">Vendas</div>
+                </div>
+                <div class="summary-card" onclick="navigateTo('estoque')" style="cursor:pointer;text-align:center;padding:14px 8px;" onmouseenter="this.style.borderColor='#26a69a'" onmouseleave="this.style.borderColor=''">
+                    <div style="font-size:1.4rem;margin-bottom:4px;">🗄️</div>
+                    <div style="font-size:0.72rem;color:#8b949e;">Estoque</div>
+                </div>
+                <div class="summary-card" onclick="navigateTo('op')" style="cursor:pointer;text-align:center;padding:14px 8px;" onmouseenter="this.style.borderColor='#ffab76'" onmouseleave="this.style.borderColor=''">
+                    <div style="font-size:1.4rem;margin-bottom:4px;">🔧</div>
+                    <div style="font-size:0.72rem;color:#8b949e;">Ordens de Prod.</div>
+                </div>
+                <div class="summary-card" onclick="navigateTo('vxe')" style="cursor:pointer;text-align:center;padding:14px 8px;" onmouseenter="this.style.borderColor='#7c4dff'" onmouseleave="this.style.borderColor=''">
+                    <div style="font-size:1.4rem;margin-bottom:4px;">📊</div>
+                    <div style="font-size:0.72rem;color:#8b949e;">Vendas × Estoque</div>
+                </div>
+                <div class="summary-card" onclick="navigateTo('pesquisa')" style="cursor:pointer;text-align:center;padding:14px 8px;" onmouseenter="this.style.borderColor='#f06292'" onmouseleave="this.style.borderColor=''">
+                    <div style="font-size:1.4rem;margin-bottom:4px;">🔍</div>
+                    <div style="font-size:0.72rem;color:#8b949e;">Pesquisa ABC</div>
+                </div>
+                <div class="summary-card" onclick="navigateTo('clientes-dash')" style="cursor:pointer;text-align:center;padding:14px 8px;" onmouseenter="this.style.borderColor='#26c6da'" onmouseleave="this.style.borderColor=''">
+                    <div style="font-size:1.4rem;margin-bottom:4px;">👥</div>
+                    <div style="font-size:0.72rem;color:#8b949e;">Clientes</div>
                 </div>
             </div>
         </div>
@@ -159,6 +255,7 @@
                 <p class="page-subtitle">Importe dados de vendas em CSV ou XLS para visualizar e analisar</p>
             </div>
             <div class="page-header-actions">
+                <button class="btn secondary" onclick="vendas.exportar()" style="font-size:0.78rem;">⬇ Exportar XLS</button>
                 <button class="btn secondary" id="btn-salvar-vendas" onclick="vendas.salvarManual()" style="display:none;">Salvar</button>
                 <label class="btn primary import-btn" for="file-input">
                     <svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -167,6 +264,18 @@
                 <input type="file" id="file-input" accept=".csv,.xls,.xlsx" style="display:none;">
             </div>
         </header>
+
+        <!-- Histórico de Importações -->
+        <div id="import-history" style="display:none;" class="import-history">
+            <div class="history-header" onclick="toggleHistorico('import-history')" style="cursor:pointer;">
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <span class="history-chevron" id="chevron-vendas">›</span>
+                    <span class="s-label" style="margin:0;">IMPORTAÇÕES SALVAS <span id="history-saving" style="display:none;color:var(--text-dim);">· salvando...</span></span>
+                </div>
+                <label class="btn secondary" for="file-input" onclick="event.stopPropagation()" style="cursor:pointer;padding:4px 14px;font-size:0.72rem;">+ Novo arquivo</label>
+            </div>
+            <div id="history-list" class="history-list" style="display:none;"></div>
+        </div>
 
         <!-- Drop Zone -->
         <div class="drop-zone" id="drop-zone">
@@ -242,6 +351,11 @@
                     <span class="s-value" id="summary-tamanhos" style="color:var(--indigo-primary);">0</span>
                     <span class="s-sub">tamanhos únicos</span>
                 </div>
+                <div class="summary-card" id="vendas-delta-card" style="display:none;">
+                    <span class="s-label">VARIAÇÃO ANO</span>
+                    <span class="s-value" id="vendas-delta-val" style="font-size:1.5rem;">—</span>
+                    <span class="s-sub">vs. ano anterior</span>
+                </div>
                 <div class="summary-card">
                     <span class="s-label">POR CÓDIGO</span>
                     <div id="summary-por-codigo" class="summary-breakdown"></div>
@@ -273,18 +387,6 @@
                     <thead><tr></tr></thead>
                     <tbody></tbody>
                 </table>
-            </div>
-
-            <!-- Histórico de Importações — por último -->
-            <div id="import-history" style="display:none;flex-shrink:0;" class="import-history">
-                <div class="history-header" onclick="toggleHistorico('import-history')" style="cursor:pointer;">
-                    <div style="display:flex;align-items:center;gap:8px;">
-                        <span class="history-chevron" id="chevron-vendas">›</span>
-                        <span class="s-label" style="margin:0;">IMPORTAÇÕES SALVAS <span id="history-saving" style="display:none;color:var(--text-dim);">· salvando...</span></span>
-                    </div>
-                    <label class="btn secondary" for="file-input" onclick="event.stopPropagation()" style="cursor:pointer;padding:4px 14px;font-size:0.72rem;">+ Novo arquivo</label>
-                </div>
-                <div id="history-list" class="history-list" style="display:none;"></div>
             </div>
 
         </div>
@@ -399,6 +501,7 @@
                 <option value="">Todos</option>
             </select>
             <span class="table-count-label" id="pesquisa-count"></span>
+                <button onclick="pesquisa.exportar()" style="font-size:0.72rem;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:#8b949e;cursor:pointer;">⬇ XLS</button>
             <button class="btn secondary" onclick="pesquisa.limpar()">Limpar</button>
         </div>
 
@@ -1156,6 +1259,262 @@
         </div>
     </div>
 
+    <!-- ── Dashboard: Comparador de Tendências ──────────────── -->
+    <!-- ── View Clientes Dashboard ──────────────────────────── -->
+    <main class="content" id="view-clientes-dash" style="display:none;">
+        <header class="page-header">
+            <div>
+                <h1 class="page-title">Dashboard de <span>Clientes</span></h1>
+                <p class="page-subtitle">Análise de faturamento e comportamento por cliente</p>
+            </div>
+        </header>
+
+        <div id="cli-dash-empty" style="display:none;text-align:center;padding:60px;color:#8b949e;">
+            <p style="font-size:1rem;">Importe dados em <strong>Importação → Cliente</strong> para ver o dashboard.</p>
+        </div>
+
+        <div id="cli-dash-content" style="display:none;flex-direction:column;gap:20px;">
+
+            <!-- Filtros -->
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg-card);border:1px solid var(--border-color);border-radius:10px;padding:12px 16px;">
+                <span style="font-size:0.72rem;color:var(--text-dim);font-weight:700;letter-spacing:.06em;">FILTROS</span>
+                <div id="cli-ano-btns" style="display:flex;gap:5px;"></div>
+                <select class="sigs-select" id="cli-filtro-mes" onchange="clientesDash.render()" style="min-width:105px;font-size:0.78rem;">
+                    <option value="">Todos os meses</option>
+                </select>
+                <select class="sigs-select" id="cli-filtro-dia" onchange="clientesDash.render()" style="min-width:90px;font-size:0.78rem;">
+                    <option value="">Todos os dias</option>
+                </select>
+                <select class="sigs-select" id="cli-filtro-cliente" onchange="clientesDash.render()" style="min-width:180px;font-size:0.78rem;">
+                    <option value="">Todos os clientes</option>
+                </select>
+                <input type="text" class="sigs-input" id="cli-filtro-busca" placeholder="Buscar cliente..." oninput="clientesDash.render()" style="width:200px;font-size:0.78rem;">
+                <button class="btn secondary" onclick="clientesDash._limparFiltros()" style="font-size:0.74rem;padding:5px 14px;margin-left:auto;">Limpar</button>
+            </div>
+
+            <!-- Cards resumo -->
+            <div class="vendas-summary" style="grid-template-columns:repeat(5,1fr);">
+                <div class="summary-card">
+                    <span class="s-label">TOTAL DE CLIENTES</span>
+                    <span class="s-value" id="cli-total-clientes" style="color:var(--indigo-primary);">—</span>
+                    <span class="s-sub">clientes únicos</span>
+                </div>
+                <div class="summary-card">
+                    <span class="s-label">FATURAMENTO TOTAL</span>
+                    <span class="s-value" id="cli-faturamento" style="color:#26a69a;font-size:1.35rem;">—</span>
+                    <span class="s-sub">soma dos pedidos</span>
+                </div>
+                <div class="summary-card">
+                    <span class="s-label">TICKET MÉDIO</span>
+                    <span class="s-value" id="cli-ticket-medio" style="color:#26c6da;font-size:1.35rem;">—</span>
+                    <span class="s-sub">por cliente</span>
+                </div>
+                <div class="summary-card">
+                    <span class="s-label">TOTAL DE PEDIDOS</span>
+                    <span class="s-value" id="cli-total-pedidos" style="color:#f06292;">—</span>
+                    <span class="s-sub">transações</span>
+                </div>
+                <div class="summary-card">
+                    <span class="s-label">QUANTIDADE TOTAL VENDAS</span>
+                    <span class="s-value" id="cli-total-qtd" style="color:#ffab76;">—</span>
+                    <span class="s-sub">unidades vendidas</span>
+                </div>
+            </div>
+
+            <!-- Top 10 + Evolução -->
+            <div style="display:grid;grid-template-columns:1.1fr 0.9fr;gap:20px;">
+                <!-- Top 10 -->
+                <div class="vxe-card" style="padding:20px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+                        <span style="font-size:0.72rem;font-weight:700;letter-spacing:.08em;color:var(--text-dim);">TOP 10 CLIENTES</span>
+                        <div style="display:flex;gap:6px;">
+                            <button id="cli-rank-val-btn" class="btn primary" onclick="clientesDash._setRankMode('valor')" style="font-size:0.68rem;padding:3px 10px;">Por Valor</button>
+                            <button id="cli-rank-qtd-btn" class="btn secondary" onclick="clientesDash._setRankMode('qtd')" style="font-size:0.68rem;padding:3px 10px;">Por Qtd</button>
+                        </div>
+                    </div>
+                    <div id="cli-ranking"></div>
+                </div>
+                <!-- Evolução Mensal -->
+                <div class="vxe-card" style="padding:20px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+                        <span style="font-size:0.72rem;font-weight:700;letter-spacing:.08em;color:var(--text-dim);">EVOLUÇÃO MENSAL</span>
+                        <select class="sigs-select" id="cli-evolucao-metrica" onchange="clientesDash._drawEvolucao()" style="font-size:0.72rem;padding:3px 8px;">
+                            <option value="valor">Faturamento</option>
+                            <option value="qtd">Quantidade</option>
+                        </select>
+                    </div>
+                    <select class="sigs-select" id="cli-evolucao-cliente" onchange="clientesDash._drawEvolucao()" style="margin-bottom:10px;font-size:0.75rem;width:100%;">
+                        <option value="">Todos os clientes</option>
+                    </select>
+                    <canvas id="cli-evolucao-canvas" height="210"></canvas>
+                </div>
+            </div>
+
+            <!-- Tabela de Clientes -->
+            <div class="vxe-card" style="padding:0;overflow:hidden;">
+                <div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                    <span style="font-size:0.72rem;font-weight:700;letter-spacing:.08em;color:var(--text-dim);">DETALHAMENTO POR CLIENTE</span>
+                    <span id="cli-table-count" style="font-size:0.75rem;color:var(--text-dim);"></span>
+                </div>
+                <div style="overflow-x:auto;">
+                    <table class="vendas-table" id="cli-table" style="width:100%;">
+                        <thead><tr>
+                            <th style="cursor:pointer;" onclick="clientesDash._sortBy('nome')">CLIENTE ↕</th>
+                            <th class="td-right" style="cursor:pointer;" onclick="clientesDash._sortBy('pedidos')">PEDIDOS ↕</th>
+                            <th class="td-right" style="cursor:pointer;" onclick="clientesDash._sortBy('qtd')">QTD TOTAL ↕</th>
+                            <th class="td-right" style="color:#26a69a;cursor:pointer;" onclick="clientesDash._sortBy('valor')">FATURAMENTO ↕</th>
+                            <th class="td-right" style="color:#26c6da;">TICKET MÉDIO</th>
+                            <th class="td-right" style="cursor:pointer;" onclick="clientesDash._sortBy('ultima')">ÚLTIMA COMPRA ↕</th>
+                            <th></th>
+                        </tr></thead>
+                        <tbody id="cli-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <main class="content" id="view-comparador" style="display:none;">
+        <header class="page-header">
+            <div>
+                <h1 class="page-title">Comparador de <span>Tendências</span></h1>
+                <p class="page-subtitle">Compare histórico de vendas de até 4 séries simultaneamente</p>
+            </div>
+        </header>
+
+        <!-- Slots -->
+        <div class="comp-slots-grid">
+            <!-- Slot A -->
+            <div class="comp-slot" style="--slot-color:#26c6da;">
+                <div class="comp-slot-header">
+                    <span class="comp-slot-badge" style="background:#26c6da20;color:#26c6da;">A</span>
+                    <span style="color:#26c6da;font-size:0.8rem;font-weight:600;">Série A</span>
+                    <button class="comp-clear-btn" onclick="comparador.clearSlot(0)" title="Limpar">✕</button>
+                </div>
+                <div class="comp-slot-body">
+                    <div class="comp-field">
+                        <label>Códigos <span class="comp-tag-hint">(até 10 · Enter para adicionar)</span></label>
+                        <div class="comp-tag-wrap" id="comp-tags-0" onclick="document.getElementById('comp-cod-0').focus()">
+                            <div id="comp-tags-list-0" style="display:contents;"></div>
+                            <input type="text" class="comp-tag-inp" id="comp-cod-0" placeholder="Código + Enter" onkeydown="comparador.onCodeKey(event,0)">
+                        </div>
+                    </div>
+                    <div class="comp-field">
+                        <label>Marca</label>
+                        <select class="sin1-select" id="comp-marca-0" onchange="comparador.onSlotChange(0)" style="width:100%;"><option value="">Todas</option></select>
+                    </div>
+                </div>
+            </div>
+            <!-- Slot B -->
+            <div class="comp-slot" style="--slot-color:#f06292;">
+                <div class="comp-slot-header">
+                    <span class="comp-slot-badge" style="background:#f0629220;color:#f06292;">B</span>
+                    <span style="color:#f06292;font-size:0.8rem;font-weight:600;">Série B</span>
+                    <button class="comp-clear-btn" onclick="comparador.clearSlot(1)" title="Limpar">✕</button>
+                </div>
+                <div class="comp-slot-body">
+                    <div class="comp-field">
+                        <label>Códigos <span class="comp-tag-hint">(até 10 · Enter para adicionar)</span></label>
+                        <div class="comp-tag-wrap" id="comp-tags-1" onclick="document.getElementById('comp-cod-1').focus()">
+                            <div id="comp-tags-list-1" style="display:contents;"></div>
+                            <input type="text" class="comp-tag-inp" id="comp-cod-1" placeholder="Código + Enter" onkeydown="comparador.onCodeKey(event,1)">
+                        </div>
+                    </div>
+                    <div class="comp-field">
+                        <label>Marca</label>
+                        <select class="sin1-select" id="comp-marca-1" onchange="comparador.onSlotChange(1)" style="width:100%;"><option value="">Todas</option></select>
+                    </div>
+                </div>
+            </div>
+            <!-- Slot C -->
+            <div class="comp-slot" style="--slot-color:#7c4dff;">
+                <div class="comp-slot-header">
+                    <span class="comp-slot-badge" style="background:#7c4dff20;color:#7c4dff;">C</span>
+                    <span style="color:#7c4dff;font-size:0.8rem;font-weight:600;">Série C</span>
+                    <button class="comp-clear-btn" onclick="comparador.clearSlot(2)" title="Limpar">✕</button>
+                </div>
+                <div class="comp-slot-body">
+                    <div class="comp-field">
+                        <label>Códigos <span class="comp-tag-hint">(até 10 · Enter para adicionar)</span></label>
+                        <div class="comp-tag-wrap" id="comp-tags-2" onclick="document.getElementById('comp-cod-2').focus()">
+                            <div id="comp-tags-list-2" style="display:contents;"></div>
+                            <input type="text" class="comp-tag-inp" id="comp-cod-2" placeholder="Código + Enter" onkeydown="comparador.onCodeKey(event,2)">
+                        </div>
+                    </div>
+                    <div class="comp-field">
+                        <label>Marca</label>
+                        <select class="sin1-select" id="comp-marca-2" onchange="comparador.onSlotChange(2)" style="width:100%;"><option value="">Todas</option></select>
+                    </div>
+                </div>
+            </div>
+            <!-- Slot D -->
+            <div class="comp-slot" style="--slot-color:#ffb74d;">
+                <div class="comp-slot-header">
+                    <span class="comp-slot-badge" style="background:#ffb74d20;color:#ffb74d;">D</span>
+                    <span style="color:#ffb74d;font-size:0.8rem;font-weight:600;">Série D</span>
+                    <button class="comp-clear-btn" onclick="comparador.clearSlot(3)" title="Limpar">✕</button>
+                </div>
+                <div class="comp-slot-body">
+                    <div class="comp-field">
+                        <label>Códigos <span class="comp-tag-hint">(até 10 · Enter para adicionar)</span></label>
+                        <div class="comp-tag-wrap" id="comp-tags-3" onclick="document.getElementById('comp-cod-3').focus()">
+                            <div id="comp-tags-list-3" style="display:contents;"></div>
+                            <input type="text" class="comp-tag-inp" id="comp-cod-3" placeholder="Código + Enter" onkeydown="comparador.onCodeKey(event,3)">
+                        </div>
+                    </div>
+                    <div class="comp-field">
+                        <label>Marca</label>
+                        <select class="sin1-select" id="comp-marca-3" onchange="comparador.onSlotChange(3)" style="width:100%;"><option value="">Todas</option></select>
+                    </div>
+                </div>
+            </div>
+            <!-- Slot E -->
+            <div class="comp-slot" style="--slot-color:#66bb6a;">
+                <div class="comp-slot-header">
+                    <span class="comp-slot-badge" style="background:#66bb6a20;color:#66bb6a;">E</span>
+                    <span style="color:#66bb6a;font-size:0.8rem;font-weight:600;">Série E</span>
+                    <button class="comp-clear-btn" onclick="comparador.clearSlot(4)" title="Limpar">✕</button>
+                </div>
+                <div class="comp-slot-body">
+                    <div class="comp-field">
+                        <label>Códigos <span class="comp-tag-hint">(até 10 · Enter para adicionar)</span></label>
+                        <div class="comp-tag-wrap" id="comp-tags-4" onclick="document.getElementById('comp-cod-4').focus()">
+                            <div id="comp-tags-list-4" style="display:contents;"></div>
+                            <input type="text" class="comp-tag-inp" id="comp-cod-4" placeholder="Código + Enter" onkeydown="comparador.onCodeKey(event,4)">
+                        </div>
+                    </div>
+                    <div class="comp-field">
+                        <label>Marca</label>
+                        <select class="sin1-select" id="comp-marca-4" onchange="comparador.onSlotChange(4)" style="width:100%;"><option value="">Todas</option></select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Seletor de ano -->
+        <div class="comp-ano-bar">
+            <span style="color:#8b949e;font-size:0.82rem;font-weight:500;">Período:</span>
+            <button id="comp-btn-2025" class="comp-ano-btn" onclick="comparador.setAno('2025')">2025</button>
+            <button id="comp-btn-2026" class="comp-ano-btn" onclick="comparador.setAno('2026')">2026</button>
+            <button id="comp-btn-ambos" class="comp-ano-btn active" onclick="comparador.setAno('ambos')">2025 + 2026</button>
+        </div>
+
+        <!-- Estado vazio -->
+        <div id="comp-empty" style="display:none;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;gap:12px;">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="1.5" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <p style="color:#8b949e;font-size:0.9rem;">Importe dados de Vendas para usar o Comparador</p>
+        </div>
+
+        <!-- Gráfico -->
+        <div id="comp-content" style="display:none;">
+            <div class="comp-chart-card">
+                <canvas id="comp-chart" style="width:100%;display:block;"></canvas>
+                <div id="comp-legenda" class="comp-legenda"></div>
+            </div>
+            <div id="comp-resumo" class="comp-resumo-grid"></div>
+        </div>
+    </main>
+
     <!-- ── Dashboard: Ordem de Produção ─────────────────────── -->
     <main class="content" id="view-op-dash" style="display:none;">
         <header class="page-header">
@@ -1191,6 +1550,7 @@
                 <label style="font-size:0.78rem;color:var(--text-dim);">Status</label>
                 <select class="sigs-select" id="opdash-status-sel"><option value="">Todos</option></select>
                 <span class="table-count-label" id="opdash-count"></span>
+                <button onclick="opDash.exportar()" style="font-size:0.72rem;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:#8b949e;cursor:pointer;">⬇ XLS</button>
                 <div style="display:flex;align-items:center;gap:8px;margin-left:auto;background:rgba(240,98,146,.08);border:1px solid rgba(240,98,146,.3);border-radius:8px;padding:6px 14px;">
                     <span style="font-size:0.72rem;font-weight:600;color:#f06292;white-space:nowrap;">× PROGRAMAR</span>
                     <input type="number" id="opdash-prog-mult" min="0.1" step="0.1" value="1"
@@ -1244,6 +1604,7 @@
             </select>
             <input type="text" class="sin1-input" id="vxe-search" placeholder="Buscar por código..." style="width:220px;">
             <span class="table-count-label" id="vxe-count"></span>
+                <button onclick="vxe.exportar()" style="font-size:0.72rem;padding:4px 12px;border-radius:6px;border:1px solid var(--border);background:transparent;color:#8b949e;cursor:pointer;">⬇ XLS</button>
             <div style="display:flex;align-items:center;gap:8px;margin-left:auto;background:rgba(240,98,146,.08);border:1px solid rgba(240,98,146,.3);border-radius:8px;padding:6px 14px;">
                 <span style="font-size:0.72rem;font-weight:600;color:#f06292;white-space:nowrap;">× PROGRAMAR</span>
                 <input type="number" id="vxe-prog-mult" min="0.1" step="0.1" value="1"
@@ -1252,18 +1613,23 @@
             </div>
         </div>
         <!-- Cards resumo -->
-        <div style="display:flex;gap:12px;flex-shrink:0;">
-            <div class="summary-card" style="flex:1;padding:14px 20px;">
+        <div style="display:flex;gap:12px;flex-shrink:0;flex-wrap:wrap;">
+            <div class="summary-card" style="flex:1;padding:14px 20px;min-width:140px;">
                 <span class="s-label" style="margin-bottom:6px;">TOTAL SKU'S</span>
                 <span class="s-value" style="font-size:1.4rem;" id="vxe-card-skus">—</span>
             </div>
-            <div class="summary-card" style="flex:1;padding:14px 20px;">
+            <div class="summary-card" style="flex:1;padding:14px 20px;min-width:140px;">
                 <span class="s-label" style="margin-bottom:6px;">TOTAL VENDAS</span>
                 <span class="s-value" style="font-size:1.4rem;" id="vxe-card-vendas">—</span>
             </div>
-            <div class="summary-card" style="flex:1;padding:14px 20px;">
+            <div class="summary-card" style="flex:1;padding:14px 20px;min-width:140px;">
                 <span class="s-label" style="margin-bottom:6px;">EST. + PROCESSO</span>
                 <span class="s-value" style="font-size:1.4rem;color:#2ea043;" id="vxe-card-estprocesso">—</span>
+            </div>
+            <div class="summary-card" style="flex:1;padding:14px 20px;min-width:160px;" id="vxe-delta-card" style="display:none;">
+                <span class="s-label" style="margin-bottom:6px;">VARIAÇÃO 2025→2026</span>
+                <span class="s-value" style="font-size:1.4rem;" id="vxe-card-delta">—</span>
+                <span class="s-sub" id="vxe-card-delta-sub"></span>
             </div>
         </div>
 
