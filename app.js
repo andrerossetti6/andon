@@ -1433,30 +1433,14 @@ const vendas = {
     async carregarHistorico() {
         const lista = await api.listarImportacoes();
         this._importacoes = lista || [];
-        if (!this.rawData.length && lista?.length) {
-            await this.carregarImportacao(lista[0].id);
-        } else if (!this.rawData.length) {
-            const c = lsCache.ler('vendas');
-            if (c?.rawData?.length) {
-                this.rawData    = c.rawData;
-                this.monthCols  = c.monthCols || [];
-                this.years      = [...new Set(this.monthCols.map(m => m.year).filter(Boolean))].sort();
-                this.selectedYear = this.years[0] || 'all';
-                this._currentId = c.importacaoId;
-                this.filtered   = [...this.rawData];
-                this.mediaMeses = [];
-                this._updateMediaBtn();
-                this.populateFilters();
-                this.populateMediaFilter();
-                this.showDataSection();
-                this.render();
-                mostrarToast('Dados carregados do cache local');
-            } else {
-                this.renderHistorico();
+        if (lista?.length) {
+            const latest   = lista[0];
+            const incompleto = this.rawData.length < (latest.total_linhas || 0);
+            if (!this._currentId || this._currentId !== latest.id || incompleto) {
+                await this.carregarImportacao(latest.id); return;
             }
-        } else {
-            this.renderHistorico();
         }
+        this.renderHistorico();
     },
 
     async carregarImportacao(id) {
@@ -2332,31 +2316,17 @@ const estoque = {
         try {
             const lista = await api.get('/api/importacoes-estoque');
             this._importacoes = Array.isArray(lista) ? lista : [];
-            if (!this.rawData.length && this._importacoes.length) {
-                await this.carregarImportacao(this._importacoes[0].id);
-            } else if (!this.rawData.length) {
-                const c = lsCache.ler('estoque');
-                if (c?.rawData?.length) {
-                    this.rawData = c.rawData; this.colunas = c.colunas || [];
-                    this._currentId = c.importacaoId; this.filtered = [...this.rawData];
-                    this.mostrarDados(); this.populaSelects(); this.render();
-                    mostrarToast('Estoque: cache local carregado');
-                } else {
-                    mostrarToast('Estoque: nenhum dado encontrado');
-                    this.renderHistorico();
+            if (lista?.length) {
+                const latest = lista[0];
+                const incompleto = this.rawData.length < (latest.total_linhas || 0);
+                if (!this._currentId || this._currentId !== latest.id || incompleto) {
+                    await this.carregarImportacao(latest.id); return;
                 }
-            } else { this.renderHistorico(); }
+            }
+            this.renderHistorico();
         } catch(e) {
             console.error('Estoque carregarHistorico erro:', e);
-            const c = lsCache.ler('estoque');
-            if (c?.rawData?.length) {
-                this.rawData = c.rawData; this.colunas = c.colunas || [];
-                this._currentId = c.importacaoId; this.filtered = [...this.rawData];
-                this.mostrarDados(); this.populaSelects(); this.render();
-                mostrarToast('Estoque: cache local carregado');
-            } else {
-                mostrarToast(`Estoque erro: ${e.message}`);
-            }
+            mostrarToast(`Estoque erro: ${e.message}`);
         }
     },
 
@@ -2887,20 +2857,14 @@ const op = {
     async carregarHistorico() {
         const lista = await api.get('/api/importacoes-op');
         this._importacoes = lista || [];
-        this.renderHistorico();
-        if (lista?.length && !this._currentId) { await this.carregarImportacao(lista[0].id); return; }
-        if (!this._currentId) {
-            const c = lsCache.ler('op');
-            if (c?.rawData?.length) {
-                this.rawData = c.rawData; this.colunas = c.colunas || [];
-                this._currentId = c.importacaoId; this.filtered = [...this.rawData];
-                this._mapearColunasOP();
-                this._detectCombosCols();
-                document.getElementById('op-drop-zone').style.display = 'none';
-                document.getElementById('op-data').classList.add('visible');
-                this.render(); mostrarToast('Dados OP carregados do cache local');
+        if (lista?.length) {
+            const latest = lista[0];
+            const incompleto = this.rawData.length < (latest.total_linhas || 0);
+            if (!this._currentId || this._currentId !== latest.id || incompleto) {
+                await this.carregarImportacao(latest.id); return;
             }
         }
+        this.renderHistorico();
     },
 
     async carregarImportacao(id) {
@@ -3360,19 +3324,11 @@ const cliente = {
         const lista = await api.get('/api/importacoes-cliente');
         this._importacoes = lista || [];
         this.renderHistorico();
-        if (lista?.length && !this._currentId) { await this.carregarImportacao(lista[0].id); return; }
-        if (!this._currentId) {
-            const c = lsCache.ler('cliente');
-            if (c?.rawData?.length) {
-                this.rawData = c.rawData; this._currentId = c.importacaoId;
-                this.filtered = [...this.rawData];
-                this._mapearColunas(Object.keys(this.rawData[0]?.dados || {}));
-                this._detectCombosCols();
-                document.getElementById('cliente-drop-zone').style.display = 'none';
-                document.getElementById('cliente-data').classList.add('visible');
-                this.render(); mostrarToast('Dados Cliente carregados do cache local');
-                const cliView = document.getElementById('view-clientes-dash');
-                if (cliView && cliView.style.display !== 'none') clientesDash.render();
+        if (lista?.length) {
+            const latest = lista[0];
+            const incompleto = this.rawData.length < (latest.total_linhas || 0);
+            if (!this._currentId || this._currentId !== latest.id || incompleto) {
+                await this.carregarImportacao(latest.id); return;
             }
         }
     },
@@ -4446,19 +4402,14 @@ const banco = {
     async carregarHistorico() {
         const lista = await api.get('/api/importacoes-banco');
         this._importacoes = lista || [];
-        this.renderHistorico();
-        if (lista?.length && !this._currentId) { await this.carregarImportacao(lista[0].id); return; }
-        if (!this._currentId) {
-            const c = lsCache.ler('banco');
-            if (c?.rawData?.length) {
-                this.rawData = c.rawData; this.colunas = c.colunas || [];
-                this._currentId = c.importacaoId; this.filtered = [...this.rawData];
-                this._detectCombosCols();
-                document.getElementById('banco-drop-zone').style.display = 'none';
-                document.getElementById('banco-data').classList.add('visible');
-                this.render(); mostrarToast('Dados Banco carregados do cache local');
+        if (lista?.length) {
+            const latest = lista[0];
+            const incompleto = this.rawData.length < (latest.total_linhas || 0);
+            if (!this._currentId || this._currentId !== latest.id || incompleto) {
+                await this.carregarImportacao(latest.id); return;
             }
         }
+        this.renderHistorico();
     },
 
     async carregarImportacao(id) {
@@ -4763,19 +4714,14 @@ const costura = {
     async carregarHistorico() {
         const lista = await api.get('/api/importacoes-costura');
         this._importacoes = lista || [];
-        this.renderHistorico();
-        if (lista?.length && !this._currentId) { await this.carregarImportacao(lista[0].id); return; }
-        if (!this._currentId) {
-            const c = lsCache.ler('costura');
-            if (c?.rawData?.length) {
-                this.rawData = c.rawData; this.colunas = c.colunas || [];
-                this._currentId = c.importacaoId; this.filtered = [...this.rawData];
-                this._detectCombosCols();
-                document.getElementById('costura-drop-zone').style.display = 'none';
-                document.getElementById('costura-data').classList.add('visible');
-                this.render(); mostrarToast('Dados Costura carregados do cache local');
+        if (lista?.length) {
+            const latest = lista[0];
+            const incompleto = this.rawData.length < (latest.total_linhas || 0);
+            if (!this._currentId || this._currentId !== latest.id || incompleto) {
+                await this.carregarImportacao(latest.id); return;
             }
         }
+        this.renderHistorico();
     },
 
     async carregarImportacao(id) {
