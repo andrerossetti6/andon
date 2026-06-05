@@ -4463,35 +4463,52 @@ const banco = {
         return String(key).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
     },
 
+    // Mapeamento fixo por posição de coluna
+    _SCHEMA: [
+        'Código','Descrição','Modelo','Segmento','Marca','Stoll',
+        'Tamanho','Tempo Tecelagem','Tempo Tece Frente','Tempo Tece Costas',
+        'Tempo Costura Manual','Tempo Costura Automática','Soldagem','Silicone','Embalagem'
+    ],
+
     handleFile(file) {
         this._nomeArquivo = file.name;
         const ext = file.name.split('.').pop().toLowerCase();
+        const processar = (rawRows) => {
+            // Pula linhas vazias do topo para achar o cabeçalho real
+            let headerIdx = 0;
+            for (let i = 0; i < rawRows.length; i++) {
+                if (rawRows[i].filter(c => String(c).trim() !== '').length >= 3) { headerIdx = i; break; }
+            }
+            const excelCols = rawRows[headerIdx];
+            // Primeiras N colunas recebem nomes fixos do schema; demais usam o nome do Excel
+            const headers = excelCols.map((h, i) =>
+                i < this._SCHEMA.length ? this._SCHEMA[i] : (String(h).trim() || `Coluna_${i + 1}`)
+            );
+            const dataRows = rawRows.slice(headerIdx + 1)
+                .filter(row => row.some(c => String(c).trim() !== ''))
+                .map(row => Object.fromEntries(headers.map((h, i) => [h, row[i] ?? ''])));
+            this.processData(dataRows, headers);
+        };
         if (ext === 'csv') {
-            Papa.parse(file, { header: true, skipEmptyLines: true, complete: r => this.processData(r.data) });
+            Papa.parse(file, { header: false, skipEmptyLines: false, complete: r => processar(r.data) });
         } else if (['xls','xlsx'].includes(ext)) {
             const reader = new FileReader();
             reader.onload = e => {
-                const wb   = XLSX.read(e.target.result, { type: 'array' });
-                const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
-                this.processData(data);
+                const wb = XLSX.read(e.target.result, { type: 'array' });
+                const sheet = wb.Sheets[wb.SheetNames[0]];
+                processar(XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false, dateNF: 'yyyy-mm-dd' }));
             };
             reader.readAsArrayBuffer(file);
         }
     },
 
-    processData(rows) {
+    processData(rows, headers) {
         if (!rows?.length) return;
-        const allHeaders = Object.keys(rows[0]).filter(h => {
-            const n = this.normalizeKey(h);
-            return n && !n.startsWith('__');
-        });
-        const QTD_KEYS = ['quantidade','qtd','qty','qtde','saldo','pecas','pcs','aproduzir'];
-        const qtdNorm  = allHeaders.find(h => QTD_KEYS.includes(this.normalizeKey(h)));
-        this._colQtd   = qtdNorm || null;
-        this.colunas   = allHeaders;
-        this.rawData   = rows.map((r, i) => ({
+        this.colunas = headers || Object.keys(rows[0]).filter(h => !this.normalizeKey(h).startsWith('__'));
+        this._colQtd = null; // banco de dados não tem coluna de quantidade
+        this.rawData = rows.map((r, i) => ({
             _id: i,
-            dados: Object.fromEntries(allHeaders.map(h => [h, r[h] ?? '']))
+            dados: Object.fromEntries(this.colunas.map(h => [h, r[h] ?? '']))
         }));
         this.filtered = [...this.rawData];
         this._finalizarImport();
@@ -4506,16 +4523,16 @@ const banco = {
     },
 
     _detectCombosCols() {
-        const STATUS_KEYS  = ['status','situacao','situação','estado'];
-        const DESC_KEYS    = ['descricao','descr','desc','produto','descproduto','modelo'];
-        const SEG_KEYS     = ['segmento','seg','familia','linha'];
-        const find = keys => this.colunas.find(c => keys.includes(this.normalizeKey(c)));
-
-        this._col1 = find(STATUS_KEYS) || this.colunas.find(c => STATUS_KEYS.some(k => this.normalizeKey(c).includes(k)));
-        this._col2 = find(SEG_KEYS) || find(DESC_KEYS) || this.colunas.find(c => {
-            const n = this.normalizeKey(c);
-            return SEG_KEYS.some(k => n.includes(k)) || DESC_KEYS.some(k => n.includes(k));
-        });
+        // Filtros fixos pelo schema: col1 = Segmento, col2 = Modelo
+        const find = (...names) => {
+            for (const n of names) {
+                const found = this.colunas.find(c => this.normalizeKey(c) === this.normalizeKey(n));
+                if (found) return found;
+            }
+            return this.colunas.find(c => names.some(n => this.normalizeKey(c).includes(this.normalizeKey(n)))) || null;
+        };
+        this._col1 = find('Segmento', 'segmento', 'seg', 'familia');
+        this._col2 = find('Modelo', 'modelo', 'marca', 'stoll');
 
         const uniq = col => col
             ? [...new Set(this.rawData.map(r => String(r.dados?.[col] ?? '')).filter(Boolean))].sort()
