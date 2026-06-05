@@ -4555,6 +4555,21 @@ const planoProducao = {
     },
 
     async salvar() {
+        // Alerta de capacidade antes de salvar
+        if (this._mesSel && banco.rawData.length) {
+            const demMapa = {};
+            previsao._forecast.filter(r=>r.mes===this._mesSel).forEach(r=>{
+                const qty = this._plano[`${this._mesSel}_${r.codigo}`] ?? r.qty;
+                if (qty>0) demMapa[r.codigo]=(demMapa[r.codigo]||0)+qty;
+            });
+            const resultCap = toc.calcularComDemanda(demMapa);
+            const sobrecarga = resultCap.filter(p => p.cargaMin>0 && p.util>=1);
+            if (sobrecarga.length) {
+                const lista = sobrecarga.map(p=>`• ${p.nome}: ${(p.util*100).toFixed(0)}% utilização`).join('\n');
+                const ok = confirm(`⚠️ Atenção — capacidade excedida em ${sobrecarga.length} processo(s):\n\n${lista}\n\nDeseja salvar mesmo assim?`);
+                if (!ok) return;
+            }
+        }
         let salvou = false;
         if (this._dirty.size) {
             const items = [...this._dirty].map(k => {
@@ -4698,20 +4713,190 @@ const planoProducao = {
 
 // ====== S&OP — DASHBOARD EXECUTIVO ======
 const soepDash = {
-    _acoes: [],
+    _acoes:     [],
+    _snapshots: [],
+    _abaAtiva:  'visao-geral',
 
-    init() { this.carregarAcoes(); },
+    init() { this.carregarAcoes(); this.carregarSnapshots(); },
 
     async carregarAcoes() {
         try { this._acoes = await api.get('/api/soep-acoes') || []; } catch { this._acoes=[]; }
     },
 
+    async carregarSnapshots() {
+        try { this._snapshots = await api.get('/api/soep-snapshot') || []; } catch { this._snapshots=[]; }
+    },
+
+    async salvarSnapshotAtual() {
+        if (!previsao._forecast.length) { mostrarToast('Calcule a Previsão primeiro.','erro'); return; }
+        const porMes = {};
+        previsao._forecast.forEach(r => {
+            if (!porMes[r.mes]) porMes[r.mes] = [];
+            porMes[r.mes].push({ codigo: r.codigo, qty: r.qty });
+        });
+        let total = 0;
+        for (const [mes, items] of Object.entries(porMes)) {
+            const r = await api.post('/api/soep-snapshot/bulk', { mes, items });
+            if (r?.ok) total += r.total||0;
+        }
+        await this.carregarSnapshots();
+        mostrarToast(`✓ Snapshot salvo — ${total} SKUs × ${Object.keys(porMes).length} meses`);
+        if (this._abaAtiva === 'prev-real') this._renderPrevReal();
+    },
+
+    _selecionarAba(aba) {
+        this._abaAtiva = aba;
+        ['visao-geral','prev-real'].forEach(a => {
+            const btn = document.getElementById(`soep-tab-${a}`);
+            const pnl = document.getElementById(`soep-panel-${a}`);
+            const ativo = a === aba;
+            if (btn) { btn.style.background = ativo ? 'var(--indigo-btn)' : 'var(--bg-input)'; btn.style.color = ativo ? '#fff' : 'var(--text-dim)'; }
+            if (pnl) pnl.style.display = ativo ? '' : 'none';
+        });
+        if (aba === 'prev-real') this._renderPrevReal();
+    },
+
     render() {
         if (!previsao._forecast.length && vendas.rawData.length) previsao.calcular();
         this._renderKPIs();
-        this._renderHorizonte();
-        this._renderCapHeatmap();
-        this._renderAcoes();
+        this._selecionarAba(this._abaAtiva);
+        if (this._abaAtiva === 'visao-geral') {
+            this._renderHorizonte();
+            this._renderCapHeatmap();
+            this._renderAcoes();
+        }
+    },
+
+    _renderPrevReal() {
+        const el = document.getElementById('soep-prev-real-content');
+        if (!el) return;
+        if (!this._snapshots.length) {
+            el.innerHTML = `<div style="padding:32px;text-align:center;color:var(--text-dim);">
+                <div style="font-size:2rem;margin-bottom:12px;">📸</div>
+                <div style="font-size:.9rem;margin-bottom:16px;">Nenhum snapshot salvo ainda.</div>
+                <div style="font-size:.82rem;">Clique em <strong>Salvar Snapshot</strong> após calcular a Previsão de Demanda para começar a rastrear a acurácia.</div>
+            </div>`;
+            return;
+        }
+        // Agrupa snapshots por mês
+        const snapMap = {};
+        this._snapshots.forEach(s => {
+            if (!snapMap[s.mes]) snapMap[s.mes] = {};
+            snapMap[s.mes][s.codigo] = s.qty_prevista;
+        });
+        // Monta mapa de vendas reais por mês+código
+        const realMap = {};
+        vendas.rawData.forEach(r => {
+            const cod = String(r.codigo||'').trim().toUpperCase();
+            vendas.monthCols.forEach(mc => {
+                const qty = r[mc.key]||0;
+                if (!qty) return;
+                const mesKey = mc.year ? `${mc.year}-${String(vendas._ABBR_TO_NUM?.[mc.abbr]||'00').padStart(2,'0')}` : null;
+                // fallback: use abbr+year label to build YYYY-MM
+                const ano = mc.year || '';
+                const num = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'].indexOf(mc.abbr) + 1;
+                if (!ano || !num) return;
+                const mk = `${ano}-${String(num).padStart(2,'0')}`;
+                if (!realMap[mk]) realMap[mk] = {};
+                realMap[mk][cod] = (realMap[mk][cod]||0) + qty;
+            });
+        });
+        const meses = Object.keys(snapMap).sort().reverse();
+        let html = `<div style="overflow-x:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+            <thead><tr style="color:var(--text-dim);font-size:.68rem;letter-spacing:.07em;border-bottom:2px solid var(--border-color);">
+                <th style="padding:10px 14px;text-align:left;">MÊS</th>
+                <th style="padding:10px 12px;text-align:right;">PREVISTO</th>
+                <th style="padding:10px 12px;text-align:right;">REALIZADO</th>
+                <th style="padding:10px 12px;text-align:right;">DIFERENÇA</th>
+                <th style="padding:10px 12px;text-align:right;">ERRO %</th>
+                <th style="padding:10px 12px;text-align:center;">STATUS</th>
+            </tr></thead><tbody>`;
+        let totPrev=0, totReal=0, countMeses=0;
+        meses.forEach((mes, i) => {
+            const prevMap  = snapMap[mes] || {};
+            const realMes  = realMap[mes] || {};
+            const prevTotal = Object.values(prevMap).reduce((s,v)=>s+v,0);
+            const realTotal = Object.values(realMes).reduce((s,v)=>s+v,0);
+            const diff   = realTotal - prevTotal;
+            const errPct = prevTotal > 0 ? Math.abs(diff/prevTotal*100) : null;
+            const temReal = realTotal > 0;
+            const cor = !temReal ? 'var(--text-dim)' : errPct<=10?'#26a69a':errPct<=20?'#ffca28':'#f06292';
+            const status = !temReal ? '⏳ Futuro' : errPct<=10?'✓ Boa':errPct<=20?'~ Regular':'✗ Alta variação';
+            // Data formatada
+            const [a,m] = mes.split('-');
+            const ABBR=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+            const mesLabel = `${ABBR[(parseInt(m)||1)-1]}/${String(a).slice(2)}`;
+            if (temReal) { totPrev+=prevTotal; totReal+=realTotal; countMeses++; }
+            const bg = i%2?'var(--bg-input)':'transparent';
+            html += `<tr style="background:${bg};cursor:pointer;" onclick="soepDash._expandirMes('${mes}')">
+                <td style="padding:9px 14px;font-weight:700;">${mesLabel}</td>
+                <td style="padding:9px 12px;text-align:right;">${prevTotal.toLocaleString('pt-BR')}</td>
+                <td style="padding:9px 12px;text-align:right;color:${temReal?'var(--text-primary)':'var(--text-dim)'};">${temReal?realTotal.toLocaleString('pt-BR'):'—'}</td>
+                <td style="padding:9px 12px;text-align:right;color:${cor};">${temReal?(diff>=0?'+':'')+diff.toLocaleString('pt-BR'):'—'}</td>
+                <td style="padding:9px 12px;text-align:right;font-weight:700;color:${cor};">${errPct!==null?errPct.toFixed(1)+'%':'—'}</td>
+                <td style="padding:9px 12px;text-align:center;font-size:.78rem;color:${cor};">${status}</td>
+            </tr>
+            <tr id="soep-exp-${mes}" style="display:none;"><td colspan="6" style="padding:0 14px 12px;"></td></tr>`;
+        });
+        if (countMeses>0) {
+            const totErr = totPrev>0?Math.abs((totReal-totPrev)/totPrev*100):0;
+            const cor = totErr<=10?'#26a69a':totErr<=20?'#ffca28':'#f06292';
+            html += `<tr style="border-top:2px solid var(--border-color);font-weight:700;">
+                <td style="padding:10px 14px;">MÉDIA GERAL</td>
+                <td style="padding:10px 12px;text-align:right;">${totPrev.toLocaleString('pt-BR')}</td>
+                <td style="padding:10px 12px;text-align:right;">${totReal.toLocaleString('pt-BR')}</td>
+                <td style="padding:10px 12px;text-align:right;color:${cor};">${((totReal-totPrev)>=0?'+':'')}${(totReal-totPrev).toLocaleString('pt-BR')}</td>
+                <td style="padding:10px 12px;text-align:right;font-weight:800;color:${cor};">${totErr.toFixed(1)}%</td>
+                <td></td>
+            </tr>`;
+        }
+        html += `</tbody></table></div>`;
+        el.innerHTML = html;
+    },
+
+    _expandirMes(mes) {
+        const row = document.getElementById(`soep-exp-${mes}`);
+        if (!row) return;
+        if (row.style.display !== 'none') { row.style.display='none'; return; }
+        const snapMap = {};
+        (this._snapshots.filter(s=>s.mes===mes)).forEach(s => { snapMap[s.codigo] = s.qty_prevista; });
+        const realMap = {};
+        vendas.rawData.forEach(r => {
+            const cod = String(r.codigo||'').trim().toUpperCase();
+            vendas.monthCols.forEach(mc => {
+                const ano = mc.year||''; const num = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'].indexOf(mc.abbr)+1;
+                if (!ano||!num) return;
+                if (`${ano}-${String(num).padStart(2,'0')}` !== mes) return;
+                realMap[cod] = (realMap[cod]||0)+(r[mc.key]||0);
+            });
+        });
+        const todos = [...new Set([...Object.keys(snapMap),...Object.keys(realMap)])];
+        const rows = todos.map(cod => ({
+            cod, prev: snapMap[cod]||0, real: realMap[cod]||0,
+            err: snapMap[cod]>0 ? Math.abs((realMap[cod]||0)-(snapMap[cod]))/(snapMap[cod])*100 : null
+        })).filter(r=>r.prev||r.real).sort((a,b)=>Math.abs(b.real-b.prev)-Math.abs(a.real-a.prev)).slice(0,20);
+        let inner = `<div style="background:var(--bg-input);border-radius:8px;padding:14px;margin-top:4px;">
+            <div style="font-size:.72rem;color:var(--text-dim);margin-bottom:10px;">TOP 20 SKUs com maior variação — clique na linha para fechar</div>
+            <table style="width:100%;border-collapse:collapse;font-size:.75rem;">
+            <tr style="color:var(--text-dim);border-bottom:1px solid var(--border-color);">
+                <th style="padding:4px 8px;text-align:left;">CÓDIGO</th>
+                <th style="padding:4px 8px;text-align:right;">PREVISTO</th>
+                <th style="padding:4px 8px;text-align:right;">REALIZADO</th>
+                <th style="padding:4px 8px;text-align:right;">ERRO%</th>
+            </tr>`;
+        rows.forEach((r,i) => {
+            const cor = r.err===null?'var(--text-dim)':r.err<=10?'#26a69a':r.err<=20?'#ffca28':'#f06292';
+            inner += `<tr style="background:${i%2?'rgba(255,255,255,.03)':'transparent'};">
+                <td style="padding:4px 8px;font-weight:600;color:var(--indigo-primary);">${escHTML(r.cod)}</td>
+                <td style="padding:4px 8px;text-align:right;">${r.prev.toLocaleString('pt-BR')}</td>
+                <td style="padding:4px 8px;text-align:right;">${r.real?r.real.toLocaleString('pt-BR'):'—'}</td>
+                <td style="padding:4px 8px;text-align:right;font-weight:700;color:${cor};">${r.err!==null?r.err.toFixed(1)+'%':'—'}</td>
+            </tr>`;
+        });
+        inner += `</table></div>`;
+        row.children[0].innerHTML = inner;
+        row.style.display = '';
     },
 
     _renderKPIs() {

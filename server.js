@@ -496,6 +496,28 @@ app.delete('/api/soep-acoes/:id', auth, adminOnly, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── S&OP — SNAPSHOT DE PREVISÃO (histórico para acurácia) ────
+app.get('/api/soep-snapshot', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('soep_snapshot').select('mes,codigo,qty_prevista,criado_em').order('criado_em', { ascending: false });
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.post('/api/soep-snapshot/bulk', auth, async (req, res) => {
+    const { mes, items } = req.body;
+    if (!mes || !Array.isArray(items) || !items.length) return res.status(400).json({ erro: 'mes e items obrigatórios' });
+    // Remove snapshot anterior do mesmo mês e recria
+    await supabase.from('soep_snapshot').delete().eq('mes', mes);
+    const rows = items.map(i => ({ mes, codigo: String(i.codigo).toUpperCase(), qty_prevista: i.qty||0, usuario_id: req.user.id }));
+    const { error } = await supabase.from('soep_snapshot').insert(rows);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, total: rows.length });
+});
+app.delete('/api/soep-snapshot/:mes', auth, adminOnly, async (req, res) => {
+    const { error } = await supabase.from('soep_snapshot').delete().eq('mes', req.params.mes);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
 // ── S&OP — PLANO DE PRODUÇÃO (persiste no banco) ─────────────
 app.get('/api/soep-plano', auth, async (_req, res) => {
     const { data, error } = await supabase.from('soep_plano').select('mes,codigo,quantidade');
@@ -753,6 +775,7 @@ app.get('/api/setup', async (_req, res) => {
         { nome: 'soep_acoes',           sql: `CREATE TABLE IF NOT EXISTS soep_acoes (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), descricao TEXT NOT NULL, responsavel TEXT, prazo DATE, status TEXT DEFAULT 'aberta', modulo TEXT, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE soep_acoes DISABLE ROW LEVEL SECURITY;` },
         { nome: 'soep_plano',           sql: `CREATE TABLE IF NOT EXISTS soep_plano (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), mes TEXT NOT NULL, codigo TEXT NOT NULL, quantidade INTEGER DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), atualizado_em TIMESTAMPTZ DEFAULT NOW(), UNIQUE(mes,codigo)); ALTER TABLE soep_plano DISABLE ROW LEVEL SECURITY;` },
         { nome: 'estoque_minimo',       sql: `CREATE TABLE IF NOT EXISTS estoque_minimo (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), codigo TEXT NOT NULL UNIQUE, quantidade INTEGER DEFAULT 0, atualizado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE estoque_minimo DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'soep_snapshot',        sql: `CREATE TABLE IF NOT EXISTS soep_snapshot (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), mes TEXT NOT NULL, codigo TEXT NOT NULL, qty_prevista INTEGER DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), criado_em TIMESTAMPTZ DEFAULT NOW()); CREATE INDEX IF NOT EXISTS idx_soep_snap_mes ON soep_snapshot(mes,codigo); ALTER TABLE soep_snapshot DISABLE ROW LEVEL SECURITY;` },
     ];
 
     const faltando = [];

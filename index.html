@@ -2146,43 +2146,78 @@
             <h1 class="page-title">Dashboard <span>S&amp;OP</span></h1>
             <p class="page-subtitle">Visão executiva — Demanda · Produção · Estoque · Capacidade · Ações</p>
         </div>
-        <button onclick="soepDash.render()" style="padding:9px 22px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.83rem;font-weight:700;cursor:pointer;">ATUALIZAR</button>
+        <div style="display:flex;gap:10px;">
+            <button onclick="soepDash.salvarSnapshotAtual()" style="padding:9px 18px;border-radius:8px;border:1px solid var(--indigo-btn);background:transparent;color:var(--indigo-primary);font-size:.83rem;font-weight:600;cursor:pointer;" title="Salva a previsão atual para comparar com o realizado depois">📸 Snapshot</button>
+            <button onclick="soepDash.render()" style="padding:9px 22px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.83rem;font-weight:700;cursor:pointer;">ATUALIZAR</button>
+        </div>
     </header>
+
+    <!-- KPIs sempre visíveis -->
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;" id="soep-kpis"></div>
-    <div class="summary-card" style="margin-bottom:20px;">
-        <div class="s-label" style="margin-bottom:14px;">HORIZONTE 3 MESES — POR SEGMENTO <span style="font-weight:400;color:var(--text-dim);">(PREV = previsão · PLAN = plano de produção)</span></div>
-        <div style="overflow-x:auto;"><table id="soep-horizonte-table" style="width:100%;border-collapse:collapse;font-size:.82rem;"></table></div>
+
+    <!-- Abas -->
+    <div style="display:flex;gap:8px;margin-bottom:20px;">
+        <button id="soep-tab-visao-geral" onclick="soepDash._selecionarAba('visao-geral')"
+            style="padding:8px 22px;border-radius:8px;border:none;font-size:.83rem;font-weight:600;cursor:pointer;background:var(--indigo-btn);color:#fff;">
+            Visão Geral
+        </button>
+        <button id="soep-tab-prev-real" onclick="soepDash._selecionarAba('prev-real')"
+            style="padding:8px 22px;border-radius:8px;border:none;font-size:.83rem;font-weight:600;cursor:pointer;background:var(--bg-input);color:var(--text-dim);">
+            Previsto vs Realizado
+        </button>
     </div>
-    <div class="summary-card" style="margin-bottom:20px;">
-        <div class="s-label" style="margin-bottom:14px;">CAPACIDADE — PRÓXIMOS MESES <span style="font-weight:400;color:var(--text-dim);">(% utilização por processo)</span></div>
-        <div id="soep-cap-heatmap"></div>
+
+    <!-- Painel: Visão Geral -->
+    <div id="soep-panel-visao-geral">
+        <div class="summary-card" style="margin-bottom:20px;">
+            <div class="s-label" style="margin-bottom:14px;">HORIZONTE 3 MESES — POR SEGMENTO <span style="font-weight:400;color:var(--text-dim);">(PREV = previsão · PLAN = plano de produção)</span></div>
+            <div style="overflow-x:auto;"><table id="soep-horizonte-table" style="width:100%;border-collapse:collapse;font-size:.82rem;"></table></div>
+        </div>
+        <div class="summary-card" style="margin-bottom:20px;">
+            <div class="s-label" style="margin-bottom:14px;">CAPACIDADE — PRÓXIMOS MESES <span style="font-weight:400;color:var(--text-dim);">(% utilização por processo)</span></div>
+            <div id="soep-cap-heatmap"></div>
+        </div>
+        <div class="summary-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+                <div class="s-label">AÇÕES &amp; DECISÕES</div>
+                <button onclick="soepDash.novaAcao()" style="padding:7px 16px;border-radius:7px;border:1px solid var(--indigo-btn);background:transparent;color:var(--indigo-primary);font-size:.8rem;font-weight:600;cursor:pointer;">+ Nova Ação</button>
+            </div>
+            <div id="soep-nova-acao-form" style="display:none;background:var(--bg-input);border-radius:8px;padding:16px;margin-bottom:16px;">
+                <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+                    <input id="soep-acao-desc" type="text" placeholder="Descrição da ação *" style="padding:8px 12px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;">
+                    <input id="soep-acao-resp" type="text" placeholder="Responsável" style="padding:8px 12px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;">
+                    <input id="soep-acao-prazo" type="date" style="padding:8px 12px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;">
+                    <select id="soep-acao-mod" style="padding:8px 10px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;">
+                        <option value="">Módulo (opcional)</option>
+                        <option value="Demanda">Demanda</option>
+                        <option value="Produção">Produção</option>
+                        <option value="Estoque">Estoque</option>
+                        <option value="Capacidade">Capacidade</option>
+                        <option value="Financeiro">Financeiro</option>
+                        <option value="Geral">Geral</option>
+                    </select>
+                </div>
+                <div style="display:flex;gap:10px;">
+                    <button onclick="soepDash.salvarAcao()" style="padding:8px 20px;border-radius:7px;border:none;background:var(--indigo-btn);color:#fff;font-size:.82rem;font-weight:700;cursor:pointer;">SALVAR</button>
+                    <button onclick="soepDash.novaAcao()" style="padding:8px 16px;border-radius:7px;border:1px solid var(--border-color);background:transparent;color:var(--text-dim);font-size:.82rem;cursor:pointer;">Cancelar</button>
+                </div>
+            </div>
+            <div id="soep-acoes-lista"></div>
+        </div>
     </div>
-    <div class="summary-card">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-            <div class="s-label">AÇÕES &amp; DECISÕES</div>
-            <button onclick="soepDash.novaAcao()" style="padding:7px 16px;border-radius:7px;border:1px solid var(--indigo-btn);background:transparent;color:var(--indigo-primary);font-size:.8rem;font-weight:600;cursor:pointer;">+ Nova Ação</button>
-        </div>
-        <div id="soep-nova-acao-form" style="display:none;background:var(--bg-input);border-radius:8px;padding:16px;margin-bottom:16px;">
-            <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
-                <input id="soep-acao-desc" type="text" placeholder="Descrição da ação *" style="padding:8px 12px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;">
-                <input id="soep-acao-resp" type="text" placeholder="Responsável" style="padding:8px 12px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;">
-                <input id="soep-acao-prazo" type="date" style="padding:8px 12px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;">
-                <select id="soep-acao-mod" style="padding:8px 10px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;">
-                    <option value="">Módulo (opcional)</option>
-                    <option value="Demanda">Demanda</option>
-                    <option value="Produção">Produção</option>
-                    <option value="Estoque">Estoque</option>
-                    <option value="Capacidade">Capacidade</option>
-                    <option value="Financeiro">Financeiro</option>
-                    <option value="Geral">Geral</option>
-                </select>
+
+    <!-- Painel: Previsto vs Realizado -->
+    <div id="soep-panel-prev-real" style="display:none;">
+        <div class="summary-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+                <div>
+                    <div class="s-label">ACURÁCIA DA PREVISÃO — PREVISTO VS REALIZADO</div>
+                    <div style="font-size:.75rem;color:var(--text-dim);margin-top:4px;">Clique em qualquer mês para ver os 20 SKUs com maior variação</div>
+                </div>
+                <button onclick="soepDash.salvarSnapshotAtual()" style="padding:8px 18px;border-radius:7px;border:1px solid var(--indigo-btn);background:transparent;color:var(--indigo-primary);font-size:.8rem;font-weight:600;cursor:pointer;">📸 Salvar Snapshot Atual</button>
             </div>
-            <div style="display:flex;gap:10px;">
-                <button onclick="soepDash.salvarAcao()" style="padding:8px 20px;border-radius:7px;border:none;background:var(--indigo-btn);color:#fff;font-size:.82rem;font-weight:700;cursor:pointer;">SALVAR</button>
-                <button onclick="soepDash.novaAcao()" style="padding:8px 16px;border-radius:7px;border:1px solid var(--border-color);background:transparent;color:var(--text-dim);font-size:.82rem;cursor:pointer;">Cancelar</button>
-            </div>
+            <div id="soep-prev-real-content"></div>
         </div>
-        <div id="soep-acoes-lista"></div>
     </div>
 </main>
 
