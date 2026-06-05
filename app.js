@@ -291,9 +291,18 @@ function mostrarApp() {
         }
         const lastView = localStorage.getItem('sin1_lastView');
         if (lastView) navigateTo(lastView);
-        // Dashboard sempre atualizado após dados carregarem
+        // Dashboard e dashboards dependentes atualizados após todos os módulos carregarem
         homeDash.render();
         alertas.verificar();
+        // Marca todos os dashboards dependentes como dirty para próxima navegação
+        vxe._dirty = true;
+        opDash._dirty = true;
+        pesquisa._dirty = true;
+        clientesDash._dirty = true;
+        comparador._dirty = true;
+        abc._items = [];
+        abcMicro._items = [];
+        abcEstoque._items = [];
     });
 }
 
@@ -939,6 +948,7 @@ function navigateTo(viewName) {
         document.querySelector('[data-view="capacidade"]')?.classList.add('sub-active');
     } else if (viewName === 'pesquisa') {
         document.getElementById('nav-pesquisa')?.classList.add('active');
+        if (pesquisa._dirty) { pesquisa.populateFiltros(); pesquisa._dirty = false; }
         pesquisa.render();
     } else if (viewName === 'vxe') {
         vxe.render();
@@ -948,14 +958,15 @@ function navigateTo(viewName) {
         pedidos.render();
     } else if (viewName === 'comparador') {
         document.getElementById('nav-comparador')?.classList.add('active');
+        comparador._dirty = false;
         comparador.render();
     } else if (viewName === 'clientes-dash') {
         document.getElementById('nav-clientes-dash')?.classList.add('active');
         if (cliente.rawData.length) {
+            clientesDash._dirty = false;
             clientesDash.render();
         } else {
-            // Carrega dados do cliente e depois renderiza o dashboard
-            cliente.carregarHistorico().then(() => clientesDash.render());
+            cliente.carregarHistorico().then(() => { clientesDash._dirty = false; clientesDash.render(); });
         }
     } else if (viewName === 'op-dash') {
         document.getElementById('nav-op-dash')?.classList.add('active');
@@ -1524,11 +1535,15 @@ const vendas = {
         }
         // opDash — marca dirty
         opDash._dirty = true;
-        // comparador — re-renderiza se visível
+        // comparador — re-renderiza se visível, senão dirty
         const compView = document.getElementById('view-comparador');
         if (compView && compView.style.display !== 'none') {
             setTimeout(() => comparador.render(), 50);
+        } else {
+            comparador._dirty = true;
         }
+        // pesquisa — mapas estão desatualizados
+        pesquisa._dirty = true;
         // Alertas — verifica críticos e atualiza badge
         setTimeout(() => alertas.verificar(), 200);
     },
@@ -2373,6 +2388,8 @@ const estoque = {
         // Notifica dashboards dependentes
         vxe._dirty = true;
         opDash._dirty = true;
+        pesquisa._dirty = true;
+        abcEstoque._items = [];
         const vxeView = document.getElementById('view-vxe');
         if (vxeView && vxeView.style.display !== 'none') setTimeout(() => vxe.render(), 100);
     },
@@ -2894,6 +2911,7 @@ const op = {
         // Notifica dashboards dependentes
         opDash._dirty = true;
         vxe._dirty = true;
+        pesquisa._dirty = true;
         setTimeout(() => alertas.verificar(), 300);
     },
 
@@ -3360,9 +3378,13 @@ const cliente = {
         this.render();
         this.renderHistorico();
         lsCache.salvar('cliente', { importacaoId: id, rawData: this.rawData });
-        // Notifica o dashboard de clientes se estiver aberto
+        // Notifica dashboard de clientes
+        clientesDash._dirty = true;
         const cliView = document.getElementById('view-clientes-dash');
-        if (cliView && cliView.style.display !== 'none') clientesDash.render();
+        if (cliView && cliView.style.display !== 'none') {
+            clientesDash.render();
+            clientesDash._dirty = false;
+        }
     },
 
     renderHistorico() {
@@ -4764,6 +4786,7 @@ const costura = {
         this.render();
         this.renderHistorico();
         lsCache.salvar('costura', { importacaoId: id, colunas: this.colunas, rawData: this.rawData });
+        pesquisa._dirty = true;
     },
 
     renderHistorico() {
@@ -5924,8 +5947,11 @@ const opDash = {
         });
         const opMap = {};
         const qtdCol = op._colQtd;
+        const COD_KEYS_OP = ['ref','referencia','codigo','cod','codigoproduto'];
+        const refCol = op._colRef
+            || op.colunas?.find(c => { const n = normalizeKey(c); return COD_KEYS_OP.some(k => n === k || n.includes(k)); });
         op.rawData.forEach(r => {
-            const k = String(r.dados?.['Código'] || r.dados?.['codigo'] || r.dados?.['CÓDIGO'] || '').trim().toUpperCase();
+            const k = refCol ? String(r.dados?.[refCol] ?? '').trim().toUpperCase() : '';
             const q = qtdCol ? (parseFloat(String(r.dados?.[qtdCol] ?? '0').replace(',', '.')) || 0) : 0;
             if (k) opMap[k] = (opMap[k] || 0) + q;
         });
@@ -6116,6 +6142,7 @@ const opDash = {
 
 const pesquisa = {
     _query: '',
+    _dirty: false,
 
     init() {
         const inp = document.getElementById('pesquisa-input');
@@ -6639,6 +6666,7 @@ const vxe = {
 // ====== DASHBOARD: CLIENTES ======
 const clientesDash = {
     _rows:     [],
+    _dirty:    false,
     _rankMode: 'valor',   // 'valor' | 'qtd'
     _sortCol:  'valor',
     _sortAsc:  false,
@@ -6985,6 +7013,7 @@ const clientesDash = {
 // ====== DASHBOARD: COMPARADOR DE TENDÊNCIAS ======
 const comparador = {
     _ano: 'ambos',
+    _dirty: false,
     _colors: ['#26c6da', '#f06292', '#7c4dff', '#ffb74d', '#66bb6a'],
     _labels: ['A', 'B', 'C', 'D', 'E'],
     _slots: [
