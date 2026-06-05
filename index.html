@@ -83,6 +83,7 @@
                             <li data-view="calendario" onclick="navigateTo('calendario')">Calendário</li>
                             <li data-view="processos"  onclick="navigateTo('processos')">Processos</li>
                             <li data-view="capacidade" onclick="navigateTo('capacidade')">Matriz de Set Up</li>
+                            <li data-view="toc"        onclick="navigateTo('toc')">Gargalo (TOC)</li>
                         </ul>
                     </li>
                 </ul>
@@ -2016,6 +2017,85 @@
         </div>
     </div>
 </div>
+
+<!-- ── TOC — Teoria das Restrições ───────────────────────────── -->
+<main class="content" id="view-toc" style="display:none;">
+    <header class="page-header">
+        <div class="page-header-text">
+            <h1 class="page-title">Teoria das <span>Restrições</span></h1>
+            <p class="page-subtitle">Identifica o gargalo da produção cruzando tempos do banco de dados com a demanda</p>
+        </div>
+    </header>
+
+    <!-- Config -->
+    <div class="summary-card" style="margin-bottom:20px;">
+        <div class="s-label" style="margin-bottom:16px;">CONFIGURAÇÃO</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:16px;align-items:end;">
+            <div>
+                <div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:6px;letter-spacing:.06em;">FONTE DE DEMANDA</div>
+                <select id="toc-fonte-sel" style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:8px;color:var(--text-primary);font-size:0.85rem;">
+                    <option value="vxe">VxE — média mensal de vendas</option>
+                    <option value="op">OP — ordens em aberto</option>
+                </select>
+            </div>
+            <div id="toc-vxe-periodo-wrap">
+                <div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:6px;letter-spacing:.06em;">ANO DE REFERÊNCIA</div>
+                <select id="toc-ano-sel" style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:8px;color:var(--text-primary);font-size:0.85rem;">
+                    <option value="all">Todos os anos</option>
+                </select>
+            </div>
+            <div>
+                <div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:6px;letter-spacing:.06em;">DIAS ÚTEIS / MÊS</div>
+                <input id="toc-dias" type="number" value="22" min="1" max="31"
+                    style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:8px;color:var(--text-primary);font-size:0.85rem;">
+            </div>
+            <button id="toc-btn-calc" onclick="toc.calcular()"
+                style="padding:9px 24px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:0.85rem;font-weight:700;cursor:pointer;white-space:nowrap;transition:opacity .15s;"
+                onmouseover="this.style.opacity='.85'" onmouseout="this.style.opacity='1'">
+                CALCULAR GARGALO
+            </button>
+        </div>
+    </div>
+
+    <!-- Capacidade -->
+    <div class="summary-card" style="margin-bottom:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+            <div class="s-label">CAPACIDADE DISPONÍVEL POR PROCESSO</div>
+            <span style="font-size:0.72rem;color:var(--text-dim);">máquinas / operadores × horas por dia</span>
+        </div>
+        <div id="toc-cap-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;"></div>
+    </div>
+
+    <!-- Resultado -->
+    <div id="toc-resultado" style="display:none;">
+        <!-- Destaque gargalo -->
+        <div id="toc-gargalo-card" style="margin-bottom:20px;padding:20px 24px;border-radius:12px;border:2px solid #f06292;background:rgba(240,98,146,.07);">
+            <div style="font-size:0.65rem;color:#f06292;letter-spacing:.14em;font-weight:700;margin-bottom:6px;">GARGALO IDENTIFICADO</div>
+            <div id="toc-gargalo-nome" style="font-size:1.6rem;font-weight:800;color:#f06292;margin-bottom:4px;"></div>
+            <div id="toc-gargalo-sub"  style="font-size:0.85rem;color:var(--text-dim);"></div>
+        </div>
+
+        <!-- Barras por processo -->
+        <div class="summary-card" style="margin-bottom:20px;">
+            <div class="s-label" style="margin-bottom:16px;">UTILIZAÇÃO POR PROCESSO</div>
+            <div id="toc-barras"></div>
+        </div>
+
+        <!-- Top peças do gargalo -->
+        <div class="summary-card">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+                <div class="s-label">TOP PEÇAS — </div>
+                <span id="toc-top-proc-label" style="font-size:0.75rem;color:var(--indigo-primary);font-weight:700;"></span>
+            </div>
+            <div style="overflow-x:auto;">
+                <table id="toc-top-table" style="width:100%;border-collapse:collapse;font-size:0.82rem;">
+                    <thead><tr id="toc-top-thead" style="color:var(--text-dim);font-size:0.7rem;letter-spacing:.06em;border-bottom:1px solid var(--border-color);"></tr></thead>
+                    <tbody id="toc-top-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</main>
 
 </body>
 </html>

@@ -260,6 +260,7 @@ function mostrarApp() {
     cliente.init();
     processosGerenciamento.init();
     capacidade.init();
+    toc.init();
     estoque.init();
     op.init();
     costura.init();
@@ -946,6 +947,10 @@ function navigateTo(viewName) {
         processosGerenciamento.carregarProcessos();
     } else if (viewName === 'capacidade') {
         document.querySelector('[data-view="capacidade"]')?.classList.add('sub-active');
+    } else if (viewName === 'toc') {
+        document.querySelector('[data-view="toc"]')?.classList.add('sub-active');
+        toc._popularAnos();
+        toc._renderCapacidade();
     } else if (viewName === 'pesquisa') {
         document.getElementById('nav-pesquisa')?.classList.add('active');
         if (pesquisa._dirty) { pesquisa.populateFiltros(); pesquisa._dirty = false; }
@@ -4004,6 +4009,250 @@ const disponibilidade = {
 
 const calendario = criarModuloArq('calendario', 'calendario');
 const capacidade = criarModuloArq('capacidade',  'capacidade');
+
+// ====== TOC — TEORIA DAS RESTRIÇÕES ======
+const toc = {
+    // Processos com mapeamento para colunas do banco de dados
+    _PROCS: [
+        { id: 'tecelagem',      nome: 'Tecelagem',           cols: ['Tempo Tece Frente','Tempo Tece Costas','Tempo Tecelagem'] },
+        { id: 'costura_auto',   nome: 'Costura Automática',  cols: ['Tempo Costura Automática','Tempo Costura Automatica'] },
+        { id: 'costura_manual', nome: 'Costura Manual',      cols: ['Tempo Costura Manual'] },
+        { id: 'soldagem',       nome: 'Soldagem',            cols: ['Soldagem','Tempo Soldagem'] },
+        { id: 'silicone',       nome: 'Silicone',            cols: ['Silicone','Tempo Silicone'] },
+        { id: 'passadoria',     nome: 'Passadoria',          cols: ['Passadoria','Tempo Passadoria'] },
+        { id: 'embalagem',      nome: 'Embalagem',           cols: ['Embalagem','Tempo Embalagem'] },
+    ],
+
+    init() {
+        this._renderCapacidade();
+        this._popularAnos();
+        document.getElementById('toc-fonte-sel')?.addEventListener('change', () => {
+            const isVxe = document.getElementById('toc-fonte-sel').value === 'vxe';
+            const wrap = document.getElementById('toc-vxe-periodo-wrap');
+            if (wrap) wrap.style.display = isVxe ? '' : 'none';
+        });
+    },
+
+    _popularAnos() {
+        const sel = document.getElementById('toc-ano-sel');
+        if (!sel) return;
+        const anos = vendas.years || [];
+        const cur = sel.value;
+        sel.innerHTML = '<option value="all">Todos os anos</option>' +
+            anos.map(a => `<option value="${a}"${a === cur ? ' selected' : ''}>${a}</option>`).join('');
+    },
+
+    _getCap() {
+        try { return JSON.parse(localStorage.getItem('toc-cap') || '{}'); } catch { return {}; }
+    },
+    _saveCap() {
+        const obj = {};
+        this._PROCS.forEach(p => {
+            const mEl = document.getElementById(`toc-maq-${p.id}`);
+            const hEl = document.getElementById(`toc-hdia-${p.id}`);
+            obj[p.id] = {
+                maquinas: parseFloat(mEl?.value) || 1,
+                horasDia: parseFloat(hEl?.value) || 8
+            };
+        });
+        localStorage.setItem('toc-cap', JSON.stringify(obj));
+        return obj;
+    },
+
+    _renderCapacidade() {
+        const grid = document.getElementById('toc-cap-grid');
+        if (!grid) return;
+        const cap = this._getCap();
+        grid.innerHTML = this._PROCS.map(p => {
+            const c = cap[p.id] || { maquinas: 1, horasDia: 8 };
+            return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-color);">
+                <span style="flex:1;font-size:0.82rem;font-weight:600;color:var(--text-primary);">${p.nome}</span>
+                <input id="toc-maq-${p.id}" type="number" value="${c.maquinas}" min="0" step="0.5"
+                    style="width:52px;padding:5px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.82rem;text-align:center;"
+                    title="Máquinas/operadores">
+                <span style="font-size:0.72rem;color:var(--text-dim);">máq ×</span>
+                <input id="toc-hdia-${p.id}" type="number" value="${c.horasDia}" min="1" max="24" step="0.5"
+                    style="width:52px;padding:5px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.82rem;text-align:center;"
+                    title="Horas por dia">
+                <span style="font-size:0.72rem;color:var(--text-dim);">h/dia</span>
+            </div>`;
+        }).join('');
+    },
+
+    _getTempoMinutos(dados, cols) {
+        // Para tecelagem: soma Frente + Costas se ambos existirem
+        let total = 0;
+        let usados = 0;
+        for (const col of cols) {
+            const v = parseFloat(String(dados[col] ?? '').replace(',', '.'));
+            if (!isNaN(v) && v > 0) { total += v; usados++; }
+        }
+        // Se pegou Frente e Costas (2 cols), já somou; se só Tecelagem (1 col), retorna direto
+        return total;
+    },
+
+    _getDemanda() {
+        const fonte = document.getElementById('toc-fonte-sel')?.value || 'vxe';
+        const anoSel = document.getElementById('toc-ano-sel')?.value || 'all';
+
+        if (fonte === 'vxe') {
+            // Média mensal de vendas por código
+            if (!vendas.rawData.length) { alert('Importe dados de Vendas primeiro.'); return null; }
+            this._popularAnos();
+            const cols = anoSel === 'all' ? vendas.monthCols : vendas.monthCols.filter(c => c.year === anoSel);
+            const div = cols.length || 1;
+            const mapa = {}; // código → qtd média/mês
+            vendas.rawData.forEach(r => {
+                const cod = String(r.codigo || '').trim().toUpperCase();
+                if (!cod) return;
+                const total = cols.reduce((s, c) => s + (r[c.key] || 0), 0);
+                mapa[cod] = (mapa[cod] || 0) + total / div;
+            });
+            return mapa;
+        } else {
+            // OP: soma por código
+            if (!op.rawData.length) { alert('Importe dados de OP primeiro.'); return null; }
+            const COD_K = ['codigo','cod','codigodoproduto','cdproduto','ref','referencia'];
+            const QTD_K = ['producao','quantidade','qtd','aproduzir','pecas'];
+            const codCol = op._colRef || op.colunas.find(c => { const n=normalizeKey(c); return COD_K.some(k => n===k||n.includes(k)); });
+            const qtdCol = op._colQtd || op.colunas.find(c => { const n=normalizeKey(c); return QTD_K.some(k => n===k||n.includes(k)); });
+            if (!codCol) { alert('Coluna de Código não encontrada na OP.'); return null; }
+            const mapa = {};
+            op.rawData.forEach(r => {
+                const cod = String(r.dados?.[codCol] || '').trim().toUpperCase();
+                const qty = parseFloat(String(r.dados?.[qtdCol] || '0').replace(/[^\d.,]/g,'').replace(',','.')) || 0;
+                if (cod && qty) mapa[cod] = (mapa[cod] || 0) + qty;
+            });
+            return mapa;
+        }
+    },
+
+    calcular() {
+        if (!banco.rawData.length) { alert('Importe o Banco de Dados primeiro.'); return; }
+        const cap = this._saveCap();
+        const demanda = this._getDemanda();
+        if (!demanda) return;
+
+        const dias = parseFloat(document.getElementById('toc-dias')?.value) || 22;
+
+        // Mapa banco: código → dados
+        const bancoMap = {};
+        banco.rawData.forEach(r => {
+            const cod = String(r.dados?.['Código'] ?? '').trim().toUpperCase();
+            if (cod) bancoMap[cod] = r.dados;
+        });
+
+        // Calcula carga por processo
+        const resultados = this._PROCS.map(p => {
+            const capP = cap[p.id] || { maquinas: 1, horasDia: 8 };
+            const capMin = capP.maquinas * capP.horasDia * 60 * dias;
+            let cargaMin = 0;
+            const topPecas = [];
+
+            Object.entries(demanda).forEach(([cod, qty]) => {
+                const dados = bancoMap[cod];
+                if (!dados) return;
+                const tempoUn = this._getTempoMinutos(dados, p.cols);
+                if (!tempoUn) return;
+                const carga = tempoUn * qty;
+                cargaMin += carga;
+                topPecas.push({ cod, tempoUn, qty, carga });
+            });
+
+            topPecas.sort((a, b) => b.carga - a.carga);
+            const util = capMin > 0 ? cargaMin / capMin : null;
+            const semDados = cargaMin === 0;
+
+            return {
+                ...p,
+                cargaMin,
+                cargaH: cargaMin / 60,
+                capMin,
+                capH: capMin / 60,
+                util,
+                semDados,
+                topPecas: topPecas.slice(0, 15),
+            };
+        });
+
+        // Ordena por utilização decrescente
+        const comDados = resultados.filter(r => !r.semDados).sort((a, b) => (b.util||0) - (a.util||0));
+        const semDados = resultados.filter(r => r.semDados);
+        const ordenados = [...comDados, ...semDados];
+        const gargalo = comDados[0] || null;
+
+        this._renderResultado(gargalo, ordenados);
+    },
+
+    _renderResultado(gargalo, procs) {
+        const resEl = document.getElementById('toc-resultado');
+        if (!resEl) return;
+        resEl.style.display = '';
+
+        // Gargalo destaque
+        if (gargalo) {
+            document.getElementById('toc-gargalo-nome').textContent = gargalo.nome.toUpperCase();
+            document.getElementById('toc-gargalo-sub').textContent =
+                `${gargalo.cargaH.toFixed(0)}h necessárias · ${gargalo.capH.toFixed(0)}h disponíveis/mês · ${(gargalo.util * 100).toFixed(0)}% de utilização`;
+        }
+
+        // Barras de utilização
+        const barrasEl = document.getElementById('toc-barras');
+        barrasEl.innerHTML = procs.map(p => {
+            if (p.semDados) {
+                return `<div style="display:flex;align-items:center;gap:14px;padding:8px 0;border-bottom:1px solid var(--border-color);">
+                    <div style="width:160px;font-size:0.82rem;color:var(--text-dim);">${p.nome}</div>
+                    <div style="flex:1;height:10px;background:var(--bg-input);border-radius:5px;"></div>
+                    <div style="width:80px;text-align:right;font-size:0.75rem;color:var(--text-dim);">sem dados</div>
+                </div>`;
+            }
+            const pct = Math.min((p.util || 0) * 100, 300);
+            const cor = p.util >= 1 ? '#f06292' : p.util >= 0.8 ? '#ffca28' : '#26a69a';
+            const label = p.util >= 1 ? 'GARGALO' : p.util >= 0.8 ? 'ATENÇÃO' : 'OK';
+            const barW = Math.min(pct / 1.5, 100); // escala visual: 150% = barra cheia
+            return `<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border-color);cursor:pointer;"
+                onclick="toc._mostrarTop('${p.id}')">
+                <div style="width:160px;font-size:0.82rem;font-weight:600;color:var(--text-primary);">${p.nome}</div>
+                <div style="flex:1;height:10px;background:var(--bg-input);border-radius:5px;overflow:hidden;">
+                    <div style="width:${barW}%;height:100%;background:${cor};border-radius:5px;transition:width .5s;"></div>
+                </div>
+                <div style="width:60px;text-align:right;font-size:0.82rem;font-weight:700;color:${cor};">${(p.util*100).toFixed(0)}%</div>
+                <div style="width:70px;text-align:right;font-size:0.7rem;color:${cor};font-weight:700;">${label}</div>
+                <div style="width:90px;text-align:right;font-size:0.72rem;color:var(--text-dim);">${p.cargaH.toFixed(0)}h / ${p.capH.toFixed(0)}h</div>
+            </div>`;
+        }).join('');
+
+        // Guarda procs para o top
+        this._resultProcs = procs;
+
+        // Mostra top do gargalo por padrão
+        if (gargalo) this._mostrarTop(gargalo.id);
+    },
+
+    _mostrarTop(procId) {
+        const p = this._resultProcs?.find(r => r.id === procId);
+        if (!p || !p.topPecas?.length) return;
+        document.getElementById('toc-top-proc-label').textContent = p.nome.toUpperCase();
+        document.getElementById('toc-top-thead').innerHTML =
+            `<th style="padding:8px 12px;text-align:left;">CÓDIGO</th>
+             <th style="padding:8px 12px;text-align:right;">TEMPO/UN (min)</th>
+             <th style="padding:8px 12px;text-align:right;">DEMANDA (un)</th>
+             <th style="padding:8px 12px;text-align:right;">CARGA TOTAL (h)</th>
+             <th style="padding:8px 12px;text-align:right;">% DO GARGALO</th>`;
+        const totalCarga = p.cargaMin;
+        document.getElementById('toc-top-tbody').innerHTML = p.topPecas.map((r, i) => {
+            const pct = totalCarga > 0 ? (r.carga / totalCarga * 100).toFixed(1) : '—';
+            const bg = i % 2 === 0 ? 'transparent' : 'var(--bg-input)';
+            return `<tr style="background:${bg};">
+                <td style="padding:7px 12px;font-weight:600;color:var(--indigo-primary);">${escHTML(r.cod)}</td>
+                <td style="padding:7px 12px;text-align:right;">${r.tempoUn.toFixed(2)}</td>
+                <td style="padding:7px 12px;text-align:right;">${r.qty.toFixed(0)}</td>
+                <td style="padding:7px 12px;text-align:right;font-weight:600;">${(r.carga/60).toFixed(1)}h</td>
+                <td style="padding:7px 12px;text-align:right;color:var(--text-dim);">${pct}%</td>
+            </tr>`;
+        }).join('');
+    },
+};
 
 // ====== PROCESSOS — GERENCIAMENTO CRUD ======
 const processosGerenciamento = {
