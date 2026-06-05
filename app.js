@@ -4029,10 +4029,10 @@ const capacidade = criarModuloArq('capacidade',  'capacidade');
 const toc = {
     // Processos com mapeamento para colunas do banco de dados
     _PROCS: [
-        { id: 'tecelagem',      nome: 'Tecelagem',           cols: ['Tempo Tece Frente','Tempo Tece Costas','Tempo Tecelagem'] },
-        { id: 'costura_auto',   nome: 'Costura Automática',  cols: ['Tempo Costura Automática','Tempo Costura Automatica'] },
-        { id: 'costura_manual', nome: 'Costura Manual',      cols: ['Tempo Costura Manual'] },
-        { id: 'soldagem',       nome: 'Soldagem',            cols: ['Soldagem','Tempo Soldagem'] },
+        { id: 'tecelagem',      nome: 'Tecelagem',           cols: ['Tempo Tece Frente','Tempo Tece Costas','Tempo Tecelagem','Tempo Frente Eng','Tempo Costas Eng','Tempo Tecelagem Eng'] },
+        { id: 'costura_auto',   nome: 'Costura Automática',  cols: ['Tempo Costura Automática','Tempo Costura Automatica','Tempo Costura'] },
+        { id: 'costura_manual', nome: 'Costura Manual',      cols: ['Tempo Costura Manual','Tempo Costura Manual '] },
+        { id: 'soldagem',       nome: 'Soldagem',            cols: ['Soldagem','Tempo Soldagem','Soldagem '] },
         { id: 'silicone',       nome: 'Silicone',            cols: ['Silicone','Tempo Silicone'] },
         { id: 'passadoria',     nome: 'Passadoria',          cols: ['Passadoria','Tempo Passadoria'] },
         { id: 'embalagem',      nome: 'Embalagem',           cols: ['Embalagem','Tempo Embalagem'] },
@@ -4095,14 +4095,19 @@ const toc = {
     },
 
     _getTempoMinutos(dados, cols) {
-        // Para tecelagem: soma Frente + Costas se ambos existirem
+        // Busca tolerante: tenta exato, depois trim, depois case-insensitive
+        const dadosTrim = Object.fromEntries(Object.entries(dados).map(([k,v])=>[k.trim().toLowerCase(), v]));
         let total = 0;
-        let usados = 0;
         for (const col of cols) {
-            const v = parseFloat(String(dados[col] ?? '').replace(',', '.'));
-            if (!isNaN(v) && v > 0) { total += v; usados++; }
+            // exato
+            let raw = dados[col];
+            // com trim
+            if (raw === undefined) raw = dados[col.trim()];
+            // case-insensitive + trim
+            if (raw === undefined) raw = dadosTrim[col.trim().toLowerCase()];
+            const v = parseFloat(String(raw ?? '').replace(',', '.'));
+            if (!isNaN(v) && v > 0) total += v;
         }
-        // Se pegou Frente e Costas (2 cols), já somou; se só Tecelagem (1 col), retorna direto
         return total;
     },
 
