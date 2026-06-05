@@ -5445,18 +5445,23 @@ const timeline = {
         }
 
         if (fonte === 'op' || fonte === 'ambos') {
-            if (op.rawData.length && op._colRef && op._colQtd) {
+            if (!op.rawData.length) {
+                // sem dados importados — não gera erro aqui, calcular() vai detectar
+            } else if (!op._colRef || !op._colQtd) {
+                mostrarToast('OP importada mas colunas Referência/Qtd não mapeadas — reimporte o arquivo.', 'aviso');
+            } else {
                 op.rawData.forEach(r => {
-                    const st = String(r.dados?.Status||'').toLowerCase();
-                    if (!st.includes('liberado') && !st.includes('em produção') && !st.includes('em producao')) return;
+                    // Exclui apenas OPs visivelmente encerradas/canceladas; aceita todo o resto
+                    const st = String(r.dados?.Status || r.dados?.status || r.dados?.Situação || r.dados?.situacao || '').toLowerCase();
+                    if (st && (st.includes('encerr') || st.includes('cancela') || st.includes('concluíd') || st.includes('concluido') || st.includes('fechad'))) return;
                     const codigo = String(r.dados?.[op._colRef]||'').trim().toUpperCase();
                     const qty    = parseFloat(String(r.dados?.[op._colQtd]||'0').replace(/[^\d.,]/g,'').replace(',','.'))||0;
                     if (!codigo || !qty) return;
-                    const dados  = bancoMap[codigo];
+                    const dados   = bancoMap[codigo];
                     const emissao = r.dados?.['Emissão'] || r.dados?.['Emissao'] || '';
-                    const nop    = r.dados?.['N. OP'] || r.dados?.['NOP'] || '';
-                    const dt = this._datas[codigo];
-                    ordens.push({ codigo, qty, mes: '', dados, label: r.dados?.['Descrição']||codigo, emissao, nop, cpv: dt?.cpv||0, data_entrega: dt?.data_entrega||null, fonte: 'op' });
+                    const nop     = r.dados?.['N. OP'] || r.dados?.['NOP'] || '';
+                    const dt      = this._datas[codigo];
+                    ordens.push({ codigo, qty, mes: '', dados, label: r.dados?.['Descrição']||r.dados?.['Descricao']||codigo, emissao, nop, cpv: dt?.cpv||0, data_entrega: dt?.data_entrega||null, fonte: 'op' });
                 });
             }
         }
@@ -5488,13 +5493,31 @@ const timeline = {
         const startStr   = document.getElementById('tl-start-date')?.value || new Date().toISOString().slice(0,10);
         const modo       = document.getElementById('tl-modo')?.value || 'forward';
 
-        if (!banco.rawData.length) { mostrarToast('Importe o Banco de Dados primeiro.','erro'); return; }
+        if (!banco.rawData.length) { mostrarToast('Importe o Banco de Dados primeiro.','erro'); this._showEmpty('Banco de Dados não importado — vá em Banco de Dados e importe o arquivo.'); return; }
 
         const semanas = this._gerarSemanas(new Date(startStr+'T12:00:00'), nSemanas);
         const prioEfetiva = (modo === 'backward' && prioridade === 'fifo') ? 'edd' : prioridade;
         const ordens  = this._buildOrdens(fonte, mesSel, prioEfetiva);
 
-        if (!ordens.length) { mostrarToast('Nenhuma ordem encontrada.','erro'); return; }
+        if (!ordens.length) {
+            const motivo = (fonte === 'op' || fonte === 'ambos') && !op.rawData.length
+                ? 'Nenhuma OP importada — vá em OP e importe o arquivo.'
+                : fonte === 'plano' && !Object.keys(planoProducao._plano).length
+                ? 'Nenhum Plano de Produção salvo — vá em Plano de Produção e salve o plano.'
+                : 'Nenhuma ordem encontrada. Verifique a fonte e o mês selecionado.';
+            mostrarToast(motivo, 'erro');
+            this._showEmpty(motivo);
+            return;
+        }
+
+        // Avisa se há ordens sem correspondência no banco
+        const semBanco = ordens.filter(o => !o.dados).length;
+        if (semBanco > 0 && semBanco === ordens.length) {
+            mostrarToast(`Nenhum SKU das ordens tem dados no Banco — verifique se os códigos batem.`, 'erro');
+            this._showEmpty(`${semBanco} ordens encontradas, mas nenhuma tem código correspondente no Banco de Dados.\nCódigos das OPs precisam existir no arquivo do Banco.`);
+            return;
+        }
+        if (semBanco > 0) mostrarToast(`${semBanco} ordens sem dados no banco (códigos não encontrados) — ignoradas no Gantt.`, 'aviso');
 
         const cap = {};
         this._SEQ.forEach(pid => { cap[pid] = semanas.map(s => this._capSemana(pid, s)); });
@@ -5603,6 +5626,13 @@ const timeline = {
         return status;
     },
 
+    _showEmpty(msg) {
+        const wrap  = document.getElementById('tl-gantt-wrap');
+        const empty = document.getElementById('tl-empty');
+        if (wrap)  wrap.innerHTML = '';
+        if (empty) { empty.textContent = msg; empty.style.display = ''; }
+    },
+
     _renderGantt() {
         const r = this._resultado;
         if (!r) return;
@@ -5622,6 +5652,11 @@ const timeline = {
         }
 
         const procsAtivos = toc._PROCS.filter(p => this._SEQ.includes(p.id) && semanas.some((_,i) => usado[p.id]?.[i] > 0));
+
+        if (!procsAtivos.length) {
+            if (empty) { empty.textContent = `${r.totalOrdens} ordens carregadas, mas nenhum processo com carga calculada.\nVerifique se os SKUs têm tempos de processo cadastrados no Banco de Dados.`; empty.style.display = ''; }
+            return;
+        }
 
         let html = `<table style="width:100%;border-collapse:collapse;min-width:${160+semanas.length*140}px;">
         <thead><tr style="border-bottom:2px solid var(--border-color);">
