@@ -997,6 +997,9 @@ function navigateTo(viewName) {
         setTimeout(() => abcEstoque.render(), 50);
     } else if (viewName === 'previsao') {
         document.querySelector('[data-view="previsao"]')?.classList.add('sub-active');
+        // Mostra painel de acurácia se já houver snapshots
+        const acWrap = document.getElementById('prev-acuracia-wrap');
+        if (acWrap) acWrap.style.display = soepDash._snapshots.length ? '' : 'none';
     } else if (viewName === 'plano-prod') {
         document.querySelector('[data-view="plano-prod"]')?.classList.add('sub-active');
         if (previsao._forecast.length) setTimeout(() => planoProducao.render(), 50);
@@ -4367,10 +4370,53 @@ const previsao = {
         return sIdx;
     },
 
+    // OLS linear regression — returns { slope, intercept, r2 }
+    _regressaoLinear(xs, ys) {
+        const n = xs.length;
+        if (n < 2) return { slope: 0, intercept: ys[0]||0, r2: 0 };
+        const sx  = xs.reduce((s,x)=>s+x, 0);
+        const sy  = ys.reduce((s,y)=>s+y, 0);
+        const sxy = xs.reduce((s,x,i)=>s+x*ys[i], 0);
+        const sxx = xs.reduce((s,x)=>s+x*x, 0);
+        const den = n*sxx - sx*sx;
+        if (Math.abs(den) < 1e-10) return { slope:0, intercept: sy/n, r2: 0 };
+        const slope = (n*sxy - sx*sy) / den;
+        const intercept = (sy - slope*sx) / n;
+        const yMean = sy / n;
+        const ssTot = ys.reduce((s,y)=>s+(y-yMean)**2, 0);
+        const ssRes = ys.reduce((s,y,i)=>s+(y-(intercept+slope*xs[i]))**2, 0);
+        return { slope, intercept, r2: ssTot > 0 ? Math.max(0, 1 - ssRes/ssTot) : 0 };
+    },
+
+    // Holt's double exponential on deseasonalized series → forecasts + IC 80%
+    _holtForecast(series, sIdxArr, futureIdxArr, alpha=0.3, beta=0.08) {
+        if (series.length < 3) return null;
+        const deSeas = series.map((y,i) => (sIdxArr[i]||1) > 0 ? y / (sIdxArr[i]||1) : y);
+        let L = deSeas[0];
+        let B = (deSeas[deSeas.length-1] - deSeas[0]) / Math.max(1, deSeas.length-1);
+        const fitted = [];
+        for (let t = 0; t < deSeas.length; t++) {
+            const pL = L, pB = B;
+            L = alpha * deSeas[t] + (1-alpha) * (pL + pB);
+            B = beta  * (L - pL)  + (1-beta)  * pB;
+            fitted.push((pL + pB) * (sIdxArr[t]||1));
+        }
+        const rmse = Math.sqrt(series.reduce((s,y,i)=>{const e=y-fitted[i];return s+e*e;},0) / series.length);
+        return {
+            forecasts: futureIdxArr.map((sF,h) => {
+                const base = Math.max(0, (L + (h+1)*B) * (sF||1));
+                const ci   = 1.28 * rmse * Math.sqrt(h+1);
+                return { qty: Math.round(base), ciLow: Math.max(0, Math.round(base-ci)), ciHigh: Math.round(base+ci) };
+            }),
+            rmse,
+        };
+    },
+
     calcular() {
         if (!vendas.rawData.length) { alert('Importe dados de Vendas primeiro.'); return; }
         const horizonte = parseInt(document.getElementById('prev-horizonte')?.value) || 3;
         const baseMeses = parseInt(document.getElementById('prev-base-meses')?.value) || 12;
+        const metodo    = document.getElementById('prev-metodo')?.value || 'media';
         const sIdx      = this._calcSeasonality();
         this._seasonality = sIdx;
         const nextMonths  = this._getNextMonths(horizonte);
@@ -4384,21 +4430,54 @@ const previsao = {
             const total = recentCols.reduce((s,c) => s+(r[c.key]||0), 0);
             if (!total) return;
             const baseMedia = total / (recentCols.length||1);
-            // Tendência: últimos 3 meses vs 3 anteriores
-            const last3  = recentCols.slice(-3).reduce((s,c)=>s+(r[c.key]||0),0) / 3;
-            const prev3  = recentCols.length>=6 ? recentCols.slice(-6,-3).reduce((s,c)=>s+(r[c.key]||0),0)/3 : last3;
-            const trend  = prev3 > 0 ? (last3 - prev3) / prev3 : 0;
+
+            const last3 = recentCols.slice(-3).reduce((s,c)=>s+(r[c.key]||0),0) / 3;
+            const prev3 = recentCols.length>=6 ? recentCols.slice(-6,-3).reduce((s,c)=>s+(r[c.key]||0),0)/3 : last3;
+            const trend = prev3 > 0 ? (last3 - prev3) / prev3 : 0;
             const trendSeta = trend > 0.05 ? '↑' : trend < -0.05 ? '↓' : '→';
-            nextMonths.forEach(({ mes, abbr, label }, idx) => {
-                const chave     = `${mes}_${cod}`;
-                // Tendência aplicada progressivamente: mês 1 = 50% do trend, mês 2 = 100%, mês 3 = 150%
-                const trendFator = Math.max(0.1, 1 + trend * (idx + 1) * 0.5);
-                const rawQty    = Math.round(baseMedia * (sIdx[abbr]||1) * trendFator);
-                const qty       = this._overrides[chave] !== undefined ? this._overrides[chave] : rawQty;
+
+            let rawQtys, ciLows, ciHighs, r2Val = null;
+
+            if (metodo === 'hw') {
+                const series       = recentCols.map(c => r[c.key]||0);
+                const sIdxArr      = recentCols.map(c => sIdx[c.abbr]||1);
+                const futureIdxArr = nextMonths.map(m => sIdx[m.abbr]||1);
+                const hw = this._holtForecast(series, sIdxArr, futureIdxArr);
+                if (hw) {
+                    rawQtys = hw.forecasts.map(f => f.qty);
+                    ciLows  = hw.forecasts.map(f => f.ciLow);
+                    ciHighs = hw.forecasts.map(f => f.ciHigh);
+                } else {
+                    rawQtys = nextMonths.map(({abbr}) => Math.round(baseMedia*(sIdx[abbr]||1)));
+                    ciLows  = ciHighs = rawQtys;
+                }
+            } else if (metodo === 'regressao') {
+                const xs  = recentCols.map((_,i) => i);
+                const ys  = recentCols.map(c => { const si=sIdx[c.abbr]||1; return si>0?(r[c.key]||0)/si:(r[c.key]||0); });
+                const reg = this._regressaoLinear(xs, ys);
+                r2Val  = reg.r2;
+                const n = recentCols.length;
+                rawQtys = nextMonths.map(({abbr},h) => Math.max(0, Math.round((reg.intercept + reg.slope*(n+h)) * (sIdx[abbr]||1))));
+                ciLows  = ciHighs = rawQtys;
+            } else {
+                // Média móvel + sazonalidade + tendência progressiva
+                rawQtys = nextMonths.map(({abbr},idx) => Math.round(baseMedia * (sIdx[abbr]||1) * Math.max(0.1, 1 + trend*(idx+1)*0.5)));
+                ciLows  = ciHighs = rawQtys;
+            }
+
+            nextMonths.forEach(({mes, abbr, label}, idx) => {
+                const chave  = `${mes}_${cod}`;
+                const rawQty = rawQtys[idx];
+                const qty    = this._overrides[chave] !== undefined ? this._overrides[chave] : rawQty;
                 forecast.push({ mes, abbr, label, chave, codigo: cod,
                     descricao: String(r.descricao||'').trim(), segmento: String(r.segmento||'').trim(),
                     modelo: String(r.modelo||'').trim(), baseMedia, rawQty, qty, trend, trendSeta,
-                    isOverride: this._overrides[chave] !== undefined });
+                    isOverride: this._overrides[chave] !== undefined,
+                    ciLow:  ciLows?.[idx]  ?? rawQty,
+                    ciHigh: ciHighs?.[idx] ?? rawQty,
+                    r2: r2Val,
+                    metodo,
+                });
             });
         });
 
@@ -4406,6 +4485,9 @@ const previsao = {
         this._renderSazonalidade(sIdx, nextMonths);
         this._populaSegFiltro();
         this.render();
+        // Mostra painel de acurácia se já houver snapshots carregados
+        const acWrap = document.getElementById('prev-acuracia-wrap');
+        if (acWrap) acWrap.style.display = soepDash._snapshots.length ? '' : 'none';
     },
 
     getQty(codigo, mes) {
@@ -4462,8 +4544,9 @@ const previsao = {
     },
 
     render() {
-        const grupo  = document.getElementById('prev-grupo')?.value  || 'familia';
-        const segSel = document.getElementById('prev-seg-sel')?.value || '';
+        const grupo  = document.getElementById('prev-grupo')?.value   || 'familia';
+        const segSel = document.getElementById('prev-seg-sel')?.value  || '';
+        const metodo = document.getElementById('prev-metodo')?.value   || 'media';
         const res    = document.getElementById('prev-resultado');
         const thead  = document.getElementById('prev-thead');
         const tbody  = document.getElementById('prev-tbody');
@@ -4480,7 +4563,7 @@ const previsao = {
             filtered.forEach(r => { const s=r.segmento||'—'; if(!segMap[s]) segMap[s]={}; segMap[s][r.mes]=(segMap[s][r.mes]||0)+r.qty; });
             thead.innerHTML = `<th style="padding:8px 12px;text-align:left;color:var(--text-dim);font-size:.7rem;">SEGMENTO</th>`+
                 this._nextMonths.map(m=>`<th style="padding:8px 12px;text-align:right;color:var(--text-dim);font-size:.7rem;">${m.label.toUpperCase()}</th>`).join('')+
-                `<th style="padding:8px 12px;text-align:right;color:var(--text-dim);font-size:.7rem;">TOTAL 3M</th>`;
+                `<th style="padding:8px 12px;text-align:right;color:var(--text-dim);font-size:.7rem;">TOTAL</th>`;
             const segs = Object.keys(segMap).sort();
             tbody.innerHTML = segs.map((seg,i)=>{
                 const qtds  = this._nextMonths.map(m=>segMap[seg][m.mes]||0);
@@ -4493,15 +4576,20 @@ const previsao = {
             }).join('');
             count.textContent = `${segs.length} segmentos`;
         } else {
-            label.textContent = 'PREVISÃO POR SKU';
+            const hasHW  = metodo === 'hw';
+            const hasReg = metodo === 'regressao';
+            label.textContent = 'PREVISÃO POR SKU' +
+                (hasHW  ? ' — Holt-Winters (IC 80%)' : hasReg ? ' — Regressão Linear (R²)' : '');
             const skuMap = {};
             filtered.forEach(r => { if(!skuMap[r.codigo]) skuMap[r.codigo]={...r,meses:{}}; skuMap[r.codigo].meses[r.mes]=r; });
             thead.innerHTML = `<th style="padding:8px 10px;text-align:left;color:var(--text-dim);font-size:.7rem;">CÓDIGO</th>
                 <th style="padding:8px 10px;text-align:left;color:var(--text-dim);font-size:.7rem;">DESCRIÇÃO</th>
                 <th style="padding:8px 10px;text-align:left;color:var(--text-dim);font-size:.7rem;">SEGMENTO</th>`+
                 this._nextMonths.map(m=>`<th style="padding:8px 10px;text-align:right;color:var(--text-dim);font-size:.7rem;">${m.label.toUpperCase()}</th>`).join('')+
+                (hasHW  ? `<th style="padding:8px 10px;text-align:center;color:var(--text-dim);font-size:.7rem;">IC 80% (${this._nextMonths[0]?.label||'M1'})</th>` : '') +
+                (hasReg ? `<th style="padding:8px 10px;text-align:center;color:var(--text-dim);font-size:.7rem;">R²</th><th style="padding:8px 10px;text-align:center;color:var(--text-dim);font-size:.7rem;">TEND.</th>` : '') +
                 `<th style="padding:8px 10px;text-align:right;color:var(--text-dim);font-size:.7rem;">TOTAL</th>`;
-            const skus = Object.values(skuMap).slice(0,400);
+            const skus = Object.values(skuMap).slice(0, 400);
             tbody.innerHTML = skus.map((sku,i)=>{
                 const cells = this._nextMonths.map(m=>{
                     const f=sku.meses[m.mes]; const qty=f?f.qty:0;
@@ -4510,17 +4598,135 @@ const previsao = {
                             onchange="previsao._setOverride('${m.mes}_${sku.codigo}','${sku.codigo}','${m.mes}',this.value)">
                     </td>`;
                 }).join('');
-                const total = this._nextMonths.reduce((s,m)=>s+(sku.meses[m.mes]?.qty||0),0);
+                const total  = this._nextMonths.reduce((s,m)=>s+(sku.meses[m.mes]?.qty||0),0);
+                const firstF = sku.meses[this._nextMonths[0]?.mes];
+                const ciCell = hasHW && firstF
+                    ? `<td style="padding:5px 10px;text-align:center;font-size:.72rem;color:#ffca28;white-space:nowrap;">${firstF.ciLow.toLocaleString('pt-BR')} – ${firstF.ciHigh.toLocaleString('pt-BR')}</td>`
+                    : '';
+                const r2Val  = Object.values(sku.meses)[0]?.r2 ?? null;
+                const r2Cor  = r2Val===null?'var(--text-dim)':r2Val>=0.7?'#26a69a':r2Val>=0.4?'#ffca28':'#f06292';
+                const tSeta  = Object.values(sku.meses)[0]?.trendSeta || '→';
+                const regCell = hasReg
+                    ? `<td style="padding:5px 10px;text-align:center;font-weight:700;font-size:.78rem;color:${r2Cor};">${r2Val!==null?r2Val.toFixed(2):'—'}</td>
+                       <td style="padding:5px 10px;text-align:center;font-size:.85rem;">${escHTML(tSeta)}</td>`
+                    : '';
                 return `<tr style="background:${i%2?'var(--bg-input)':'transparent'};">
                     <td style="padding:5px 10px;font-weight:600;font-size:.78rem;">${escHTML(sku.codigo)}</td>
                     <td style="padding:5px 10px;font-size:.78rem;">${escHTML((sku.descricao||'').slice(0,28))}</td>
                     <td style="padding:5px 10px;font-size:.78rem;color:var(--text-dim);">${escHTML(sku.segmento||'')}</td>
-                    ${cells}
+                    ${cells}${ciCell}${regCell}
                     <td style="padding:5px 10px;text-align:right;font-weight:700;">${total.toLocaleString('pt-BR')}</td>
                 </tr>`;
             }).join('');
             count.textContent = skus.length<Object.keys(skuMap).length ? `${skus.length} / ${Object.keys(skuMap).length} SKUs (use filtro)` : `${skus.length} SKUs`;
         }
+    },
+
+    _toggleAcuracia() {
+        const content  = document.getElementById('prev-acuracia-content');
+        const chevron  = document.getElementById('prev-acuracia-chevron');
+        if (!content) return;
+        const aberto = content.style.display !== 'none';
+        content.style.display = aberto ? 'none' : '';
+        if (chevron) chevron.textContent = aberto ? '▼ expandir' : '▲ fechar';
+        if (!aberto) this.renderAcuraciaSkus();
+    },
+
+    renderAcuraciaSkus() {
+        const el = document.getElementById('prev-acuracia-content');
+        if (!el) return;
+        const snaps = soepDash._snapshots;
+        if (!snaps.length) {
+            el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-dim);font-size:.82rem;">
+                Nenhum snapshot disponível. Acesse <strong>Dashboard S&OP → Salvar Snapshot</strong> para começar a rastrear.</div>`;
+            return;
+        }
+        // Mapa de vendas reais: { 'YYYY-MM' → { CODIGO → qty } }
+        const realMap = {};
+        vendas.rawData.forEach(r => {
+            const cod = String(r.codigo||'').trim().toUpperCase();
+            vendas.monthCols.forEach(mc => {
+                const num = this._ABBR.indexOf(mc.abbr) + 1;
+                if (!mc.year || !num) return;
+                const mk = `${mc.year}-${String(num).padStart(2,'0')}`;
+                if (!realMap[mk]) realMap[mk] = {};
+                realMap[mk][cod] = (realMap[mk][cod]||0) + (r[mc.key]||0);
+            });
+        });
+        // MAPE + viés por SKU
+        const skuStats = {};
+        snaps.forEach(s => {
+            const real = realMap[s.mes]?.[s.codigo] ?? null;
+            if (real === null || s.qty_prevista <= 0) return;
+            if (!skuStats[s.codigo]) skuStats[s.codigo] = { erros:[], vieses:[], segmento:'' };
+            skuStats[s.codigo].erros.push(Math.abs(real - s.qty_prevista) / s.qty_prevista * 100);
+            skuStats[s.codigo].vieses.push((s.qty_prevista - real) / s.qty_prevista * 100);
+        });
+        vendas.rawData.forEach(r => {
+            const cod = String(r.codigo||'').trim().toUpperCase();
+            if (skuStats[cod]) skuStats[cod].segmento = String(r.segmento||'').trim();
+        });
+        const rows = Object.entries(skuStats).map(([cod, s]) => ({
+            cod, segmento: s.segmento,
+            mape: s.erros.reduce((t,e)=>t+e,0) / s.erros.length,
+            vies: s.vieses.reduce((t,v)=>t+v,0) / s.vieses.length,
+            meses: s.erros.length,
+        })).filter(r=>r.meses>0).sort((a,b)=>b.mape-a.mape);
+
+        if (!rows.length) {
+            el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--text-dim);font-size:.82rem;">
+                Sem meses com dados reais disponíveis para comparar ainda.</div>`;
+            return;
+        }
+        const mediaGeral = rows.reduce((s,r)=>s+r.mape,0) / rows.length;
+        const bons  = rows.filter(r=>r.mape<=15).length;
+        const ruins = rows.filter(r=>r.mape>30).length;
+        el.innerHTML = `
+            <div style="display:flex;gap:14px;margin-bottom:18px;flex-wrap:wrap;">
+                <div style="background:var(--bg-input);border-radius:8px;padding:12px 20px;text-align:center;">
+                    <div style="font-size:1.4rem;font-weight:800;color:${mediaGeral<=15?'#26a69a':mediaGeral<=25?'#ffca28':'#f06292'};">${mediaGeral.toFixed(1)}%</div>
+                    <div style="font-size:.68rem;color:var(--text-dim);margin-top:3px;letter-spacing:.06em;">MAPE MÉDIO</div>
+                </div>
+                <div style="background:var(--bg-input);border-radius:8px;padding:12px 20px;text-align:center;">
+                    <div style="font-size:1.4rem;font-weight:800;color:#26a69a;">${bons}</div>
+                    <div style="font-size:.68rem;color:var(--text-dim);margin-top:3px;letter-spacing:.06em;">SKUs ≤ 15%</div>
+                </div>
+                <div style="background:var(--bg-input);border-radius:8px;padding:12px 20px;text-align:center;">
+                    <div style="font-size:1.4rem;font-weight:800;color:#f06292;">${ruins}</div>
+                    <div style="font-size:.68rem;color:var(--text-dim);margin-top:3px;letter-spacing:.06em;">SKUs > 30%</div>
+                </div>
+                <div style="background:var(--bg-input);border-radius:8px;padding:12px 20px;text-align:center;">
+                    <div style="font-size:1.4rem;font-weight:800;">${rows.length}</div>
+                    <div style="font-size:.68rem;color:var(--text-dim);margin-top:3px;letter-spacing:.06em;">SKUs AVALIADOS</div>
+                </div>
+            </div>
+            <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:.78rem;">
+                <thead><tr style="color:var(--text-dim);font-size:.68rem;letter-spacing:.06em;border-bottom:1px solid var(--border-color);">
+                    <th style="padding:8px 10px;text-align:left;">CÓDIGO</th>
+                    <th style="padding:8px 10px;text-align:left;">SEGMENTO</th>
+                    <th style="padding:8px 10px;text-align:right;">MAPE %</th>
+                    <th style="padding:8px 10px;text-align:right;">VIÉS</th>
+                    <th style="padding:8px 10px;text-align:center;">MESES</th>
+                    <th style="padding:8px 10px;text-align:center;">QUALIDADE</th>
+                </tr></thead><tbody>
+                ${rows.map((r,i)=>{
+                    const cor  = r.mape<=15?'#26a69a':r.mape<=30?'#ffca28':'#f06292';
+                    const qual = r.mape<=15?'✓ Boa':r.mape<=30?'~ Regular':'✗ Alta variação';
+                    const viesAbs = Math.abs(r.vies);
+                    const viesTxt = viesAbs<=5?'neutro':r.vies>0?`+${r.vies.toFixed(1)}% super`:`${r.vies.toFixed(1)}% sub`;
+                    const viesCor = viesAbs<=5?'var(--text-dim)':'#ffca28';
+                    return `<tr style="background:${i%2?'var(--bg-input)':'transparent'};">
+                        <td style="padding:6px 10px;font-weight:600;color:var(--indigo-primary);">${escHTML(r.cod)}</td>
+                        <td style="padding:6px 10px;color:var(--text-dim);">${escHTML(r.segmento)}</td>
+                        <td style="padding:6px 10px;text-align:right;font-weight:700;color:${cor};">${r.mape.toFixed(1)}%</td>
+                        <td style="padding:6px 10px;text-align:right;font-size:.73rem;color:${viesCor};">${viesTxt}</td>
+                        <td style="padding:6px 10px;text-align:center;color:var(--text-dim);">${r.meses}</td>
+                        <td style="padding:6px 10px;text-align:center;font-size:.73rem;color:${cor};">${qual}</td>
+                    </tr>`;
+                }).join('')}
+                </tbody></table>
+            </div>`;
     },
 };
 

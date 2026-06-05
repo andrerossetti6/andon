@@ -2040,12 +2040,12 @@
     <header class="page-header">
         <div class="page-header-text">
             <h1 class="page-title">Previsão de <span>Demanda</span></h1>
-            <p class="page-subtitle">Projeção baseada em histórico de vendas com sazonalidade automática</p>
+            <p class="page-subtitle">Média Móvel · Holt-Winters · Regressão Linear — com sazonalidade e análise de acurácia por SKU</p>
         </div>
     </header>
     <div class="summary-card" style="margin-bottom:20px;">
         <div class="s-label" style="margin-bottom:14px;">CONFIGURAÇÃO</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:14px;align-items:end;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr auto;gap:14px;align-items:end;">
             <div>
                 <div style="font-size:.7rem;color:var(--text-dim);margin-bottom:5px;letter-spacing:.07em;">BASE HISTÓRICA</div>
                 <select id="prev-base-meses" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.83rem;">
@@ -2060,6 +2060,14 @@
                     <option value="1">1 mês</option>
                     <option value="3" selected>3 meses</option>
                     <option value="6">6 meses</option>
+                </select>
+            </div>
+            <div>
+                <div style="font-size:.7rem;color:var(--text-dim);margin-bottom:5px;letter-spacing:.07em;">MÉTODO</div>
+                <select id="prev-metodo" onchange="previsao.render()" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.83rem;">
+                    <option value="media">Média Móvel</option>
+                    <option value="hw">Holt-Winters</option>
+                    <option value="regressao">Regressão Linear</option>
                 </select>
             </div>
             <div>
@@ -2091,6 +2099,13 @@
                 <tbody id="prev-tbody"></tbody>
             </table>
         </div>
+    </div>
+    <div id="prev-acuracia-wrap" style="display:none;" class="summary-card" style="margin-top:20px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;cursor:pointer;" onclick="previsao._toggleAcuracia()">
+            <div class="s-label">ACURÁCIA POR SKU <span style="font-weight:400;color:var(--text-dim);">— MAPE histórico vs. vendas reais</span></div>
+            <span id="prev-acuracia-chevron" style="font-size:.75rem;color:var(--text-dim);">▼ expandir</span>
+        </div>
+        <div id="prev-acuracia-content" style="display:none;"></div>
     </div>
 </main>
 
