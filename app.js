@@ -960,6 +960,11 @@ function navigateTo(viewName) {
         document.querySelector('[data-view="toc"]')?.classList.add('sub-active');
         toc._popularAnos();
         toc._renderCapacidade();
+        // Se veio do OP Dashboard com fila, mostra imediatamente
+        if (toc._filaGargalo.length) {
+            const gargalo = toc._resultProcs?.filter(p=>!p.semDados).sort((a,b)=>(b.util||0)-(a.util||0))[0] || null;
+            toc._renderFilaGargalo(gargalo);
+        }
     } else if (viewName === 'pesquisa') {
         document.getElementById('nav-pesquisa')?.classList.add('active');
         if (pesquisa._dirty) { pesquisa.populateFiltros(); pesquisa._dirty = false; }
@@ -4035,6 +4040,8 @@ const capacidade = criarModuloArq('capacidade',  'capacidade');
 
 // ====== TOC — TEORIA DAS RESTRIÇÕES ======
 const toc = {
+    _filaGargalo: [],  // OPs enviadas pelo OP Dashboard
+    _sortFila: 'carga',
     // Processos com mapeamento para colunas do banco de dados
     _PROCS: [
         { id: 'tecelagem',      nome: 'Tecelagem',           cols: ['Tempo Tece Frente','Tempo Tece Costas','Tempo Tecelagem','Tempo Frente Eng','Tempo Costas Eng','Tempo Tecelagem Eng'] },
@@ -4261,6 +4268,101 @@ const toc = {
 
         // Mostra top do gargalo por padrão
         if (gargalo) this._mostrarTop(gargalo.id);
+
+        // Renderiza fila do gargalo se houver OPs enviadas pelo OP Dashboard
+        this._renderFilaGargalo(gargalo);
+    },
+
+    _renderFilaGargalo(gargalo) {
+        const wrap = document.getElementById('toc-fila-wrap');
+        if (!wrap) return;
+        if (!this._filaGargalo.length) { wrap.style.display = 'none'; return; }
+        wrap.style.display = '';
+
+        const garProc = gargalo ? this._PROCS.find(p => p.id === gargalo.id) : null;
+
+        // Calcula tempo no gargalo por OP
+        const rows = this._filaGargalo.map(item => {
+            const tempoUn  = garProc && item.dados ? this._getTempoMinutos(item.dados, garProc.cols) : 0;
+            const cargaMin = tempoUn * item.qty;
+            return { ...item, tempoUn, cargaMin };
+        });
+
+        // Ordena
+        if (this._sortFila === 'tcu') {
+            // Menor tempo por unidade primeiro = maximize throughput por minuto de gargalo
+            rows.sort((a,b) => (a.tempoUn||9999) - (b.tempoUn||9999));
+        } else {
+            // Maior carga total primeiro
+            rows.sort((a,b) => b.cargaMin - a.cargaMin);
+        }
+
+        const totalCargaMin = rows.reduce((s,r) => s + r.cargaMin, 0);
+        const capMesMin     = gargalo ? gargalo.capMin : 0;
+        const semanasNec    = capMesMin > 0 ? (totalCargaMin / (capMesMin / 4.33)) : 0;
+        const semCarga      = rows.filter(r => !r.cargaMin).length;
+        const nComBanco     = rows.filter(r => r.dados).length;
+
+        // KPIs
+        const kpiEl = document.getElementById('toc-fila-kpis');
+        if (kpiEl) {
+            const kpiData = [
+                { val: rows.length,                      label: 'OPs NA FILA',         cor: 'var(--indigo-primary)' },
+                { val: (totalCargaMin/60).toFixed(0)+'h', label: `CARGA NO GARGALO${gargalo?' ('+gargalo.nome+')':''}`, cor: '#f06292' },
+                { val: semanasNec > 0 ? semanasNec.toFixed(1)+' sem' : '—', label: 'SEMANAS NECESSÁRIAS', cor: semanasNec>4?'#f06292':semanasNec>2?'#ffca28':'#26a69a' },
+                { val: nComBanco + '/' + rows.length,     label: 'COM BANCO DE DADOS',  cor: nComBanco<rows.length?'#ffca28':'#26a69a' },
+            ];
+            kpiEl.innerHTML = kpiData.map(k => `
+                <div style="background:var(--bg-input);border-radius:8px;padding:12px 18px;min-width:130px;text-align:center;">
+                    <div style="font-size:1.3rem;font-weight:800;color:${k.cor};">${escHTML(String(k.val))}</div>
+                    <div style="font-size:.65rem;color:var(--text-dim);margin-top:3px;letter-spacing:.06em;">${k.label}</div>
+                </div>`).join('');
+        }
+
+        // Thead
+        const thead = document.getElementById('toc-fila-thead');
+        if (thead) thead.innerHTML = `
+            <th style="padding:8px 12px;text-align:left;">#</th>
+            <th style="padding:8px 12px;text-align:left;">CÓDIGO</th>
+            <th style="padding:8px 12px;text-align:left;">DESCRIÇÃO</th>
+            <th style="padding:8px 12px;text-align:right;">QTD</th>
+            <th style="padding:8px 12px;text-align:right;">TEMPO/UN (min)</th>
+            <th style="padding:8px 12px;text-align:right;">CARGA GARGALO (h)</th>
+            <th style="padding:8px 12px;text-align:right;">% DA FILA</th>
+            <th style="padding:8px 12px;text-align:center;">STATUS</th>`;
+
+        // Tbody
+        const tbody = document.getElementById('toc-fila-tbody');
+        if (tbody) tbody.innerHTML = rows.map((r, i) => {
+            const pctFila = totalCargaMin > 0 ? (r.cargaMin / totalCargaMin * 100).toFixed(1) : '—';
+            const barW    = totalCargaMin > 0 ? Math.min(r.cargaMin / totalCargaMin * 100, 100) : 0;
+            const cor     = barW > 30 ? '#f06292' : barW > 10 ? '#ffca28' : '#26a69a';
+            const semDados = !r.dados || !r.cargaMin;
+            return `<tr style="background:${i%2?'var(--bg-input)':'transparent'};border-bottom:1px solid rgba(255,255,255,.04);">
+                <td style="padding:8px 12px;font-weight:700;color:var(--indigo-primary);font-size:.85rem;">${i+1}º</td>
+                <td style="padding:8px 12px;font-weight:700;color:var(--indigo-primary);">${escHTML(r.codigo)}</td>
+                <td style="padding:8px 12px;font-size:.78rem;">${escHTML((r.descricao||'').slice(0,30))}</td>
+                <td style="padding:8px 12px;text-align:right;">${(r.qty||0).toLocaleString('pt-BR')}</td>
+                <td style="padding:8px 12px;text-align:right;color:${semDados?'var(--text-dim)':'var(--text-primary)'};">${r.tempoUn ? r.tempoUn.toFixed(2) : '—'}</td>
+                <td style="padding:8px 12px;text-align:right;">
+                    <div style="display:flex;align-items:center;gap:8px;justify-content:flex-end;">
+                        <div style="width:60px;height:5px;background:var(--bg-card);border-radius:3px;overflow:hidden;">
+                            <div style="width:${barW}%;height:100%;background:${cor};border-radius:3px;"></div>
+                        </div>
+                        <span style="font-weight:700;color:${cor};">${r.cargaMin ? (r.cargaMin/60).toFixed(1)+'h' : '—'}</span>
+                    </div>
+                </td>
+                <td style="padding:8px 12px;text-align:right;color:var(--text-dim);">${r.cargaMin ? pctFila+'%' : '—'}</td>
+                <td style="padding:8px 12px;text-align:center;font-size:.72rem;color:var(--text-dim);">${escHTML(r.status||'—')}</td>
+            </tr>`;
+        }).join('');
+
+        if (semCarga > 0) {
+            const aviso = document.createElement('div');
+            aviso.style.cssText = 'font-size:.75rem;color:#ffca28;margin-top:10px;';
+            aviso.textContent = `${semCarga} OPs sem tempo cadastrado no Banco de Dados para o processo gargalo (${gargalo?.nome||'—'}).`;
+            wrap.querySelector('.summary-card')?.appendChild(aviso);
+        }
     },
 
     _mostrarTop(procId) {
@@ -8150,6 +8252,7 @@ const opDash = {
     _cobSel: '',
     _rows: [],
     _dirty: false,
+    _selecionados: new Set(),
 
     // Constrói mapa código → dados VxE (vendas + estoque)
     _buildVxeMap() {
@@ -8207,7 +8310,7 @@ const opDash = {
 
         // Monta linhas cruzando OP com VxE
         const opCodes = new Set();
-        this._rows = op.rawData.map(r => {
+        this._rows = op.rawData.map((r, _id) => {
             const dados = r.dados || {};
             const statusKey = Object.keys(dados).find(k => /status|situac/i.test(k));
             const codKey    = Object.keys(dados).find(k => /^c[oó]digo$/i.test(k))
@@ -8218,6 +8321,7 @@ const opDash = {
             const vxe = vxeMap[cod] || {};
             opCodes.add(String(dados[statusKey]||'').trim());
             return {
+                _id,
                 _status: statusKey ? String(dados[statusKey]||'').trim() : '',
                 _raw: dados,
                 codigo:      vxe.codigo     || dados[codKey] || cod,
@@ -8263,8 +8367,11 @@ const opDash = {
             busca.value = this._busca;
         }
 
+        this._selecionados.clear();
+        this._updateFilaTocBtn();
         // Cabeçalho fixo (colunas 1,2,3,5,7,8,9,10 do VxE)
         document.getElementById('opdash-thead').innerHTML = `
+            <th style="width:32px;text-align:center;"><input type="checkbox" id="opdash-chk-all" title="Selecionar todos" onclick="opDash._toggleAll()" style="cursor:pointer;accent-color:var(--indigo-primary);width:15px;height:15px;"></th>
             <th>CÓDIGO</th><th>DESCRIÇÃO</th><th>MARCA</th><th>TAMANHO</th>
             <th class="td-right" style="color:var(--indigo-primary);">MÉDIA VENDAS</th>
             <th class="td-right" style="color:var(--green-accent);">ESTOQUE</th>
@@ -8320,8 +8427,18 @@ const opDash = {
             return `<span style="color:${cor};font-weight:700;">${txt}</span>`;
         };
 
-        document.getElementById('opdash-tbody').innerHTML = visible.slice(0, 2000).map(r => `
-            <tr>
+        const visibleSlice = visible.slice(0, 2000);
+        // Atualiza checkbox "todos"
+        const chkAll = document.getElementById('opdash-chk-all');
+        if (chkAll) {
+            const selCount = visibleSlice.filter(r => this._selecionados.has(r._id)).length;
+            chkAll.checked = visibleSlice.length > 0 && selCount === visibleSlice.length;
+            chkAll.indeterminate = selCount > 0 && selCount < visibleSlice.length;
+        }
+        document.getElementById('opdash-tbody').innerHTML = visibleSlice.map(r => {
+            const sel = this._selecionados.has(r._id);
+            return `<tr style="background:${sel?'rgba(99,102,241,.08)':''};">
+                <td style="text-align:center;padding:4px 8px;"><input type="checkbox" ${sel?'checked':''} onclick="opDash._toggleSelect(${r._id})" style="cursor:pointer;accent-color:var(--indigo-primary);width:15px;height:15px;"></td>
                 <td class="td-code" style="color:var(--indigo-primary);">${escHTML(r.codigo)}</td>
                 <td class="td-desc">${escHTML(r.descricao)}</td>
                 <td style="font-size:0.75rem;">${r.marca}</td>
@@ -8331,7 +8448,74 @@ const opDash = {
                 <td class="td-right" style="color:var(--orange-accent);font-weight:600;">${fmt(r.emProcesso)}</td>
                 <td class="td-right">${fmtC(r.cobertura)}</td>
                 <td class="td-right">${fmtP(r.vendMedia, r.emProcesso)}</td>
-            </tr>`).join('');
+            </tr>`;
+        }).join('');
+    },
+
+    _toggleSelect(id) {
+        if (this._selecionados.has(id)) this._selecionados.delete(id);
+        else this._selecionados.add(id);
+        this._updateFilaTocBtn();
+        // Atualiza visual da linha sem re-renderizar tudo
+        const chkAll = document.getElementById('opdash-chk-all');
+        const linhas = document.querySelectorAll('#opdash-tbody tr');
+        linhas.forEach(tr => {
+            const chk = tr.querySelector('input[type=checkbox]');
+            if (!chk) return;
+            const rowId = parseInt(chk.getAttribute('onclick')?.match(/\d+/)?.[0]);
+            const sel = this._selecionados.has(rowId);
+            chk.checked = sel;
+            tr.style.background = sel ? 'rgba(99,102,241,.08)' : '';
+        });
+        if (chkAll) {
+            const total = linhas.length;
+            const selN  = [...linhas].filter(tr => tr.querySelector('input[type=checkbox]')?.checked).length;
+            chkAll.checked = total > 0 && selN === total;
+            chkAll.indeterminate = selN > 0 && selN < total;
+        }
+    },
+
+    _toggleAll() {
+        const linhas = document.querySelectorAll('#opdash-tbody tr');
+        const ids = [...linhas].map(tr => {
+            const m = tr.querySelector('input[type=checkbox]')?.getAttribute('onclick')?.match(/\d+/);
+            return m ? parseInt(m[0]) : null;
+        }).filter(x => x !== null);
+        const allSel = ids.every(id => this._selecionados.has(id));
+        if (allSel) ids.forEach(id => this._selecionados.delete(id));
+        else ids.forEach(id => this._selecionados.add(id));
+        this._renderTabela();
+        this._updateFilaTocBtn();
+    },
+
+    _updateFilaTocBtn() {
+        const n   = this._selecionados.size;
+        const btn = document.getElementById('opdash-fila-toc-btn');
+        if (!btn) return;
+        btn.textContent  = `→ FILA TOC (${n})`;
+        btn.style.opacity = n > 0 ? '1' : '0.5';
+        btn.style.background = n > 0 ? 'var(--indigo-btn)' : 'var(--bg-input)';
+    },
+
+    enviarParaFilaTOC() {
+        if (!this._selecionados.size) { mostrarToast('Selecione pelo menos uma OP.', 'aviso'); return; }
+        const bancoMap = {};
+        banco.rawData.forEach(r => {
+            const cod = String(r.dados?.['Código']||'').trim().toUpperCase();
+            if (cod) bancoMap[cod] = r.dados;
+        });
+        toc._filaGargalo = this._rows
+            .filter(r => this._selecionados.has(r._id))
+            .map(r => {
+                const cod = String(r.codigo||'').trim().toUpperCase();
+                const qty = op._colQtd
+                    ? (parseFloat(String(r._raw?.[op._colQtd]||'0').replace(/[^\d.,]/g,'').replace(',','.')) || 0)
+                    : (r.emProcesso || 0);
+                return { codigo: cod, descricao: r.descricao||cod, qty, dados: bancoMap[cod]||null, status: r._status };
+            })
+            .filter(r => r.qty > 0);
+        mostrarToast(`${toc._filaGargalo.length} OPs → Fila do Gargalo TOC`);
+        navigateTo('toc');
     },
 
     limpar() {
