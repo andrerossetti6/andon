@@ -794,6 +794,12 @@ input:checked + .chk {
     padding: var(--sp-3) var(--sp-4);
 }
 
+.proc-drag-card.proc-drag-over {
+    border: 2px dashed var(--indigo-primary);
+    transform: scale(1.02);
+    opacity: .85;
+}
+
 .s-label {
     display: block;
     font-size: 0.6rem;

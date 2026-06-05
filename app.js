@@ -4007,35 +4007,104 @@ const processosGerenciamento = {
         const grid  = document.getElementById('proc-cards-grid');
         const empty = document.getElementById('proc-empty');
         if (!grid) return;
+
+        // Aplica ordem salva
+        const savedOrder = this._getOrder();
+        if (savedOrder.length) {
+            this._processos.sort((a, b) => {
+                const ia = savedOrder.indexOf(a.id), ib = savedOrder.indexOf(b.id);
+                return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+            });
+        }
+
         if (!this._processos.length) {
             grid.innerHTML = '';
             if (empty) empty.style.display = 'block';
             return;
         }
         if (empty) empty.style.display = 'none';
+
         grid.innerHTML = this._processos.map(p => `
-            <div class="summary-card" style="cursor:pointer;border-left:3px solid var(--indigo-btn);transition:opacity .15s;"
-                onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'"
-                onclick="processosGerenciamento.abrirProcesso('${p.id}')">
+            <div class="summary-card proc-drag-card" draggable="true" data-id="${p.id}"
+                style="cursor:grab;border-left:3px solid var(--indigo-btn);transition:opacity .15s,transform .15s;">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
-                    <span class="s-label">${p.nome.toUpperCase()}</span>
-                    <div style="display:flex;gap:8px;" onclick="event.stopPropagation()">
-                        <button onclick="processosGerenciamento.abrirModalProcesso('${p.id}')"
+                    <span class="s-label" style="display:flex;align-items:center;gap:6px;">
+                        <span style="color:var(--text-dim);font-size:1rem;line-height:1;cursor:grab;" title="Arrastar para reordenar">⠿</span>
+                        ${escHTML(p.nome.toUpperCase())}
+                    </span>
+                    <div style="display:flex;gap:8px;">
+                        <button class="proc-edit-btn" data-id="${p.id}"
                             style="background:none;border:none;color:#8b949e;cursor:pointer;padding:0;">
                             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z"/></svg>
                         </button>
-                        <button onclick="processosGerenciamento.excluirProcesso('${p.id}')"
+                        <button class="proc-del-btn" data-id="${p.id}"
                             style="background:none;border:none;color:#f06292;cursor:pointer;padding:0;font-size:0.85rem;">✕</button>
                     </div>
                 </div>
                 <div style="font-size:1.5rem;font-weight:700;color:var(--indigo-primary);margin-bottom:4px;">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:middle;margin-right:4px;"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-                    ${p.nome}
+                    ${escHTML(p.nome)}
                 </div>
-                ${p.descricao ? `<div class="s-sub" style="margin-top:4px;">${p.descricao}</div>` : ''}
+                ${p.descricao ? `<div class="s-sub" style="margin-top:4px;">${escHTML(p.descricao)}</div>` : ''}
                 <div style="margin-top:10px;font-size:0.75rem;color:var(--indigo-btn);">Ver máquinas →</div>
             </div>
         `).join('');
+
+        this._initDrag(grid);
+    },
+
+    _initDrag(grid) {
+        let dragSrc = null;
+        grid.querySelectorAll('.proc-drag-card').forEach(card => {
+            // Clique abre o processo (só se não foi drag)
+            card.addEventListener('click', e => {
+                if (e.target.classList.contains('proc-edit-btn') || e.target.closest('.proc-edit-btn')) {
+                    processosGerenciamento.abrirModalProcesso(card.dataset.id); return;
+                }
+                if (e.target.classList.contains('proc-del-btn') || e.target.closest('.proc-del-btn')) {
+                    processosGerenciamento.excluirProcesso(card.dataset.id); return;
+                }
+                if (!card._wasDragged) processosGerenciamento.abrirProcesso(card.dataset.id);
+                card._wasDragged = false;
+            });
+
+            card.addEventListener('dragstart', e => {
+                dragSrc = card;
+                card._wasDragged = true;
+                e.dataTransfer.effectAllowed = 'move';
+                setTimeout(() => card.style.opacity = '0.4', 0);
+            });
+            card.addEventListener('dragend', () => {
+                card.style.opacity = '1';
+                card.style.transform = '';
+                grid.querySelectorAll('.proc-drag-card').forEach(c => c.classList.remove('proc-drag-over'));
+            });
+            card.addEventListener('dragover', e => {
+                e.preventDefault();
+                if (card !== dragSrc) card.classList.add('proc-drag-over');
+            });
+            card.addEventListener('dragleave', () => card.classList.remove('proc-drag-over'));
+            card.addEventListener('drop', e => {
+                e.preventDefault();
+                card.classList.remove('proc-drag-over');
+                if (!dragSrc || dragSrc === card) return;
+                const srcId = dragSrc.dataset.id, dstId = card.dataset.id;
+                const si = this._processos.findIndex(p => p.id === srcId);
+                const di = this._processos.findIndex(p => p.id === dstId);
+                if (si < 0 || di < 0) return;
+                const [moved] = this._processos.splice(si, 1);
+                this._processos.splice(di, 0, moved);
+                this._saveOrder();
+                this.renderProcessos();
+            });
+        });
+    },
+
+    _getOrder() {
+        try { return JSON.parse(localStorage.getItem('proc-order') || '[]'); } catch { return []; }
+    },
+    _saveOrder() {
+        localStorage.setItem('proc-order', JSON.stringify(this._processos.map(p => p.id)));
     },
 
     async abrirProcesso(id) {
