@@ -9,6 +9,24 @@ const supabase = require('./db');
 const app  = express();
 const PORT = process.env.PORT || 3000;
 
+// Busca todas as linhas de uma tabela contornando o limite de 1000 linhas do PostgREST
+async function fetchAllRows(tabela, importacaoId, pageSize = 1000) {
+    let all = [];
+    let from = 0;
+    while (true) {
+        const { data, error } = await supabase
+            .from(tabela).select('*')
+            .eq('importacao_id', importacaoId)
+            .range(from, from + pageSize - 1);
+        if (error) throw error;
+        if (!data?.length) break;
+        all = all.concat(data);
+        if (data.length < pageSize) break;
+        from += pageSize;
+    }
+    return all;
+}
+
 // Insere rows em batches com rollback automático se algum falhar
 async function batchInsert(tabela, importacaoTabela, importacaoId, rows, batchSize = 200) {
     for (let i = 0; i < rows.length; i += batchSize) {
@@ -188,16 +206,25 @@ app.post("/api/vendas/import", auth, adminOnly, async (req, res) => {
 // ── GET /api/vendas?importacao_id=xxx ─────────────────────────
 app.get('/api/vendas', auth, async (req, res) => {
     const { importacao_id, segmento, modelo, tamanho } = req.query;
-
-    let q = supabase.from('vendas').select('*');
-    if (importacao_id) q = q.eq('importacao_id', importacao_id);
-    if (segmento)      q = q.eq('segmento', segmento);
-    if (modelo)        q = q.eq('modelo', modelo);
-    if (tamanho)       q = q.eq('tamanho', tamanho);
-
-    const { data, error } = await q.limit(5000);
-    if (error) return res.status(500).json({ erro: 'Erro ao buscar dados' });
-    res.json(data);
+    if (!importacao_id) return res.json([]);
+    try {
+        // fetchAllRows com filtros extras
+        const PAGE = 1000;
+        let all = [], from = 0;
+        while (true) {
+            let q = supabase.from('vendas').select('*').eq('importacao_id', importacao_id).range(from, from + PAGE - 1);
+            if (segmento) q = q.eq('segmento', segmento);
+            if (modelo)   q = q.eq('modelo', modelo);
+            if (tamanho)  q = q.eq('tamanho', tamanho);
+            const { data, error } = await q;
+            if (error) throw error;
+            if (!data?.length) break;
+            all = all.concat(data);
+            if (data.length < PAGE) break;
+            from += PAGE;
+        }
+        res.json(all);
+    } catch (e) { res.status(500).json({ erro: 'Erro ao buscar dados: ' + e.message }); }
 });
 
 // ── GET /api/importacoes-estoque ─────────────────────────────
@@ -241,11 +268,9 @@ app.post("/api/estoque/import", auth, adminOnly, async (req, res) => {
 // ── GET /api/estoque?importacao_id=xxx ────────────────────────
 app.get('/api/estoque', auth, async (req, res) => {
     const { importacao_id } = req.query;
-    let q = supabase.from('estoque').select('*');
-    if (importacao_id) q = q.eq('importacao_id', importacao_id);
-    const { data, error } = await q.limit(5000);
-    if (error) return res.status(500).json({ erro: 'Erro ao buscar estoque' });
-    res.json(data);
+    if (!importacao_id) return res.json([]);
+    try { res.json(await fetchAllRows('estoque', importacao_id)); }
+    catch (e) { res.status(500).json({ erro: 'Erro ao buscar estoque: ' + e.message }); }
 });
 
 // ── DELETE /api/importacoes-estoque/:id ───────────────────────
@@ -290,11 +315,9 @@ app.post("/api/op/import", auth, adminOnly, async (req, res) => {
 // ── GET /api/op?importacao_id=xxx ────────────────────────────
 app.get('/api/op', auth, async (req, res) => {
     const { importacao_id } = req.query;
-    let q = supabase.from('dados_op').select('*');
-    if (importacao_id) q = q.eq('importacao_id', importacao_id);
-    const { data, error } = await q.limit(5000);
-    if (error) return res.status(500).json({ erro: 'Erro ao buscar ordens' });
-    res.json(data);
+    if (!importacao_id) return res.json([]);
+    try { res.json(await fetchAllRows('dados_op', importacao_id)); }
+    catch (e) { res.status(500).json({ erro: 'Erro ao buscar ordens: ' + e.message }); }
 });
 
 // ── DELETE /api/importacoes-op/:id ───────────────────────────
@@ -339,11 +362,9 @@ app.post("/api/costura/import", auth, adminOnly, async (req, res) => {
 // ── GET /api/costura?importacao_id=xxx ───────────────────────
 app.get('/api/costura', auth, async (req, res) => {
     const { importacao_id } = req.query;
-    let q = supabase.from('dados_costura').select('*');
-    if (importacao_id) q = q.eq('importacao_id', importacao_id);
-    const { data, error } = await q.limit(5000);
-    if (error) return res.status(500).json({ erro: 'Erro ao buscar dados de costura' });
-    res.json(data);
+    if (!importacao_id) return res.json([]);
+    try { res.json(await fetchAllRows('dados_costura', importacao_id)); }
+    catch (e) { res.status(500).json({ erro: 'Erro ao buscar costura: ' + e.message }); }
 });
 
 // ── DELETE /api/importacoes-costura/:id ──────────────────────
@@ -388,11 +409,9 @@ app.post("/api/cliente/import", auth, adminOnly, async (req, res) => {
 // ── GET /api/cliente?importacao_id=xxx ───────────────────────
 app.get('/api/cliente', auth, async (req, res) => {
     const { importacao_id } = req.query;
-    let q = supabase.from('dados_cliente').select('*');
-    if (importacao_id) q = q.eq('importacao_id', importacao_id);
-    const { data, error } = await q.limit(5000);
-    if (error) return res.status(500).json({ erro: 'Erro ao buscar dados de cliente' });
-    res.json(data);
+    if (!importacao_id) return res.json([]);
+    try { res.json(await fetchAllRows('dados_cliente', importacao_id)); }
+    catch (e) { res.status(500).json({ erro: 'Erro ao buscar cliente: ' + e.message }); }
 });
 
 // ── DELETE /api/importacoes-cliente/:id ──────────────────────
@@ -437,11 +456,9 @@ app.post("/api/banco/import", auth, adminOnly, async (req, res) => {
 // ── GET /api/banco?importacao_id=xxx ─────────────────────────
 app.get('/api/banco', auth, async (req, res) => {
     const { importacao_id } = req.query;
-    let q = supabase.from('dados_banco').select('*');
-    if (importacao_id) q = q.eq('importacao_id', importacao_id);
-    const { data, error } = await q.limit(5000);
-    if (error) return res.status(500).json({ erro: 'Erro ao buscar dados de banco' });
-    res.json(data);
+    if (!importacao_id) return res.json([]);
+    try { res.json(await fetchAllRows('dados_banco', importacao_id)); }
+    catch (e) { res.status(500).json({ erro: 'Erro ao buscar banco: ' + e.message }); }
 });
 
 // ── DELETE /api/importacoes-banco/:id ────────────────────────

@@ -1740,6 +1740,19 @@ const vendas = {
         document.getElementById('summary-qtd-sub').textContent =
             `${this.filtered.length.toLocaleString('pt-BR')} itens · ${this.selectedYear !== 'all' ? this.selectedYear : 'todos os anos'}`;
 
+        // Card Faturamento — soma do campo valor (R$)
+        const totalFat = this.filtered.reduce((s, r) => s + (Number(r.valor) || 0), 0);
+        const cardFat  = document.getElementById('card-faturamento');
+        const elFat    = document.getElementById('summary-faturamento');
+        const elFatSub = document.getElementById('summary-faturamento-sub');
+        if (cardFat && totalFat > 0) {
+            elFat.textContent    = 'R$ ' + totalFat.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            elFatSub.textContent = `${this.filtered.length.toLocaleString('pt-BR')} itens`;
+            cardFat.style.display = '';
+        } else if (cardFat) {
+            cardFat.style.display = 'none';
+        }
+
         // Cards Código | Modelo | Tamanho
         const codigos  = new Set(this.filtered.map(r => r.codigo).filter(Boolean));
         const modelos  = new Set(this.filtered.map(r => r.modelo).filter(Boolean));
