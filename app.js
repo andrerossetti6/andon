@@ -4318,6 +4318,7 @@ const toc = {
 
         const el = document.getElementById('toc-cen-barras');
         if (!el) return;
+
         el.innerHTML = resultados.map(p => {
             const pct2 = (p.util || 0) * 100;
             const cor   = p.util >= 1 ? '#f06292' : p.util >= 0.8 ? '#ffca28' : '#26a69a';
@@ -4332,6 +4333,30 @@ const toc = {
                 <div style="width:70px;text-align:right;font-size:.7rem;color:${cor};font-weight:700;">${label}</div>
             </div>`;
         }).join('');
+
+        // Quantifica solução para processos sobrecarregados
+        const gargalos = resultados.filter(p => p.util >= 1);
+        if (gargalos.length) {
+            const solLinhas = gargalos.map(p => {
+                const capP       = cap[p.id] || { maquinas: 1, horasDia: 8 };
+                const maquinas   = capP.maquinas || 1;
+                const excedenteH = (p.cargaMin - p.capMin) / 60;
+                const hDiaAdicional = (excedenteH / (maquinas * dias)).toFixed(1);
+                const maqAdicionais = Math.ceil(p.cargaMin / p.capMin - 1);
+                return `<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06);">
+                    <div style="font-size:.82rem;font-weight:700;color:#f06292;">${escHTML(p.nome)}</div>
+                    <div style="display:flex;gap:24px;margin-top:5px;flex-wrap:wrap;">
+                        <div style="font-size:.78rem;"><span style="color:var(--text-dim);">+h/dia por máquina: </span><span style="color:#ffca28;font-weight:700;">+${hDiaAdicional}h</span></div>
+                        <div style="font-size:.78rem;"><span style="color:var(--text-dim);">ou máquinas adicionais: </span><span style="color:#ffca28;font-weight:700;">+${maqAdicionais}</span></div>
+                        <div style="font-size:.78rem;color:var(--text-dim);">sobrecarga ${((p.util - 1) * 100).toFixed(0)}% da capacidade atual</div>
+                    </div>
+                </div>`;
+            }).join('');
+            el.innerHTML += `<div style="margin-top:14px;padding:14px;background:rgba(240,98,146,.06);border-radius:8px;border:1px solid rgba(240,98,146,.2);">
+                <div style="font-size:.72rem;letter-spacing:.07em;color:#f06292;margin-bottom:8px;">PARA RESOLVER — OPÇÕES DE DESBLOQUEIO</div>
+                ${solLinhas}
+            </div>`;
+        }
     },
 
     _renderFilaGargalo(gargalo) {
@@ -4587,6 +4612,17 @@ const previsao = {
         const recentCols  = vendas.monthCols.slice(-baseMeses);
         const forecast    = [];
 
+        // Pedidos de cliente como piso mínimo do próximo mês
+        const usarCliente = document.getElementById('prev-usar-cliente')?.checked;
+        const clienteMap  = {};
+        if (usarCliente && cliente.rawData.length && cliente._colCodigo && cliente._colQtd) {
+            cliente.rawData.forEach(r => {
+                const cod = String(r.dados?.[cliente._colCodigo] || '').trim().toUpperCase();
+                const qty = parseFloat(String(r.dados?.[cliente._colQtd] || '0').replace(',','.')) || 0;
+                if (cod && qty > 0) clienteMap[cod] = (clienteMap[cod]||0) + qty;
+            });
+        }
+
         vendas.rawData.forEach(r => {
             const cod = String(r.codigo||'').trim().toUpperCase();
             if (!cod) return;
@@ -4626,6 +4662,14 @@ const previsao = {
                 // Média móvel + sazonalidade + tendência progressiva
                 rawQtys = nextMonths.map(({abbr},idx) => Math.round(baseMedia * (sIdx[abbr]||1) * Math.max(0.1, 1 + trend*(idx+1)*0.5)));
                 ciLows  = ciHighs = rawQtys;
+            }
+
+            // Piso de cliente: aplica apenas ao próximo mês (índice 0)
+            const clienteQty = clienteMap[cod] || 0;
+            if (usarCliente && clienteQty > 0 && rawQtys[0] < clienteQty) {
+                rawQtys = [...rawQtys]; rawQtys[0] = clienteQty;
+                if (ciLows  && ciLows[0]  < clienteQty) { ciLows  = [...ciLows];  ciLows[0]  = clienteQty; }
+                if (ciHighs && ciHighs[0] < clienteQty) { ciHighs = [...ciHighs]; ciHighs[0] = clienteQty; }
             }
 
             nextMonths.forEach(({mes, abbr, label}, idx) => {
@@ -5095,17 +5139,57 @@ const planoProducao = {
 const politicaEstoque = {
     _rows: [],
 
+    _fmtR(v) {
+        if (!v || v < 0) return '—';
+        return v >= 1e6 ? 'R$ ' + (v/1e6).toFixed(1) + 'M'
+             : v >= 1e3 ? 'R$ ' + (v/1e3).toFixed(0) + 'k'
+             : 'R$ ' + Math.round(v).toLocaleString('pt-BR');
+    },
+
     calcular() {
         if (!vendas.rawData.length)  { mostrarToast('Importe Vendas primeiro.', 'erro'); return; }
         if (!estoque.rawData.length) { mostrarToast('Importe Estoque primeiro.', 'erro'); return; }
 
         const leadTime = parseFloat(document.getElementById('pol-lead')?.value) || 1;
-        const zScore   = parseFloat(document.getElementById('pol-nivel')?.value) || 1.28;
+        const zBase    = parseFloat(document.getElementById('pol-nivel')?.value) || 1.28;
         const nMeses   = parseInt(document.getElementById('pol-hist')?.value) || 12;
+        const useAbc   = document.getElementById('pol-abc-auto')?.checked;
 
         const months = vendas.monthCols.slice(-nMeses);
         if (!months.length) { mostrarToast('Sem dados de vendas para calcular.', 'erro'); return; }
 
+        // Preço unitário por SKU a partir do estoque (valor total / quantidade)
+        const precoMap = {};
+        if (estoque._colValor) {
+            const toN = v => parseFloat(String(v).replace(/[^\d,.\-]/g,'').replace(',','.')) || 0;
+            estoque.rawData.forEach(r => {
+                const cod = String(r.codigo || '').trim().toUpperCase();
+                const qty = Number(r.quantidade) || 0;
+                const val = toN(r.dados?.[estoque._colValor] ?? 0);
+                if (cod && qty > 0 && val > 0) precoMap[cod] = val / qty;
+            });
+        }
+
+        // Classificação ABC por volume de vendas (A=top 80%, B=80-95%, C=resto)
+        const abcMap = {};
+        const zByClass = { A: 1.65, B: 1.28, C: 1.04 };
+        if (useAbc) {
+            const totVend = {};
+            vendas.rawData.forEach(r => {
+                const cod = String(r.codigo||'').trim().toUpperCase();
+                const tot = vendas.monthCols.reduce((s,mc) => s+(r[mc.key]||0), 0);
+                totVend[cod] = (totVend[cod]||0) + tot;
+            });
+            const sorted = Object.entries(totVend).sort((a,b) => b[1]-a[1]);
+            const grand  = sorted.reduce((s,[,v]) => s+v, 0);
+            let acc = 0;
+            sorted.forEach(([cod, v]) => {
+                acc += v;
+                abcMap[cod] = acc/grand <= 0.80 ? 'A' : acc/grand <= 0.95 ? 'B' : 'C';
+            });
+        }
+
+        // Histórico de vendas por SKU
         const vendMap = {};
         vendas.rawData.forEach(r => {
             const cod = String(r.codigo || '').trim().toUpperCase();
@@ -5114,6 +5198,7 @@ const politicaEstoque = {
             months.forEach(mc => { vendMap[cod].qtds.push(r[mc.key] || 0); });
         });
 
+        // Estoque atual por SKU
         const estMap = {};
         estoque.rawData.forEach(r => {
             const cod = String(r.codigo || '').trim().toUpperCase();
@@ -5129,20 +5214,30 @@ const politicaEstoque = {
             const desvPad = n > 1
                 ? Math.sqrt(info.qtds.reduce((s, v) => s + (v - demMedia) ** 2, 0) / (n - 1))
                 : demMedia * 0.3;
+
+            const abcClass     = abcMap[cod] || null;
+            const z            = useAbc && abcClass ? zByClass[abcClass] : zBase;
             const estAtual     = estMap[cod] || 0;
-            const estSeguranca = Math.round(zScore * desvPad * Math.sqrt(leadTime));
+            const estSeguranca = Math.round(z * desvPad * Math.sqrt(leadTime));
             const estoqueRepos = Math.round(demMedia * leadTime + estSeguranca);
             const cobAtual     = demMedia > 0 ? estAtual / demMedia : null;
             const cobIdeal     = demMedia > 0 ? estoqueRepos / demMedia : null;
             const qtyProduzir  = Math.max(0, estoqueRepos - estAtual);
+
             let status;
             if (estAtual <= estSeguranca && estSeguranca > 0) status = 'RUPTURA';
             else if (estAtual < estoqueRepos) status = 'RISCO';
             else if (estAtual > 2 * estoqueRepos) status = 'EXCESSO';
             else status = 'OK';
+
+            const valorUn      = precoMap[cod] || null;
+            const revenueRisco = valorUn && qtyProduzir > 0 ? qtyProduzir * valorUn : null;
+            const capitalExcesso = valorUn && status === 'EXCESSO' ? (estAtual - estoqueRepos) * valorUn : null;
+
             return { cod, descricao: info.descricao, segmento: info.segmento,
                      demMedia, desvPad, estAtual, cobAtual, estSeguranca,
-                     estoqueRepos, cobIdeal, qtyProduzir, status };
+                     estoqueRepos, cobIdeal, qtyProduzir, status, abcClass,
+                     valorUn, revenueRisco, capitalExcesso };
         }).filter(Boolean);
 
         const ORDER = { RUPTURA: 0, RISCO: 1, EXCESSO: 2, OK: 3 };
@@ -5158,18 +5253,35 @@ const politicaEstoque = {
         const counts = { RUPTURA: 0, RISCO: 0, OK: 0, EXCESSO: 0 };
         this._rows.forEach(r => { if (counts[r.status] !== undefined) counts[r.status]++; });
         const totProd = this._rows.reduce((s, r) => s + r.qtyProduzir, 0);
+        let revRisco = 0, capParado = 0, temPreco = false;
+        this._rows.forEach(r => {
+            if (r.revenueRisco)  { revRisco  += r.revenueRisco;  temPreco = true; }
+            if (r.capitalExcesso){ capParado += r.capitalExcesso; temPreco = true; }
+        });
+
         const kpis = [
-            { l: 'RUPTURA',    v: counts.RUPTURA,                  s: 'abaixo do est. segurança', c: '#f06292' },
-            { l: 'RISCO',      v: counts.RISCO,                    s: 'abaixo do ponto repos.',   c: '#ffca28' },
-            { l: 'OK',         v: counts.OK,                       s: 'dentro da política',       c: '#26a69a' },
-            { l: 'EXCESSO',    v: counts.EXCESSO,                  s: 'acima de 2× o ideal',      c: '#90caf9' },
+            { l: 'RUPTURA', v: counts.RUPTURA, s: temPreco && revRisco > 0 ? this._fmtR(revRisco * counts.RUPTURA / Math.max(1, counts.RUPTURA + counts.RISCO)) + ' em risco' : 'abaixo do est. segurança', c: '#f06292' },
+            { l: 'RISCO',   v: counts.RISCO,   s: 'abaixo do ponto repos.',   c: '#ffca28' },
+            { l: 'OK',      v: counts.OK,       s: 'dentro da política',       c: '#26a69a' },
+            { l: 'EXCESSO', v: counts.EXCESSO,  s: temPreco && capParado > 0 ? this._fmtR(capParado) + ' parado em estoque' : 'acima de 2× o ideal', c: '#90caf9' },
             { l: 'A PRODUZIR', v: totProd.toLocaleString('pt-BR'), s: 'unid. para cobertura ideal', c: 'var(--indigo-primary)' },
         ];
+
+        // Se tiver preço, mostra card extra de impacto financeiro total
+        const extraCard = temPreco ? `<div class="summary-card" style="border-top:3px solid #f06292;grid-column:span 2;">
+            <div class="s-label">IMPACTO FINANCEIRO TOTAL</div>
+            <div style="display:flex;gap:24px;margin:8px 0;flex-wrap:wrap;">
+                <div><div style="font-size:1.3rem;font-weight:800;color:#f06292;">${this._fmtR(revRisco)}</div><div class="s-sub">receita em risco (RUPTURA+RISCO)</div></div>
+                <div><div style="font-size:1.3rem;font-weight:800;color:#90caf9;">${this._fmtR(capParado)}</div><div class="s-sub">capital parado (EXCESSO)</div></div>
+            </div>
+        </div>` : '';
+
+        el.style.gridTemplateColumns = temPreco ? 'repeat(5,1fr)' : 'repeat(5,1fr)';
         el.innerHTML = kpis.map(k => `<div class="summary-card" style="border-top:3px solid ${k.c};">
             <div class="s-label">${k.l}</div>
             <div style="font-size:1.9rem;font-weight:800;color:${k.c};margin:8px 0;">${k.v}</div>
             <div class="s-sub">${k.s}</div>
-        </div>`).join('');
+        </div>`).join('') + extraCard;
     },
 
     _renderTabela() {
@@ -5186,35 +5298,45 @@ const politicaEstoque = {
             (!statusF || r.status === statusF)
         );
         const STATUS_COR = { RUPTURA: '#f06292', RISCO: '#ffca28', OK: '#26a69a', EXCESSO: '#90caf9' };
+        const ABC_COR    = { A: '#f06292', B: '#ffca28', C: '#90caf9' };
+        const temAbc     = rows.some(r => r.abcClass);
+        const temPreco   = rows.some(r => r.valorUn);
+
         el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:.82rem;">
             <thead><tr style="color:var(--text-dim);font-size:.67rem;letter-spacing:.07em;border-bottom:2px solid var(--border-color);">
+                ${temAbc ? `<th style="padding:8px 8px;text-align:center;" title="Classificação ABC por volume de vendas">ABC</th>` : ''}
                 <th style="padding:8px 12px;text-align:left;">CÓDIGO</th>
                 <th style="padding:8px 12px;text-align:left;">DESCRIÇÃO</th>
-                <th style="padding:8px 12px;text-align:right;" title="Média mensal de vendas">DEM MÉDIA</th>
-                <th style="padding:8px 12px;text-align:right;" title="Desvio padrão mensal">DESV PAD</th>
-                <th style="padding:8px 12px;text-align:right;">EST ATUAL</th>
-                <th style="padding:8px 12px;text-align:right;" title="Cobertura atual em meses">COB ATUAL</th>
-                <th style="padding:8px 12px;text-align:right;" title="Estoque de segurança = z × σ × √LT">EST SEGURANÇA</th>
-                <th style="padding:8px 12px;text-align:right;" title="Ponto de reposição = dem×LT + est.seg.">PONTO REPOS</th>
-                <th style="padding:8px 12px;text-align:right;" title="Cobertura ideal em meses">COB IDEAL</th>
-                <th style="padding:8px 12px;text-align:right;">A PRODUZIR</th>
+                <th style="padding:8px 10px;text-align:right;" title="Média mensal de vendas">DEM MÉDIA</th>
+                <th style="padding:8px 10px;text-align:right;" title="Desvio padrão mensal">σ</th>
+                <th style="padding:8px 10px;text-align:right;">EST ATUAL</th>
+                <th style="padding:8px 10px;text-align:right;" title="Cobertura atual em meses">COB ATUAL</th>
+                <th style="padding:8px 10px;text-align:right;" title="Estoque de segurança = z × σ × √LT">EST SEG</th>
+                <th style="padding:8px 10px;text-align:right;" title="Ponto de reposição = dem×LT + est.seg.">PONTO REPOS</th>
+                <th style="padding:8px 10px;text-align:right;" title="Cobertura ideal em meses">COB IDEAL</th>
+                <th style="padding:8px 10px;text-align:right;">A PRODUZIR</th>
+                ${temPreco ? `<th style="padding:8px 10px;text-align:right;" title="Impacto financeiro">R$ IMPACTO</th>` : ''}
                 <th style="padding:8px 12px;text-align:center;">STATUS</th>
             </tr></thead>
             <tbody>${rows.map((r, i) => {
                 const cor    = STATUS_COR[r.status] || '#fff';
                 const bg     = i % 2 ? 'var(--bg-input)' : 'transparent';
                 const cobCor = !r.cobAtual ? 'var(--text-dim)' : r.cobAtual < 1 ? '#f06292' : r.cobAtual > 3 ? '#90caf9' : '#26a69a';
+                const rImpact = r.revenueRisco || r.capitalExcesso;
+                const rCor   = r.revenueRisco ? '#f06292' : '#90caf9';
                 return `<tr style="background:${bg};border-bottom:1px solid rgba(255,255,255,.04);">
+                    ${temAbc ? `<td style="padding:6px 8px;text-align:center;">${r.abcClass ? `<span style="padding:1px 7px;border-radius:10px;font-size:.7rem;font-weight:800;background:${ABC_COR[r.abcClass]}33;color:${ABC_COR[r.abcClass]};">${r.abcClass}</span>` : '—'}</td>` : ''}
                     <td style="padding:7px 12px;font-weight:700;color:var(--indigo-primary);">${escHTML(r.cod)}</td>
-                    <td style="padding:7px 12px;font-size:.78rem;color:var(--text-dim);">${escHTML(r.descricao.slice(0, 28))}</td>
-                    <td style="padding:7px 12px;text-align:right;">${r.demMedia.toFixed(0)}</td>
-                    <td style="padding:7px 12px;text-align:right;color:var(--text-dim);">${r.desvPad.toFixed(1)}</td>
-                    <td style="padding:7px 12px;text-align:right;font-weight:600;">${r.estAtual.toLocaleString('pt-BR')}</td>
-                    <td style="padding:7px 12px;text-align:right;color:${cobCor};">${r.cobAtual !== null ? r.cobAtual.toFixed(1)+'m' : '—'}</td>
-                    <td style="padding:7px 12px;text-align:right;">${r.estSeguranca.toLocaleString('pt-BR')}</td>
-                    <td style="padding:7px 12px;text-align:right;font-weight:600;">${r.estoqueRepos.toLocaleString('pt-BR')}</td>
-                    <td style="padding:7px 12px;text-align:right;color:var(--text-dim);">${r.cobIdeal !== null ? r.cobIdeal.toFixed(1)+'m' : '—'}</td>
-                    <td style="padding:7px 12px;text-align:right;font-weight:700;color:${r.qtyProduzir > 0 ? '#26c6da' : 'var(--text-dim)'};">${r.qtyProduzir > 0 ? r.qtyProduzir.toLocaleString('pt-BR') : '—'}</td>
+                    <td style="padding:7px 12px;font-size:.78rem;color:var(--text-dim);">${escHTML(r.descricao.slice(0, 26))}</td>
+                    <td style="padding:7px 10px;text-align:right;">${r.demMedia.toFixed(0)}</td>
+                    <td style="padding:7px 10px;text-align:right;color:var(--text-dim);">${r.desvPad.toFixed(1)}</td>
+                    <td style="padding:7px 10px;text-align:right;font-weight:600;">${r.estAtual.toLocaleString('pt-BR')}</td>
+                    <td style="padding:7px 10px;text-align:right;color:${cobCor};">${r.cobAtual !== null ? r.cobAtual.toFixed(1)+'m' : '—'}</td>
+                    <td style="padding:7px 10px;text-align:right;">${r.estSeguranca.toLocaleString('pt-BR')}</td>
+                    <td style="padding:7px 10px;text-align:right;font-weight:600;">${r.estoqueRepos.toLocaleString('pt-BR')}</td>
+                    <td style="padding:7px 10px;text-align:right;color:var(--text-dim);">${r.cobIdeal !== null ? r.cobIdeal.toFixed(1)+'m' : '—'}</td>
+                    <td style="padding:7px 10px;text-align:right;font-weight:700;color:${r.qtyProduzir > 0 ? '#26c6da' : 'var(--text-dim)'};">${r.qtyProduzir > 0 ? r.qtyProduzir.toLocaleString('pt-BR') : '—'}</td>
+                    ${temPreco ? `<td style="padding:7px 10px;text-align:right;font-weight:700;color:${rImpact ? rCor : 'var(--text-dim)'};">${rImpact ? this._fmtR(rImpact) : '—'}</td>` : ''}
                     <td style="padding:7px 12px;text-align:center;">
                         <span style="padding:2px 10px;border-radius:20px;font-size:.68rem;font-weight:700;background:${cor}22;color:${cor};">${r.status}</span>
                     </td>
@@ -5241,11 +5363,14 @@ const politicaEstoque = {
 
     exportarCSV() {
         if (!this._rows.length) { mostrarToast('Calcule primeiro.', 'erro'); return; }
-        const h = ['CÓDIGO','DESCRIÇÃO','DEM_MÉDIA','DESV_PAD','EST_ATUAL','COB_ATUAL','EST_SEGURANÇA','PONTO_REPOS','COB_IDEAL','A_PRODUZIR','STATUS'];
+        const h = ['CÓDIGO','DESCRIÇÃO','ABC','DEM_MÉDIA','DESV_PAD','EST_ATUAL','COB_ATUAL','EST_SEGURANÇA','PONTO_REPOS','COB_IDEAL','A_PRODUZIR','VALOR_UNIT','R$_IMPACTO','STATUS'];
         const lines = [h.join(';')].concat(this._rows.map(r =>
-            [r.cod, r.descricao.replace(/;/g,''), r.demMedia.toFixed(0), r.desvPad.toFixed(1),
+            [r.cod, r.descricao.replace(/;/g,''), r.abcClass||'', r.demMedia.toFixed(0), r.desvPad.toFixed(1),
              r.estAtual, r.cobAtual?.toFixed(1)||'', r.estSeguranca, r.estoqueRepos,
-             r.cobIdeal?.toFixed(1)||'', r.qtyProduzir, r.status].join(';')
+             r.cobIdeal?.toFixed(1)||'', r.qtyProduzir,
+             r.valorUn?.toFixed(2)||'',
+             ((r.revenueRisco||r.capitalExcesso)||0).toFixed(2),
+             r.status].join(';')
         ));
         const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
         const a = document.createElement('a');
@@ -5479,7 +5604,8 @@ const soepDash = {
         });
 
         const n = months.length;
-        el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(${n},1fr);gap:12px;min-width:${n*160}px;">
+        // Cards mensais
+        const cardsHtml = `<div style="display:grid;grid-template-columns:repeat(${n},1fr);gap:12px;min-width:${n*160}px;">
             ${cols.map(c => `<div style="background:var(--bg-input);border-radius:10px;padding:16px;border-top:3px solid ${c.cor};">
                 <div style="font-size:.85rem;font-weight:700;margin-bottom:12px;">${c.m.label.toUpperCase()}</div>
                 <div style="display:flex;flex-direction:column;gap:7px;font-size:.79rem;">
@@ -5512,6 +5638,88 @@ const soepDash = {
         <div style="margin-top:12px;font-size:.72rem;color:var(--text-dim);">
             Est. inicial: ${estInicial.toLocaleString('pt-BR')} un — cada mês inicia com o saldo projetado do anterior
         </div>`;
+
+        // Breakdown por segmento
+        const codSegMap = {};
+        vendas.rawData.forEach(r => {
+            const cod = String(r.codigo||'').trim().toUpperCase();
+            if (cod && r.segmento) codSegMap[cod] = r.segmento;
+        });
+        const segs = [...new Set(Object.values(codSegMap))].sort();
+
+        let segTableHtml = '';
+        if (segs.length > 1) {
+            // Estoque inicial por segmento
+            const estSegIni = {};
+            estoque.rawData.forEach(r => {
+                const cod = String(r.codigo||'').trim().toUpperCase();
+                const seg = codSegMap[cod];
+                if (seg) estSegIni[seg] = (estSegIni[seg]||0) + (Number(r.quantidade)||0);
+            });
+
+            // Plano por segmento×mês
+            const planSeg = {};
+            Object.entries(planoProducao._plano).forEach(([k, v]) => {
+                const parts = k.split('_');
+                const mes = parts[0] + '_' + parts[1];
+                const cod = parts.slice(2).join('_').toUpperCase();
+                const seg = codSegMap[cod];
+                if (seg) {
+                    if (!planSeg[seg]) planSeg[seg] = {};
+                    planSeg[seg][mes] = (planSeg[seg][mes]||0) + (v||0);
+                }
+            });
+
+            // Demanda prevista por segmento×mês
+            const demSeg = {};
+            previsao._forecast.forEach(r => {
+                const seg = r.segmento || codSegMap[String(r.cod||'').toUpperCase()];
+                if (!seg) return;
+                if (!demSeg[seg]) demSeg[seg] = {};
+                demSeg[seg][r.mes] = (demSeg[seg][r.mes]||0) + (r.qty||0);
+            });
+
+            const STATUS_COR_S = { RUPTURA:'#f06292', RISCO:'#ffca28', OK:'#26a69a', EXCESSO:'#90caf9' };
+            const segRows = segs.map((seg, si) => {
+                let accSeg = estSegIni[seg] || 0;
+                const cells = months.map(m => {
+                    const dem  = demSeg[seg]?.[m.mes] || 0;
+                    const plan = planSeg[seg]?.[m.mes] || 0;
+                    accSeg = accSeg + plan - dem;
+                    const cob = dem > 0 ? accSeg / dem : null;
+                    let st, sc;
+                    if (accSeg <= 0)                { st = 'RUPTURA'; sc = '#f06292'; }
+                    else if (cob !== null && cob < 0.5) { st = 'RISCO';   sc = '#ffca28'; }
+                    else if (cob !== null && cob > 3)   { st = 'EXCESSO'; sc = '#90caf9'; }
+                    else                            { st = 'OK';      sc = '#26a69a'; }
+                    return `<td style="padding:6px 10px;text-align:right;font-size:.79rem;" title="${st}">
+                        <span style="font-weight:700;color:${sc};">${accSeg.toLocaleString('pt-BR')}</span>
+                        <br><span style="font-size:.66rem;color:var(--text-dim);">${cob !== null ? cob.toFixed(1)+'m' : '—'}</span>
+                    </td>`;
+                });
+                const bg = si%2 ? 'var(--bg-input)' : 'transparent';
+                return `<tr style="background:${bg};border-bottom:1px solid rgba(255,255,255,.04);">
+                    <td style="padding:7px 12px;font-size:.8rem;font-weight:600;">${escHTML(seg)}</td>
+                    ${cells.join('')}
+                </tr>`;
+            }).join('');
+
+            segTableHtml = `<div style="margin-top:20px;" class="summary-card">
+                <div style="font-size:.72rem;letter-spacing:.07em;color:var(--text-dim);margin-bottom:10px;">ESTOQUE PROJETADO POR SEGMENTO</div>
+                <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                    <thead><tr style="color:var(--text-dim);font-size:.67rem;letter-spacing:.07em;border-bottom:2px solid var(--border-color);">
+                        <th style="padding:8px 12px;text-align:left;">SEGMENTO</th>
+                        ${months.map(m=>`<th style="padding:8px 10px;text-align:right;">${m.label.toUpperCase()}</th>`).join('')}
+                    </tr></thead>
+                    <tbody>${segRows}</tbody>
+                </table>
+                </div>
+                <div style="margin-top:8px;font-size:.7rem;color:var(--text-dim);">Est. projetado (un) e cobertura (meses) por segmento — valor acumulado mês a mês</div>
+            </div>`;
+        }
+
+        el.innerHTML = cardsHtml + segTableHtml;
     },
 
     _renderKPIs() {

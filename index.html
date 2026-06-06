@@ -2087,6 +2087,12 @@
             </div>
             <button onclick="previsao.calcular()" style="padding:9px 22px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.83rem;font-weight:700;cursor:pointer;white-space:nowrap;">CALCULAR</button>
         </div>
+        <div style="margin-top:12px;">
+            <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:.8rem;color:var(--text-dim);">
+                <input type="checkbox" id="prev-usar-cliente" style="accent-color:var(--indigo-primary);width:15px;height:15px;">
+                Usar pedidos de Cliente como piso mínimo da previsão — próximo mês não será menor que a carteira importada
+            </label>
+        </div>
     </div>
     <div id="prev-sazon-wrap" style="display:none;" class="summary-card" style="margin-bottom:20px;">
         <div class="s-label" style="margin-bottom:12px;">SAZONALIDADE DETECTADA <span style="font-weight:400;color:var(--text-dim);">— meses em destaque = horizonte previsto</span></div>
@@ -2147,6 +2153,12 @@
                 style="padding:9px 22px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.83rem;font-weight:700;cursor:pointer;white-space:nowrap;">CALCULAR</button>
             <button onclick="politicaEstoque.exportarCSV()"
                 style="padding:9px 16px;border-radius:8px;border:1px solid var(--border-color);background:transparent;color:var(--text-dim);font-size:.83rem;cursor:pointer;white-space:nowrap;">↓ CSV</button>
+        </div>
+        <div style="margin-top:12px;">
+            <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:.8rem;color:var(--text-dim);">
+                <input type="checkbox" id="pol-abc-auto" style="accent-color:var(--indigo-primary);width:15px;height:15px;">
+                Classificação ABC automática — A recebe nível 90% (z=1.65), B=80% (z=1.28), C=70% (z=1.04) — ignora o nível global acima
+            </label>
         </div>
     </div>
     <div id="pol-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px;"></div>
