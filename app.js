@@ -866,7 +866,7 @@ function navigateTo(viewName) {
     if (viewName !== 'dashboard') localStorage.setItem('sin1_lastView', viewName);
     fecharDetalhe();
     fecharDetalheVxe();
-    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','toc','previsao','plano-prod','soep','timeline','pesquisa','vxe','op-dash','pedidos','comparador','clientes-dash','abc','abc-micro','abc-estoque'].forEach(v => {
+    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','toc','previsao','politica','plano-prod','soep','timeline','pesquisa','vxe','op-dash','pedidos','comparador','clientes-dash','abc','abc-micro','abc-estoque'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -886,6 +886,7 @@ function navigateTo(viewName) {
         capacidade:    'nav-arq',
         toc:           'nav-arq',
         previsao:      'nav-soep-grp',
+        politica:      'nav-soep-grp',
         'plano-prod':  'nav-soep-grp',
         soep:          'nav-soep-grp',
         timeline:      'nav-soep-grp',
@@ -1002,9 +1003,10 @@ function navigateTo(viewName) {
         setTimeout(() => abcEstoque.render(), 50);
     } else if (viewName === 'previsao') {
         document.querySelector('[data-view="previsao"]')?.classList.add('sub-active');
-        // Mostra painel de acurácia se já houver snapshots
         const acWrap = document.getElementById('prev-acuracia-wrap');
         if (acWrap) acWrap.style.display = soepDash._snapshots.length ? '' : 'none';
+    } else if (viewName === 'politica') {
+        document.querySelector('[data-view="politica"]')?.classList.add('sub-active');
     } else if (viewName === 'plano-prod') {
         document.querySelector('[data-view="plano-prod"]')?.classList.add('sub-active');
         if (previsao._forecast.length) setTimeout(() => planoProducao.render(), 50);
@@ -4222,6 +4224,7 @@ const toc = {
         const ordenados = [...comDados, ...semDados];
         const gargalo = comDados[0] || null;
 
+        this._demandaAtual = demanda;
         this._renderResultado(gargalo, ordenados);
     },
 
@@ -4269,8 +4272,66 @@ const toc = {
         // Mostra top do gargalo por padrão
         if (gargalo) this._mostrarTop(gargalo.id);
 
+        // Painel de cenário — reset ao calcular
+        const cenWrap = document.getElementById('toc-cenario-wrap');
+        if (cenWrap) {
+            cenWrap.style.display = '';
+            const sl = document.getElementById('toc-cen-delta');
+            if (sl) sl.value = 0;
+            const lb = document.getElementById('toc-cen-label');
+            if (lb) lb.textContent = '+0%';
+            const cb = document.getElementById('toc-cen-barras');
+            if (cb) cb.innerHTML = '';
+        }
+
         // Renderiza fila do gargalo se houver OPs enviadas pelo OP Dashboard
         this._renderFilaGargalo(gargalo);
+    },
+
+    _simularCenario(delta) {
+        const pct = parseFloat(delta) || 0;
+        const lb = document.getElementById('toc-cen-label');
+        if (lb) lb.textContent = (pct >= 0 ? '+' : '') + pct + '%';
+        if (!this._demandaAtual || !banco.rawData.length) return;
+
+        const cap    = this._getCap();
+        const dias   = parseFloat(document.getElementById('toc-dias')?.value) || 22;
+        const factor = 1 + pct / 100;
+        const bancoMap = {};
+        banco.rawData.forEach(r => {
+            const cod = String(r.dados?.['Código'] ?? '').trim().toUpperCase();
+            if (cod) bancoMap[cod] = r.dados;
+        });
+
+        const resultados = this._PROCS.map(p => {
+            const capP   = cap[p.id] || { maquinas: 1, horasDia: 8 };
+            const capMin = capP.maquinas * capP.horasDia * 60 * dias;
+            let cargaMin = 0;
+            Object.entries(this._demandaAtual).forEach(([cod, qty]) => {
+                const dados = bancoMap[String(cod).toUpperCase()];
+                if (!dados) return;
+                cargaMin += this._getTempoMinutos(dados, p.cols) * qty * factor;
+            });
+            const util = capMin > 0 ? cargaMin / capMin : null;
+            return { ...p, cargaMin, capMin, util, semDados: cargaMin === 0 };
+        }).filter(p => !p.semDados).sort((a, b) => (b.util || 0) - (a.util || 0));
+
+        const el = document.getElementById('toc-cen-barras');
+        if (!el) return;
+        el.innerHTML = resultados.map(p => {
+            const pct2 = (p.util || 0) * 100;
+            const cor   = p.util >= 1 ? '#f06292' : p.util >= 0.8 ? '#ffca28' : '#26a69a';
+            const label = p.util >= 1 ? 'GARGALO' : p.util >= 0.8 ? 'ATENÇÃO' : 'OK';
+            const barW  = Math.min(pct2 / 1.5, 100);
+            return `<div style="display:flex;align-items:center;gap:14px;padding:7px 0;border-bottom:1px solid var(--border-color);">
+                <div style="width:160px;font-size:.82rem;font-weight:600;color:var(--text-primary);">${p.nome}</div>
+                <div style="flex:1;height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;">
+                    <div style="width:${barW}%;height:100%;background:${cor};border-radius:4px;transition:width .1s;"></div>
+                </div>
+                <div style="width:55px;text-align:right;font-size:.82rem;font-weight:700;color:${cor};">${pct2.toFixed(0)}%</div>
+                <div style="width:70px;text-align:right;font-size:.7rem;color:${cor};font-weight:700;">${label}</div>
+            </div>`;
+        }).join('');
     },
 
     _renderFilaGargalo(gargalo) {
@@ -5030,6 +5091,170 @@ const planoProducao = {
     },
 };
 
+// ====== S&OP — POLÍTICA DE ESTOQUES ======
+const politicaEstoque = {
+    _rows: [],
+
+    calcular() {
+        if (!vendas.rawData.length)  { mostrarToast('Importe Vendas primeiro.', 'erro'); return; }
+        if (!estoque.rawData.length) { mostrarToast('Importe Estoque primeiro.', 'erro'); return; }
+
+        const leadTime = parseFloat(document.getElementById('pol-lead')?.value) || 1;
+        const zScore   = parseFloat(document.getElementById('pol-nivel')?.value) || 1.28;
+        const nMeses   = parseInt(document.getElementById('pol-hist')?.value) || 12;
+
+        const months = vendas.monthCols.slice(-nMeses);
+        if (!months.length) { mostrarToast('Sem dados de vendas para calcular.', 'erro'); return; }
+
+        const vendMap = {};
+        vendas.rawData.forEach(r => {
+            const cod = String(r.codigo || '').trim().toUpperCase();
+            if (!cod) return;
+            if (!vendMap[cod]) vendMap[cod] = { qtds: [], descricao: r.descricao || '', segmento: r.segmento || '' };
+            months.forEach(mc => { vendMap[cod].qtds.push(r[mc.key] || 0); });
+        });
+
+        const estMap = {};
+        estoque.rawData.forEach(r => {
+            const cod = String(r.codigo || '').trim().toUpperCase();
+            if (cod) estMap[cod] = (estMap[cod] || 0) + (Number(r.quantidade) || 0);
+        });
+
+        this._rows = Object.entries(vendMap).map(([cod, info]) => {
+            const n      = info.qtds.length;
+            const ativos = info.qtds.filter(v => v > 0).length;
+            if (!ativos) return null;
+            const demMedia = info.qtds.reduce((s, v) => s + v, 0) / n;
+            if (demMedia < 1) return null;
+            const desvPad = n > 1
+                ? Math.sqrt(info.qtds.reduce((s, v) => s + (v - demMedia) ** 2, 0) / (n - 1))
+                : demMedia * 0.3;
+            const estAtual     = estMap[cod] || 0;
+            const estSeguranca = Math.round(zScore * desvPad * Math.sqrt(leadTime));
+            const estoqueRepos = Math.round(demMedia * leadTime + estSeguranca);
+            const cobAtual     = demMedia > 0 ? estAtual / demMedia : null;
+            const cobIdeal     = demMedia > 0 ? estoqueRepos / demMedia : null;
+            const qtyProduzir  = Math.max(0, estoqueRepos - estAtual);
+            let status;
+            if (estAtual <= estSeguranca && estSeguranca > 0) status = 'RUPTURA';
+            else if (estAtual < estoqueRepos) status = 'RISCO';
+            else if (estAtual > 2 * estoqueRepos) status = 'EXCESSO';
+            else status = 'OK';
+            return { cod, descricao: info.descricao, segmento: info.segmento,
+                     demMedia, desvPad, estAtual, cobAtual, estSeguranca,
+                     estoqueRepos, cobIdeal, qtyProduzir, status };
+        }).filter(Boolean);
+
+        const ORDER = { RUPTURA: 0, RISCO: 1, EXCESSO: 2, OK: 3 };
+        this._rows.sort((a, b) => (ORDER[a.status] - ORDER[b.status]) || (b.qtyProduzir - a.qtyProduzir));
+        this._renderKPIs();
+        this._renderTabela();
+        mostrarToast(`✓ ${this._rows.length} SKUs analisados`);
+    },
+
+    _renderKPIs() {
+        const el = document.getElementById('pol-kpis');
+        if (!el || !this._rows.length) return;
+        const counts = { RUPTURA: 0, RISCO: 0, OK: 0, EXCESSO: 0 };
+        this._rows.forEach(r => { if (counts[r.status] !== undefined) counts[r.status]++; });
+        const totProd = this._rows.reduce((s, r) => s + r.qtyProduzir, 0);
+        const kpis = [
+            { l: 'RUPTURA',    v: counts.RUPTURA,                  s: 'abaixo do est. segurança', c: '#f06292' },
+            { l: 'RISCO',      v: counts.RISCO,                    s: 'abaixo do ponto repos.',   c: '#ffca28' },
+            { l: 'OK',         v: counts.OK,                       s: 'dentro da política',       c: '#26a69a' },
+            { l: 'EXCESSO',    v: counts.EXCESSO,                  s: 'acima de 2× o ideal',      c: '#90caf9' },
+            { l: 'A PRODUZIR', v: totProd.toLocaleString('pt-BR'), s: 'unid. para cobertura ideal', c: 'var(--indigo-primary)' },
+        ];
+        el.innerHTML = kpis.map(k => `<div class="summary-card" style="border-top:3px solid ${k.c};">
+            <div class="s-label">${k.l}</div>
+            <div style="font-size:1.9rem;font-weight:800;color:${k.c};margin:8px 0;">${k.v}</div>
+            <div class="s-sub">${k.s}</div>
+        </div>`).join('');
+    },
+
+    _renderTabela() {
+        const el = document.getElementById('pol-tabela');
+        if (!el) return;
+        if (!this._rows.length) {
+            el.innerHTML = '<div style="padding:32px;text-align:center;color:var(--text-dim);">Configure os parâmetros e clique em CALCULAR para analisar.</div>';
+            return;
+        }
+        const q       = (document.getElementById('pol-search')?.value || '').toLowerCase();
+        const statusF = document.getElementById('pol-status-sel')?.value || '';
+        const rows    = this._rows.filter(r =>
+            (!q || r.cod.toLowerCase().includes(q) || r.descricao.toLowerCase().includes(q)) &&
+            (!statusF || r.status === statusF)
+        );
+        const STATUS_COR = { RUPTURA: '#f06292', RISCO: '#ffca28', OK: '#26a69a', EXCESSO: '#90caf9' };
+        el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+            <thead><tr style="color:var(--text-dim);font-size:.67rem;letter-spacing:.07em;border-bottom:2px solid var(--border-color);">
+                <th style="padding:8px 12px;text-align:left;">CÓDIGO</th>
+                <th style="padding:8px 12px;text-align:left;">DESCRIÇÃO</th>
+                <th style="padding:8px 12px;text-align:right;" title="Média mensal de vendas">DEM MÉDIA</th>
+                <th style="padding:8px 12px;text-align:right;" title="Desvio padrão mensal">DESV PAD</th>
+                <th style="padding:8px 12px;text-align:right;">EST ATUAL</th>
+                <th style="padding:8px 12px;text-align:right;" title="Cobertura atual em meses">COB ATUAL</th>
+                <th style="padding:8px 12px;text-align:right;" title="Estoque de segurança = z × σ × √LT">EST SEGURANÇA</th>
+                <th style="padding:8px 12px;text-align:right;" title="Ponto de reposição = dem×LT + est.seg.">PONTO REPOS</th>
+                <th style="padding:8px 12px;text-align:right;" title="Cobertura ideal em meses">COB IDEAL</th>
+                <th style="padding:8px 12px;text-align:right;">A PRODUZIR</th>
+                <th style="padding:8px 12px;text-align:center;">STATUS</th>
+            </tr></thead>
+            <tbody>${rows.map((r, i) => {
+                const cor    = STATUS_COR[r.status] || '#fff';
+                const bg     = i % 2 ? 'var(--bg-input)' : 'transparent';
+                const cobCor = !r.cobAtual ? 'var(--text-dim)' : r.cobAtual < 1 ? '#f06292' : r.cobAtual > 3 ? '#90caf9' : '#26a69a';
+                return `<tr style="background:${bg};border-bottom:1px solid rgba(255,255,255,.04);">
+                    <td style="padding:7px 12px;font-weight:700;color:var(--indigo-primary);">${escHTML(r.cod)}</td>
+                    <td style="padding:7px 12px;font-size:.78rem;color:var(--text-dim);">${escHTML(r.descricao.slice(0, 28))}</td>
+                    <td style="padding:7px 12px;text-align:right;">${r.demMedia.toFixed(0)}</td>
+                    <td style="padding:7px 12px;text-align:right;color:var(--text-dim);">${r.desvPad.toFixed(1)}</td>
+                    <td style="padding:7px 12px;text-align:right;font-weight:600;">${r.estAtual.toLocaleString('pt-BR')}</td>
+                    <td style="padding:7px 12px;text-align:right;color:${cobCor};">${r.cobAtual !== null ? r.cobAtual.toFixed(1)+'m' : '—'}</td>
+                    <td style="padding:7px 12px;text-align:right;">${r.estSeguranca.toLocaleString('pt-BR')}</td>
+                    <td style="padding:7px 12px;text-align:right;font-weight:600;">${r.estoqueRepos.toLocaleString('pt-BR')}</td>
+                    <td style="padding:7px 12px;text-align:right;color:var(--text-dim);">${r.cobIdeal !== null ? r.cobIdeal.toFixed(1)+'m' : '—'}</td>
+                    <td style="padding:7px 12px;text-align:right;font-weight:700;color:${r.qtyProduzir > 0 ? '#26c6da' : 'var(--text-dim)'};">${r.qtyProduzir > 0 ? r.qtyProduzir.toLocaleString('pt-BR') : '—'}</td>
+                    <td style="padding:7px 12px;text-align:center;">
+                        <span style="padding:2px 10px;border-radius:20px;font-size:.68rem;font-weight:700;background:${cor}22;color:${cor};">${r.status}</span>
+                    </td>
+                </tr>`;
+            }).join('')}</tbody>
+        </table>
+        <div style="padding:8px 12px;font-size:.72rem;color:var(--text-dim);">${rows.length} de ${this._rows.length} SKUs</div>`;
+    },
+
+    sugerirEstoqueMinimo() {
+        if (!this._rows.length) { mostrarToast('Calcule primeiro.', 'erro'); return; }
+        this._rows.forEach(r => { if (r.estoqueRepos > 0) planoProducao.setEstMin(r.cod, r.estoqueRepos); });
+        mostrarToast(`✓ Estoque mínimo sugerido para ${this._rows.length} SKUs`);
+    },
+
+    enviarParaPlano() {
+        if (!this._rows.length) { mostrarToast('Calcule primeiro.', 'erro'); return; }
+        if (!previsao._nextMonths.length) { mostrarToast('Calcule a Previsão de Demanda primeiro.', 'erro'); return; }
+        const mes = previsao._nextMonths[0]?.mes;
+        let n = 0;
+        this._rows.filter(r => r.qtyProduzir > 0).forEach(r => { planoProducao.setQty(r.cod, mes, r.qtyProduzir); n++; });
+        mostrarToast(`✓ ${n} SKUs enviados para o Plano de Produção (${mes})`);
+    },
+
+    exportarCSV() {
+        if (!this._rows.length) { mostrarToast('Calcule primeiro.', 'erro'); return; }
+        const h = ['CÓDIGO','DESCRIÇÃO','DEM_MÉDIA','DESV_PAD','EST_ATUAL','COB_ATUAL','EST_SEGURANÇA','PONTO_REPOS','COB_IDEAL','A_PRODUZIR','STATUS'];
+        const lines = [h.join(';')].concat(this._rows.map(r =>
+            [r.cod, r.descricao.replace(/;/g,''), r.demMedia.toFixed(0), r.desvPad.toFixed(1),
+             r.estAtual, r.cobAtual?.toFixed(1)||'', r.estSeguranca, r.estoqueRepos,
+             r.cobIdeal?.toFixed(1)||'', r.qtyProduzir, r.status].join(';')
+        ));
+        const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'politica_estoques.csv';
+        a.click();
+    },
+};
+
 // ====== S&OP — DASHBOARD EXECUTIVO ======
 const soepDash = {
     _acoes:     [],
@@ -5065,7 +5290,7 @@ const soepDash = {
 
     _selecionarAba(aba) {
         this._abaAtiva = aba;
-        ['visao-geral','prev-real'].forEach(a => {
+        ['visao-geral','prev-real','horizonte'].forEach(a => {
             const btn = document.getElementById(`soep-tab-${a}`);
             const pnl = document.getElementById(`soep-panel-${a}`);
             const ativo = a === aba;
@@ -5073,6 +5298,7 @@ const soepDash = {
             if (pnl) pnl.style.display = ativo ? '' : 'none';
         });
         if (aba === 'prev-real') this._renderPrevReal();
+        if (aba === 'horizonte') this._renderHorizonte6m();
     },
 
     async render() {
@@ -5216,6 +5442,76 @@ const soepDash = {
         inner += `</table></div>`;
         row.children[0].innerHTML = inner;
         row.style.display = '';
+    },
+
+    _renderHorizonte6m() {
+        const el = document.getElementById('soep-horizonte-est');
+        if (!el) return;
+        if (!previsao._nextMonths.length) {
+            el.innerHTML = '<div style="color:var(--text-dim);padding:24px;text-align:center;">Calcule a Previsão de Demanda primeiro.</div>';
+            return;
+        }
+        const months    = previsao._nextMonths;
+        const estInicial = estoque.rawData.reduce((s, r) => s + (Number(r.quantidade) || 0), 0);
+
+        let estAcc = estInicial;
+        const cols = months.map(m => {
+            const dem  = previsao.getTotalMes(m.mes);
+            const plan = Object.entries(planoProducao._plano)
+                .filter(([k]) => k.startsWith(m.mes + '_'))
+                .reduce((s, [, v]) => s + (v || 0), 0);
+            estAcc = estAcc + plan - dem;
+            const cob = dem > 0 ? estAcc / dem : null;
+            let status, cor;
+            if (estAcc <= 0)                         { status = 'RUPTURA'; cor = '#f06292'; }
+            else if (cob !== null && cob < 0.5)      { status = 'RISCO';   cor = '#ffca28'; }
+            else if (cob !== null && cob > 3)        { status = 'EXCESSO'; cor = '#90caf9'; }
+            else                                     { status = 'OK';      cor = '#26a69a'; }
+
+            const demMap  = previsao.getDemandaMapa(m.mes);
+            const procs   = banco.rawData.length ? toc.calcularComDemanda(demMap) : [];
+            const comDados = procs.filter(p => p.util != null && p.cargaMin > 0);
+            const maxUtil  = comDados.length ? Math.max(...comDados.map(p => p.util || 0)) : 0;
+            const garNome  = comDados.sort((a, b) => (b.util || 0) - (a.util || 0))[0]?.nome || '—';
+            const garCor   = maxUtil >= 1 ? '#f06292' : maxUtil >= 0.8 ? '#ffca28' : '#26a69a';
+
+            return { m, dem, plan, estPrev: estAcc, cob, status, cor, maxUtil, garNome, garCor };
+        });
+
+        const n = months.length;
+        el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(${n},1fr);gap:12px;min-width:${n*160}px;">
+            ${cols.map(c => `<div style="background:var(--bg-input);border-radius:10px;padding:16px;border-top:3px solid ${c.cor};">
+                <div style="font-size:.85rem;font-weight:700;margin-bottom:12px;">${c.m.label.toUpperCase()}</div>
+                <div style="display:flex;flex-direction:column;gap:7px;font-size:.79rem;">
+                    <div style="display:flex;justify-content:space-between;">
+                        <span style="color:var(--text-dim);">Demanda prev.</span>
+                        <span style="font-weight:600;">${c.dem.toLocaleString('pt-BR')}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;">
+                        <span style="color:var(--text-dim);">Produção plan.</span>
+                        <span style="font-weight:600;color:${c.plan ? 'var(--indigo-primary)' : 'var(--text-dim)'};">${c.plan ? c.plan.toLocaleString('pt-BR') : '—'}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border-color);padding-top:6px;">
+                        <span style="color:var(--text-dim);">Est. projetado</span>
+                        <span style="font-weight:700;color:${c.estPrev < 0 ? '#f06292' : c.cor};">${c.estPrev.toLocaleString('pt-BR')}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;">
+                        <span style="color:var(--text-dim);">Cobertura</span>
+                        <span style="font-weight:600;color:${c.cor};">${c.cob !== null ? c.cob.toFixed(1) + 'm' : '—'}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border-color);padding-top:6px;">
+                        <span style="color:var(--text-dim);">Gargalo</span>
+                        <span style="font-weight:600;color:${c.garCor};" title="${escHTML(c.garNome)}">${(c.maxUtil * 100).toFixed(0)}%</span>
+                    </div>
+                    <div style="margin-top:4px;text-align:center;">
+                        <span style="padding:2px 12px;border-radius:20px;font-size:.68rem;font-weight:700;background:${c.cor}22;color:${c.cor};">${c.status}</span>
+                    </div>
+                </div>
+            </div>`).join('')}
+        </div>
+        <div style="margin-top:12px;font-size:.72rem;color:var(--text-dim);">
+            Est. inicial: ${estInicial.toLocaleString('pt-BR')} un — cada mês inicia com o saldo projetado do anterior
+        </div>`;
     },
 
     _renderKPIs() {

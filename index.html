@@ -98,6 +98,7 @@
                         </div>
                         <ul class="sub-menu">
                             <li data-view="previsao"    onclick="navigateTo('previsao')">Previsão de Demanda</li>
+                            <li data-view="politica"    onclick="navigateTo('politica')">Política de Estoques</li>
                             <li data-view="plano-prod"  onclick="navigateTo('plano-prod')">Plano de Produção</li>
                             <li data-view="soep"        onclick="navigateTo('soep')">Dashboard S&amp;OP</li>
                             <li data-view="timeline"    onclick="navigateTo('timeline')">Linha do Tempo</li>
@@ -2112,6 +2113,68 @@
     </div>
 </main>
 
+<!-- ── POLÍTICA DE ESTOQUES ──────────────────────────────────── -->
+<main class="content" id="view-politica" style="display:none;">
+    <header class="page-header">
+        <div class="page-header-text">
+            <h1 class="page-title">Política de <span>Estoques</span></h1>
+            <p class="page-subtitle">Cobertura ideal · Estoque de segurança · Ponto de reposição por SKU</p>
+        </div>
+    </header>
+    <div class="summary-card" style="margin-bottom:20px;">
+        <div class="s-label" style="margin-bottom:14px;">PARÂMETROS DA POLÍTICA</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto auto;gap:14px;align-items:end;">
+            <div>
+                <div style="font-size:.7rem;color:var(--text-dim);margin-bottom:5px;letter-spacing:.07em;">LEAD TIME (meses)</div>
+                <input id="pol-lead" type="number" value="1" min="0.5" max="6" step="0.5"
+                    style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.83rem;">
+            </div>
+            <div>
+                <div style="font-size:.7rem;color:var(--text-dim);margin-bottom:5px;letter-spacing:.07em;">NÍVEL DE SERVIÇO</div>
+                <select id="pol-nivel" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.83rem;">
+                    <option value="1.04">70%</option>
+                    <option value="1.28" selected>80%</option>
+                    <option value="1.65">90%</option>
+                    <option value="1.96">95%</option>
+                </select>
+            </div>
+            <div>
+                <div style="font-size:.7rem;color:var(--text-dim);margin-bottom:5px;letter-spacing:.07em;">MESES DE HISTÓRICO</div>
+                <input id="pol-hist" type="number" value="12" min="3" max="24" step="1"
+                    style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.83rem;">
+            </div>
+            <button onclick="politicaEstoque.calcular()"
+                style="padding:9px 22px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.83rem;font-weight:700;cursor:pointer;white-space:nowrap;">CALCULAR</button>
+            <button onclick="politicaEstoque.exportarCSV()"
+                style="padding:9px 16px;border-radius:8px;border:1px solid var(--border-color);background:transparent;color:var(--text-dim);font-size:.83rem;cursor:pointer;white-space:nowrap;">↓ CSV</button>
+        </div>
+    </div>
+    <div id="pol-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px;"></div>
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
+        <input id="pol-search" type="text" placeholder="Buscar SKU ou descrição..."
+            oninput="politicaEstoque._renderTabela()"
+            style="padding:7px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;flex:1;min-width:180px;max-width:280px;">
+        <select id="pol-status-sel" onchange="politicaEstoque._renderTabela()"
+            style="padding:7px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;">
+            <option value="">Todos</option>
+            <option value="RUPTURA">Ruptura</option>
+            <option value="RISCO">Risco</option>
+            <option value="OK">OK</option>
+            <option value="EXCESSO">Excesso</option>
+        </select>
+        <div style="flex:1;"></div>
+        <button onclick="politicaEstoque.sugerirEstoqueMinimo()"
+            style="padding:7px 16px;border-radius:7px;border:1px solid var(--indigo-btn);background:transparent;color:var(--indigo-primary);font-size:.8rem;font-weight:600;cursor:pointer;">→ Sugerir Est. Mínimo</button>
+        <button onclick="politicaEstoque.enviarParaPlano()"
+            style="padding:7px 16px;border-radius:7px;border:none;background:var(--indigo-btn);color:#fff;font-size:.8rem;font-weight:700;cursor:pointer;">→ Enviar para Plano</button>
+    </div>
+    <div class="summary-card">
+        <div id="pol-tabela" style="overflow-x:auto;">
+            <div style="padding:32px;text-align:center;color:var(--text-dim);">Configure os parâmetros e clique em CALCULAR para analisar a política de estoques.</div>
+        </div>
+    </div>
+</main>
+
 <!-- ── PLANO DE PRODUÇÃO ──────────────────────────────────────── -->
 <main class="content" id="view-plano-prod" style="display:none;">
     <header class="page-header">
@@ -2184,6 +2247,10 @@
             style="padding:8px 22px;border-radius:8px;border:none;font-size:.83rem;font-weight:600;cursor:pointer;background:var(--bg-input);color:var(--text-dim);">
             Previsto vs Realizado
         </button>
+        <button id="soep-tab-horizonte" onclick="soepDash._selecionarAba('horizonte')"
+            style="padding:8px 22px;border-radius:8px;border:none;font-size:.83rem;font-weight:600;cursor:pointer;background:var(--bg-input);color:var(--text-dim);">
+            Estoque Projetado
+        </button>
     </div>
 
     <!-- Painel: Visão Geral -->
@@ -2222,6 +2289,19 @@
                 </div>
             </div>
             <div id="soep-acoes-lista"></div>
+        </div>
+    </div>
+
+    <!-- Painel: Estoque Projetado -->
+    <div id="soep-panel-horizonte" style="display:none;">
+        <div class="summary-card">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+                <div>
+                    <div class="s-label">ESTOQUE PROJETADO — HORIZONTE MENSAL</div>
+                    <div style="font-size:.75rem;color:var(--text-dim);margin-top:4px;">Est. inicial + produção planejada − demanda prevista · gargalo = maior utilização no mês</div>
+                </div>
+            </div>
+            <div id="soep-horizonte-est" style="overflow-x:auto;"></div>
         </div>
     </div>
 
@@ -2432,6 +2512,21 @@
                     <tbody id="toc-top-tbody"></tbody>
                 </table>
             </div>
+        </div>
+    </div>
+
+    <!-- Simulação de Cenário -->
+    <div id="toc-cenario-wrap" style="display:none;margin-top:20px;">
+        <div class="summary-card">
+            <div class="s-label" style="margin-bottom:14px;">SIMULAÇÃO DE CENÁRIO <span style="font-weight:400;color:var(--text-dim);">— veja o impacto no gargalo ao variar a demanda</span></div>
+            <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:14px;">
+                <span style="font-size:.82rem;color:var(--text-dim);white-space:nowrap;">Variação de demanda:</span>
+                <input type="range" id="toc-cen-delta" min="-50" max="200" value="0" step="5"
+                    oninput="toc._simularCenario(this.value)"
+                    style="flex:1;min-width:160px;max-width:360px;accent-color:var(--indigo-primary);">
+                <span id="toc-cen-label" style="font-size:.95rem;font-weight:800;color:var(--indigo-primary);min-width:52px;">+0%</span>
+            </div>
+            <div id="toc-cen-barras"></div>
         </div>
     </div>
 
