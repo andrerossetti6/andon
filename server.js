@@ -73,12 +73,13 @@ app.post('/api/auth/login', async (req, res) => {
         if (!email || !senha)
             return res.status(400).json({ erro: 'Email e senha obrigatórios' });
 
-        const { data: usuario, error } = await supabase
+        const { data: rows, error } = await supabase
             .from('usuarios')
             .select('*')
             .eq('email', email.toLowerCase().trim())
             .eq('ativo', true)
-            .single();
+            .limit(1);
+        const usuario = rows?.[0] ?? null;
 
         if (error) {
             console.error('Supabase erro login:', error.message);
@@ -775,6 +776,127 @@ app.delete('/api/maquinas/:id', auth, async (req, res) => {
     });
 });
 
+// ── MES — APONTAMENTOS ──────────────────────────────────────────
+app.get('/api/mes/apontamentos', auth, async (req, res) => {
+    let q = supabase.from('apontamentos')
+        .select('*, paradas_mes(id,tipo,motivo,inicio,fim,duracao_min)')
+        .order('inicio', { ascending: false });
+    if (req.query.data_inicio) q = q.gte('inicio', req.query.data_inicio);
+    if (req.query.data_fim)    q = q.lte('inicio', req.query.data_fim + 'T23:59:59');
+    if (req.query.processo)    q = q.eq('processo', req.query.processo);
+    if (req.query.status)      q = q.eq('status', req.query.status);
+    const { data, error } = await q.limit(500);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+
+app.post('/api/mes/apontamentos', auth, async (req, res) => {
+    const { op_numero, cod, descricao, processo, operador, turno, maquina, qtd_planejada } = req.body;
+    if (!cod || !processo) return res.status(400).json({ erro: 'Código e processo obrigatórios' });
+    const { data, error } = await supabase.from('apontamentos')
+        .insert({ op_numero: op_numero || null, cod: String(cod).toUpperCase(), descricao: descricao || null,
+            processo, operador: operador || null, turno: turno || null, maquina: maquina || null,
+            qtd_planejada: Number(qtd_planejada) || 0, qtd_produzida: 0, qtd_refugo: 0,
+            status: 'em_andamento', usuario_id: req.usuario.id })
+        .select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, apontamento: data });
+});
+
+app.put('/api/mes/apontamentos/:id', auth, async (req, res) => {
+    const updates = {};
+    ['fim','qtd_produzida','qtd_refugo','status','obs','operador','maquina'].forEach(f => {
+        if (req.body[f] !== undefined) updates[f] = req.body[f];
+    });
+    if (updates.status === 'finalizado' && !updates.fim) updates.fim = new Date().toISOString();
+    const { data, error } = await supabase.from('apontamentos').update(updates).eq('id', req.params.id).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, apontamento: data });
+});
+
+app.delete('/api/mes/apontamentos/:id', auth, adminOnly, async (req, res) => {
+    const { error } = await supabase.from('apontamentos').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
+// ── MES — PARADAS ────────────────────────────────────────────────
+app.post('/api/mes/paradas', auth, async (req, res) => {
+    const { apontamento_id, tipo, motivo } = req.body;
+    if (!apontamento_id || !motivo) return res.status(400).json({ erro: 'apontamento_id e motivo obrigatórios' });
+    await supabase.from('apontamentos').update({ status: 'parado' }).eq('id', apontamento_id);
+    const { data, error } = await supabase.from('paradas_mes')
+        .insert({ apontamento_id, tipo: tipo || 'nao_planejada', motivo, inicio: new Date().toISOString() })
+        .select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, parada: data });
+});
+
+app.put('/api/mes/paradas/:id', auth, async (req, res) => {
+    const fimTs = new Date().toISOString();
+    const { data: par } = await supabase.from('paradas_mes').select('inicio,apontamento_id').eq('id', req.params.id).single();
+    const duracao_min = par ? Math.max(1, Math.round((new Date(fimTs) - new Date(par.inicio)) / 60000)) : 1;
+    const { data, error } = await supabase.from('paradas_mes').update({ fim: fimTs, duracao_min }).eq('id', req.params.id).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    if (par?.apontamento_id) await supabase.from('apontamentos').update({ status: 'em_andamento' }).eq('id', par.apontamento_id);
+    res.json({ ok: true, parada: data });
+});
+
+// ── MES — WIP ATUAL ──────────────────────────────────────────────
+app.get('/api/mes/wip', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('apontamentos')
+        .select('id,op_numero,cod,descricao,processo,operador,turno,maquina,inicio,status,qtd_produzida,qtd_planejada,qtd_refugo,paradas_mes(id,tipo,motivo,inicio,fim,duracao_min)')
+        .in('status', ['em_andamento', 'parado'])
+        .order('processo').order('inicio');
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+
+// ── MES — OEE REAL ──────────────────────────────────────────────
+app.get('/api/mes/oee', auth, async (req, res) => {
+    const dataIni = req.query.data_inicio || new Date(Date.now() - 7*24*60*60*1000).toISOString().slice(0,10);
+    const dataFim = req.query.data_fim    || new Date().toISOString().slice(0,10);
+    const { data: apts } = await supabase.from('apontamentos')
+        .select('processo,inicio,fim,qtd_produzida,qtd_refugo,paradas_mes(duracao_min,motivo,tipo)')
+        .gte('inicio', dataIni)
+        .lte('inicio', dataFim + 'T23:59:59')
+        .eq('status', 'finalizado');
+    if (!apts?.length) return res.json({ oee:0, disponibilidade:0, qualidade:0, processos:{}, motivos:[] });
+
+    const byProc = {};
+    const motivosMap = {};
+    apts.forEach(ap => {
+        const proc = ap.processo || '—';
+        if (!byProc[proc]) byProc[proc] = { tempo_total:0, tempo_parada:0, qtd_prod:0, qtd_ref:0, count:0 };
+        const p = byProc[proc];
+        if (ap.inicio && ap.fim) p.tempo_total += (new Date(ap.fim) - new Date(ap.inicio)) / 60000;
+        (ap.paradas_mes||[]).forEach(par => {
+            const d = par.duracao_min || 0;
+            p.tempo_parada += d;
+            if (par.motivo) motivosMap[par.motivo] = (motivosMap[par.motivo]||0) + d;
+        });
+        p.qtd_prod += ap.qtd_produzida || 0;
+        p.qtd_ref  += ap.qtd_refugo    || 0;
+        p.count++;
+    });
+
+    const processosOEE = {};
+    let sumD=0, sumQ=0, n=0;
+    Object.entries(byProc).forEach(([proc, p]) => {
+        const D = p.tempo_total>0 ? Math.min(1, (p.tempo_total - p.tempo_parada) / p.tempo_total) : 0;
+        const Q = p.qtd_prod>0 ? Math.max(0, (p.qtd_prod - p.qtd_ref) / p.qtd_prod) : 1;
+        processosOEE[proc] = { D:Math.round(D*100), Q:Math.round(Q*100),
+            qtd_prod:p.qtd_prod, qtd_ref:p.qtd_ref,
+            tempo_total:Math.round(p.tempo_total), tempo_parada:Math.round(p.tempo_parada), count:p.count };
+        sumD+=D; sumQ+=Q; n++;
+    });
+
+    const D = n>0 ? sumD/n : 0;
+    const Q = n>0 ? sumQ/n : 0;
+    const motivos = Object.entries(motivosMap).sort((a,b)=>b[1]-a[1]).slice(0,10).map(([motivo,min])=>({motivo,min}));
+    res.json({ oee:Math.round(D*Q*100), disponibilidade:Math.round(D*100), qualidade:Math.round(Q*100), processos:processosOEE, motivos });
+});
+
 // ── DELETE /api/reset-dados — apaga todos os dados importados ────
 app.delete('/api/reset-dados', auth, adminOnly, async (_req, res) => {
     // Apaga só os registros de importação — o CASCADE remove os dados filhos automaticamente
@@ -844,6 +966,8 @@ app.get('/api/setup', async (_req, res) => {
         { nome: 'op_datas',             sql: `CREATE TABLE IF NOT EXISTS op_datas (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nop TEXT, codigo TEXT NOT NULL, data_entrega DATE, cpv NUMERIC(14,2) DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), atualizado_em TIMESTAMPTZ DEFAULT NOW(), UNIQUE(codigo)); ALTER TABLE op_datas DISABLE ROW LEVEL SECURITY;` },
         { nome: 'setup_matrix',         sql: `CREATE TABLE IF NOT EXISTS setup_matrix (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), processo TEXT NOT NULL, familia_de TEXT NOT NULL, familia_para TEXT NOT NULL, minutos INTEGER DEFAULT 0); ALTER TABLE setup_matrix DISABLE ROW LEVEL SECURITY;` },
         { nome: 'timeline_cenario',     sql: `CREATE TABLE IF NOT EXISTS timeline_cenario (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome TEXT NOT NULL, config JSONB DEFAULT '{}', resultado JSONB DEFAULT '{}', usuario_id UUID REFERENCES usuarios(id), criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE timeline_cenario DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'apontamentos',         sql: `CREATE TABLE IF NOT EXISTS apontamentos (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), op_numero TEXT, cod TEXT NOT NULL, descricao TEXT, processo TEXT NOT NULL, operador TEXT, turno TEXT, maquina TEXT, inicio TIMESTAMPTZ NOT NULL DEFAULT NOW(), fim TIMESTAMPTZ, qtd_planejada INTEGER DEFAULT 0, qtd_produzida INTEGER DEFAULT 0, qtd_refugo INTEGER DEFAULT 0, status TEXT NOT NULL DEFAULT 'em_andamento' CHECK (status IN ('em_andamento','parado','finalizado')), obs TEXT, usuario_id UUID REFERENCES usuarios(id), criado_em TIMESTAMPTZ DEFAULT NOW()); CREATE INDEX IF NOT EXISTS idx_apt_status ON apontamentos(status); CREATE INDEX IF NOT EXISTS idx_apt_inicio ON apontamentos(inicio); ALTER TABLE apontamentos DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'paradas_mes',          sql: `CREATE TABLE IF NOT EXISTS paradas_mes (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), apontamento_id UUID NOT NULL REFERENCES apontamentos(id) ON DELETE CASCADE, tipo TEXT NOT NULL DEFAULT 'nao_planejada' CHECK (tipo IN ('planejada','nao_planejada','setup','qualidade')), motivo TEXT NOT NULL, inicio TIMESTAMPTZ NOT NULL DEFAULT NOW(), fim TIMESTAMPTZ, duracao_min INTEGER, criado_em TIMESTAMPTZ DEFAULT NOW()); CREATE INDEX IF NOT EXISTS idx_paradas_apt ON paradas_mes(apontamento_id); ALTER TABLE paradas_mes DISABLE ROW LEVEL SECURITY;` },
     ];
 
     const faltando = [];

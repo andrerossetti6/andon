@@ -866,7 +866,7 @@ function navigateTo(viewName) {
     if (viewName !== 'dashboard') localStorage.setItem('sin1_lastView', viewName);
     fecharDetalhe();
     fecharDetalheVxe();
-    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','toc','previsao','politica','plano-prod','soep','timeline','pesquisa','vxe','op-dash','pedidos','comparador','clientes-dash','abc','abc-micro','abc-estoque'].forEach(v => {
+    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','toc','previsao','politica','plano-prod','soep','timeline','pesquisa','vxe','op-dash','pedidos','comparador','clientes-dash','abc','abc-micro','abc-estoque','mes'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -896,6 +896,7 @@ function navigateTo(viewName) {
         'pedidos':     'nav-pedidos',
         'comparador':   'nav-comparador',
         'clientes-dash':'nav-clientes-dash',
+        'mes':         'nav-mes',
         dashboard:     'nav-analise',
         abc:           'nav-abc-cruzada',
         'abc-micro':   'nav-abc-cruzada',
@@ -1016,6 +1017,9 @@ function navigateTo(viewName) {
     } else if (viewName === 'timeline') {
         document.querySelector('[data-view="timeline"]')?.classList.add('sub-active');
         timeline._popularMeses();
+    } else if (viewName === 'mes') {
+        document.getElementById('nav-mes')?.classList.add('active');
+        mes.init();
     }
 }
 
@@ -5660,9 +5664,9 @@ const soepDash = {
             // Plano por segmento×mês
             const planSeg = {};
             Object.entries(planoProducao._plano).forEach(([k, v]) => {
-                const parts = k.split('_');
-                const mes = parts[0] + '_' + parts[1];
-                const cod = parts.slice(2).join('_').toUpperCase();
+                const us  = k.indexOf('_');
+                const mes = us >= 0 ? k.slice(0, us) : k;
+                const cod = us >= 0 ? k.slice(us + 1).toUpperCase() : '';
                 const seg = codSegMap[cod];
                 if (seg) {
                     if (!planSeg[seg]) planSeg[seg] = {};
@@ -10285,5 +10289,457 @@ const comparador = {
                 ─── sólido = 2025 &nbsp;·&nbsp; - - - tracejado = 2026
             </div>`;
         }
+    }
+};
+
+// ══════════════════════════════════════════════════════════════
+// MES — MANUFACTURING EXECUTION SYSTEM
+// ══════════════════════════════════════════════════════════════
+const mes = {
+    _aba: 'apt',
+    _wip: [],
+    _processos: [],
+    _timerIds: {},
+    _modalAptId: null,
+
+    async init() {
+        if (!this._processos.length) {
+            const data = await api.get('/api/processos-config');
+            this._processos = data || [];
+        }
+        await this.mudarAba(this._aba);
+    },
+
+    mudarAba(aba) {
+        this._aba = aba;
+        const tabColors = { apt: 'var(--indigo-primary)', wip: '#26c6da', oee: '#26a69a' };
+        ['apt','wip','oee'].forEach(a => {
+            const pane = document.getElementById(`mes-pane-${a}`);
+            const tab  = document.getElementById(`mes-tab-${a}`);
+            if (pane) pane.style.display = a === aba ? 'block' : 'none';
+            if (tab) {
+                tab.style.color      = a === aba ? tabColors[a] : '#8b949e';
+                tab.style.background = a === aba ? '#161B22'    : 'transparent';
+                tab.style.borderBottom = a === aba ? `2px solid ${tabColors[a]}` : '1px solid var(--border)';
+                tab.style.fontWeight = a === aba ? '600' : '400';
+            }
+        });
+        if (aba === 'apt') return this.renderApontamento();
+        if (aba === 'wip') return this.renderWip();
+        if (aba === 'oee') return this._initOeeDatas();
+    },
+
+    async atualizar() {
+        await this.mudarAba(this._aba);
+    },
+
+    _fmtElapsed(inicio) {
+        if (!inicio) return '—';
+        const ms = Date.now() - new Date(inicio).getTime();
+        if (ms < 0) return '0:00';
+        const h = Math.floor(ms / 3600000);
+        const m = Math.floor((ms % 3600000) / 60000);
+        const s = Math.floor((ms % 60000) / 1000);
+        return h > 0
+            ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+            : `${m}:${String(s).padStart(2,'0')}`;
+    },
+
+    _pararTimers() {
+        Object.values(this._timerIds).forEach(id => clearInterval(id));
+        this._timerIds = {};
+    },
+
+    _iniciarTimers() {
+        this._pararTimers();
+        this._wip.filter(a => a.status === 'em_andamento').forEach(a => {
+            const tick = () => {
+                const el = document.getElementById(`mes-timer-${a.id}`);
+                if (el) el.textContent = this._fmtElapsed(a.inicio);
+                else clearInterval(this._timerIds[a.id]);
+            };
+            this._timerIds[a.id] = setInterval(tick, 1000);
+        });
+    },
+
+    // ─────────────────────────────────────────────────────────
+    // ABA APONTAMENTO
+    // ─────────────────────────────────────────────────────────
+    async renderApontamento() {
+        const el = document.getElementById('mes-apt-content');
+        if (!el) return;
+        el.innerHTML = '<div style="color:#8b949e;text-align:center;padding:24px;">Carregando...</div>';
+        const data = await api.get('/api/mes/wip');
+        this._wip = data || [];
+
+        const parados  = this._wip.filter(a => a.status === 'parado');
+        const ativos   = this._wip.filter(a => a.status === 'em_andamento');
+        const todos    = [...parados, ...ativos];
+
+        let cardsHtml = '';
+        todos.forEach(a => {
+            const isPaused    = a.status === 'parado';
+            const color       = isPaused ? '#ffab76' : '#26c6da';
+            const paradaAberta = (a.paradas_mes||[]).find(p => !p.fim);
+            const pct = a.qtd_planejada > 0 ? Math.min(100, Math.round((a.qtd_produzida||0) / a.qtd_planejada * 100)) : null;
+
+            cardsHtml += `
+            <div style="background:rgba(255,255,255,.04);border:1px solid ${isPaused?'rgba(255,171,118,.3)':'rgba(38,198,218,.18)'};border-left:3px solid ${color};border-radius:10px;padding:14px 16px;margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap;">
+                    <div style="flex:1;min-width:200px;">
+                        <span style="font-size:.67rem;font-weight:700;color:${color};letter-spacing:.08em;">${isPaused?'⏸ PAUSADO':'● EM ANDAMENTO'}</span>
+                        <div style="font-size:1.05rem;font-weight:700;color:#fff;margin:3px 0 1px;">${escHTML(a.cod)}${a.descricao?` <span style="font-weight:400;color:#8b949e;font-size:.85rem;">— ${escHTML(a.descricao)}</span>`:''}</div>
+                        <div style="font-size:.76rem;color:#8b949e;">${escHTML(a.processo)}${a.operador?' · '+escHTML(a.operador):''}${a.turno?' · '+escHTML(a.turno)+'º turno':''}${a.maquina?' · Máq. '+escHTML(a.maquina):''}${a.op_numero?' · <b style="color:#ccc;">OP '+escHTML(a.op_numero)+'</b>':''}</div>
+                        ${paradaAberta?`<div style="margin-top:5px;font-size:.72rem;color:#ffab76;background:rgba(255,171,118,.08);padding:3px 8px;border-radius:4px;display:inline-block;">⏸ ${escHTML(paradaAberta.tipo.replace(/_/g,' '))} — ${escHTML(paradaAberta.motivo)}</div>`:''}
+                        ${pct!==null?`<div style="margin-top:8px;"><div style="display:flex;justify-content:space-between;font-size:.68rem;color:#8b949e;margin-bottom:3px;"><span>Progresso</span><span>${a.qtd_produzida||0} / ${a.qtd_planejada} (${pct}%)</span></div><div style="height:5px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden;"><div style="height:100%;width:${pct}%;background:${color};border-radius:3px;"></div></div></div>`:''}
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:1.5rem;font-weight:700;color:${color};font-variant-numeric:tabular-nums;min-width:80px;" id="mes-timer-${escHTML(a.id)}">${this._fmtElapsed(a.inicio)}</div>
+                        <div style="font-size:.65rem;color:#8b949e;">decorrido</div>
+                    </div>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap;">
+                    <label style="font-size:.7rem;color:#8b949e;">Produzido</label>
+                    <input type="number" min="0" id="mes-prod-${escHTML(a.id)}" value="${a.qtd_produzida||0}"
+                        style="width:68px;padding:5px 8px;background:#0D1117;border:1px solid var(--border);border-radius:6px;color:#fff;font-size:.85rem;text-align:center;">
+                    <label style="font-size:.7rem;color:#8b949e;">Refugo</label>
+                    <input type="number" min="0" id="mes-ref-${escHTML(a.id)}" value="${a.qtd_refugo||0}"
+                        style="width:58px;padding:5px 8px;background:#0D1117;border:1px solid var(--border);border-radius:6px;color:#fff;font-size:.85rem;text-align:center;">
+                    ${isPaused && paradaAberta
+                        ? `<button onclick="mes.finalizarParada('${escHTML(paradaAberta.id)}','${escHTML(a.id)}')" style="padding:5px 14px;border-radius:6px;border:none;background:#26a69a;color:#fff;font-size:.75rem;font-weight:700;cursor:pointer;">▶ Retomar</button>`
+                        : `<button onclick="mes._abrirModalParada('${escHTML(a.id)}')" style="padding:5px 14px;border-radius:6px;border:1px solid rgba(255,171,118,.4);background:rgba(255,171,118,.08);color:#ffab76;font-size:.75rem;font-weight:700;cursor:pointer;">⏸ Pausar</button>`
+                    }
+                    <button onclick="mes.finalizarApontamento('${escHTML(a.id)}')" style="padding:5px 16px;border-radius:6px;border:none;background:#26c6da;color:#0D1117;font-size:.75rem;font-weight:700;cursor:pointer;margin-left:auto;">✓ Finalizar</button>
+                    <button onclick="mes._excluirApontamento('${escHTML(a.id)}')" title="Excluir apontamento" style="padding:5px 9px;border-radius:6px;border:1px solid rgba(240,98,146,.3);background:transparent;color:#f06292;font-size:.72rem;cursor:pointer;">✕</button>
+                </div>
+            </div>`;
+        });
+
+        if (!todos.length) {
+            cardsHtml = '<div style="color:#8b949e;font-size:.85rem;padding:12px 0 18px;">Nenhuma OP em andamento agora.</div>';
+        }
+
+        const procOptions = this._processos.map(p => `<option value="${escHTML(p.nome)}">${escHTML(p.nome)}</option>`).join('');
+
+        el.innerHTML = `
+        ${cardsHtml}
+        <div style="background:rgba(255,255,255,.025);border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:8px;">
+            <h3 style="margin:0 0 14px;font-size:.82rem;font-weight:700;color:#fff;letter-spacing:.06em;">+ INICIAR NOVO APONTAMENTO</h3>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:10px;margin-bottom:14px;">
+                <div>
+                    <label style="font-size:.68rem;color:#8b949e;display:block;margin-bottom:4px;">CÓDIGO *</label>
+                    <input id="mes-apt-cod" type="text" placeholder="ex: ABC123"
+                        style="width:100%;padding:8px 10px;background:#0D1117;border:1px solid var(--border);border-radius:6px;color:#fff;font-size:.85rem;box-sizing:border-box;text-transform:uppercase;">
+                </div>
+                <div>
+                    <label style="font-size:.68rem;color:#8b949e;display:block;margin-bottom:4px;">PROCESSO *</label>
+                    <select id="mes-apt-processo" style="width:100%;padding:8px 10px;background:#0D1117;border:1px solid var(--border);border-radius:6px;color:#fff;font-size:.85rem;box-sizing:border-box;">
+                        <option value="">— selecione —</option>
+                        ${procOptions}
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:.68rem;color:#8b949e;display:block;margin-bottom:4px;">Nº OP</label>
+                    <input id="mes-apt-op" type="text" placeholder="opcional"
+                        style="width:100%;padding:8px 10px;background:#0D1117;border:1px solid var(--border);border-radius:6px;color:#fff;font-size:.85rem;box-sizing:border-box;">
+                </div>
+                <div>
+                    <label style="font-size:.68rem;color:#8b949e;display:block;margin-bottom:4px;">OPERADOR</label>
+                    <input id="mes-apt-operador" type="text" placeholder="Nome"
+                        style="width:100%;padding:8px 10px;background:#0D1117;border:1px solid var(--border);border-radius:6px;color:#fff;font-size:.85rem;box-sizing:border-box;">
+                </div>
+                <div>
+                    <label style="font-size:.68rem;color:#8b949e;display:block;margin-bottom:4px;">TURNO</label>
+                    <select id="mes-apt-turno" style="width:100%;padding:8px 10px;background:#0D1117;border:1px solid var(--border);border-radius:6px;color:#fff;font-size:.85rem;box-sizing:border-box;">
+                        <option value="">—</option>
+                        <option value="1">1º Turno</option>
+                        <option value="2">2º Turno</option>
+                        <option value="3">3º Turno</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="font-size:.68rem;color:#8b949e;display:block;margin-bottom:4px;">MÁQUINA</label>
+                    <input id="mes-apt-maquina" type="text" placeholder="ID ou nome"
+                        style="width:100%;padding:8px 10px;background:#0D1117;border:1px solid var(--border);border-radius:6px;color:#fff;font-size:.85rem;box-sizing:border-box;">
+                </div>
+                <div>
+                    <label style="font-size:.68rem;color:#8b949e;display:block;margin-bottom:4px;">QTDE PLANEJADA</label>
+                    <input id="mes-apt-planejado" type="number" min="0" placeholder="0"
+                        style="width:100%;padding:8px 10px;background:#0D1117;border:1px solid var(--border);border-radius:6px;color:#fff;font-size:.85rem;box-sizing:border-box;">
+                </div>
+            </div>
+            <button onclick="mes.iniciarApontamento()"
+                style="padding:10px 28px;border-radius:8px;border:none;background:var(--indigo-btn,#5c6bc0);color:#fff;font-size:.85rem;font-weight:700;cursor:pointer;">
+                ▶ Iniciar Apontamento
+            </button>
+        </div>`;
+
+        this._iniciarTimers();
+    },
+
+    _abrirModalParada(aptId) {
+        this._modalAptId = aptId;
+        const m = document.getElementById('mes-parada-motivo');
+        if (m) m.value = '';
+        const modal = document.getElementById('mes-modal-parada');
+        if (modal) { modal.style.display = 'flex'; setTimeout(()=>m?.focus(),100); }
+    },
+
+    async confirmarParada() {
+        const motivo = document.getElementById('mes-parada-motivo')?.value.trim();
+        const tipo   = document.getElementById('mes-parada-tipo')?.value;
+        if (!motivo) { mostrarToast('Informe o motivo da parada', 'erro'); return; }
+        document.getElementById('mes-modal-parada').style.display = 'none';
+        const r = await api.post('/api/mes/paradas', { apontamento_id: this._modalAptId, tipo, motivo });
+        if (r?.ok) { mostrarToast('Parada registrada', 'aviso'); this.renderApontamento(); }
+    },
+
+    async finalizarParada(paradaId, aptId) {
+        const r = await api.put(`/api/mes/paradas/${paradaId}`, {});
+        if (r?.ok) {
+            // Salvar qtd atual antes de recarregar
+            const qProd = parseInt(document.getElementById(`mes-prod-${aptId}`)?.value)||0;
+            const qRef  = parseInt(document.getElementById(`mes-ref-${aptId}`)?.value)||0;
+            await api.put(`/api/mes/apontamentos/${aptId}`, { qtd_produzida:qProd, qtd_refugo:qRef });
+            mostrarToast('Produção retomada', 'sucesso');
+            this.renderApontamento();
+        }
+    },
+
+    async iniciarApontamento() {
+        const cod      = (document.getElementById('mes-apt-cod')?.value||'').trim().toUpperCase();
+        const processo = document.getElementById('mes-apt-processo')?.value;
+        const op       = (document.getElementById('mes-apt-op')?.value||'').trim();
+        const operador = (document.getElementById('mes-apt-operador')?.value||'').trim();
+        const turno    = document.getElementById('mes-apt-turno')?.value;
+        const maquina  = (document.getElementById('mes-apt-maquina')?.value||'').trim();
+        const qtd_plan = parseInt(document.getElementById('mes-apt-planejado')?.value)||0;
+        if (!cod)     { mostrarToast('Informe o código do produto', 'erro'); return; }
+        if (!processo){ mostrarToast('Selecione o processo', 'erro'); return; }
+        const r = await api.post('/api/mes/apontamentos', { op_numero:op||null, cod, processo, operador:operador||null, turno:turno||null, maquina:maquina||null, qtd_planejada:qtd_plan });
+        if (r?.ok) { mostrarToast('Apontamento iniciado', 'sucesso'); this.renderApontamento(); }
+    },
+
+    async finalizarApontamento(id) {
+        const qProd = parseInt(document.getElementById(`mes-prod-${id}`)?.value)||0;
+        const qRef  = parseInt(document.getElementById(`mes-ref-${id}`)?.value)||0;
+        if (!confirm(`Finalizar apontamento?\n\nProduzido: ${qProd} pç\nRefugo: ${qRef} pç`)) return;
+        const r = await api.put(`/api/mes/apontamentos/${id}`, { status:'finalizado', qtd_produzida:qProd, qtd_refugo:qRef });
+        if (r?.ok) { mostrarToast('Apontamento finalizado', 'sucesso'); this.renderApontamento(); }
+    },
+
+    async _excluirApontamento(id) {
+        if (!confirm('Excluir este apontamento?')) return;
+        const r = await api.delete(`/api/mes/apontamentos/${id}`);
+        if (r?.ok) { mostrarToast('Excluído', 'sucesso'); this.renderApontamento(); }
+    },
+
+    // ─────────────────────────────────────────────────────────
+    // ABA WIP
+    // ─────────────────────────────────────────────────────────
+    async renderWip() {
+        const el = document.getElementById('mes-wip-content');
+        if (!el) return;
+        el.innerHTML = '<div style="color:#8b949e;text-align:center;padding:24px;">Carregando...</div>';
+        const data = await api.get('/api/mes/wip');
+        this._wip = data || [];
+
+        if (!this._wip.length) {
+            el.innerHTML = '<div style="color:#8b949e;text-align:center;padding:60px;font-size:.9rem;">Nenhuma OP em andamento no momento.</div>';
+            return;
+        }
+
+        const byProc = {};
+        this._wip.forEach(a => { (byProc[a.processo] = byProc[a.processo]||[]).push(a); });
+
+        const total     = this._wip.length;
+        const paradas   = this._wip.filter(a=>a.status==='parado').length;
+        const procs     = Object.keys(byProc).length;
+        const totalProd = this._wip.reduce((s,a)=>s+(a.qtd_produzida||0),0);
+
+        let html = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:24px;">
+            <div class="summary-card" style="border-top:3px solid #26c6da;"><span class="s-label">EM ANDAMENTO</span><span class="s-value" style="color:#26c6da;">${total}</span><span class="s-sub">apontamentos ativos</span></div>
+            <div class="summary-card" style="border-top:3px solid #ffab76;"><span class="s-label">PAUSADOS</span><span class="s-value" style="color:#ffab76;">${paradas}</span><span class="s-sub">aguardando retorno</span></div>
+            <div class="summary-card" style="border-top:3px solid #7c4dff;"><span class="s-label">PROCESSOS</span><span class="s-value" style="color:#7c4dff;">${procs}</span><span class="s-sub">em operação</span></div>
+            <div class="summary-card" style="border-top:3px solid #26a69a;"><span class="s-label">PRODUZIDO</span><span class="s-value" style="color:#26a69a;">${totalProd.toLocaleString('pt-BR')}</span><span class="s-sub">peças (acumulado hoje)</span></div>
+        </div>`;
+
+        Object.entries(byProc).forEach(([proc, aps]) => {
+            html += `
+            <div style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px;">
+                <h3 style="margin:0 0 12px;font-size:.8rem;font-weight:700;color:#26c6da;letter-spacing:.07em;">${escHTML(proc)} <span style="font-weight:400;color:#8b949e;">(${aps.length})</span></h3>
+                <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:.78rem;">
+                    <thead><tr style="color:#8b949e;font-size:.66rem;letter-spacing:.06em;border-bottom:1px solid var(--border);">
+                        <th style="text-align:left;padding:5px 8px;">STATUS</th>
+                        <th style="text-align:left;padding:5px 8px;">OP / CÓDIGO</th>
+                        <th style="text-align:left;padding:5px 8px;">OPERADOR</th>
+                        <th style="text-align:center;padding:5px 8px;">TURNO</th>
+                        <th style="text-align:right;padding:5px 8px;">TEMPO</th>
+                        <th style="text-align:right;padding:5px 8px;">PROD.</th>
+                        <th style="text-align:right;padding:5px 8px;">REFUGO</th>
+                        <th style="text-align:right;padding:5px 8px;">PROGRESSO</th>
+                    </tr></thead>
+                    <tbody>
+                    ${aps.map(a => {
+                        const isPaused = a.status === 'parado';
+                        const color = isPaused ? '#ffab76' : '#26c6da';
+                        const pct = a.qtd_planejada>0 ? Math.min(100,Math.round((a.qtd_produzida||0)/a.qtd_planejada*100)) : null;
+                        return `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+                            <td style="padding:7px 8px;">
+                                <span style="font-size:.63rem;font-weight:700;color:${color};padding:2px 7px;border-radius:4px;background:${color}22;">${isPaused?'PARADO':'ATIVO'}</span>
+                            </td>
+                            <td style="padding:7px 8px;">
+                                <b style="color:#fff;">${escHTML(a.cod)}</b>
+                                ${a.op_numero?`<span style="color:#8b949e;font-size:.72rem;margin-left:6px;">OP ${escHTML(a.op_numero)}</span>`:''}
+                            </td>
+                            <td style="padding:7px 8px;color:#8b949e;">${escHTML(a.operador||'—')}</td>
+                            <td style="padding:7px 8px;text-align:center;color:#8b949e;">${a.turno?a.turno+'º':'—'}</td>
+                            <td style="padding:7px 8px;text-align:right;font-variant-numeric:tabular-nums;color:${color};">${this._fmtElapsed(a.inicio)}</td>
+                            <td style="padding:7px 8px;text-align:right;color:#3fb950;font-weight:600;">${(a.qtd_produzida||0).toLocaleString('pt-BR')}</td>
+                            <td style="padding:7px 8px;text-align:right;color:${(a.qtd_refugo||0)>0?'#f06292':'#8b949e'}">${(a.qtd_refugo||0).toLocaleString('pt-BR')}</td>
+                            <td style="padding:7px 8px;text-align:right;min-width:90px;">
+                                ${pct!==null
+                                    ?`<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end;">
+                                        <span style="font-size:.7rem;color:#8b949e;">${pct}%</span>
+                                        <div style="width:60px;height:5px;background:rgba(255,255,255,.07);border-radius:3px;overflow:hidden;">
+                                            <div style="height:100%;width:${pct}%;background:${color};border-radius:3px;"></div>
+                                        </div>
+                                      </div>`
+                                    :'<span style="color:#8b949e;font-size:.7rem;">—</span>'}
+                            </td>
+                        </tr>`;
+                    }).join('')}
+                    </tbody>
+                </table>
+                </div>
+            </div>`;
+        });
+
+        el.innerHTML = html;
+    },
+
+    // ─────────────────────────────────────────────────────────
+    // ABA OEE
+    // ─────────────────────────────────────────────────────────
+    _initOeeDatas() {
+        const hoje = new Date().toISOString().slice(0,10);
+        const sete = new Date(Date.now()-7*24*60*60*1000).toISOString().slice(0,10);
+        const iniEl = document.getElementById('mes-oee-ini');
+        const fimEl = document.getElementById('mes-oee-fim');
+        if (iniEl && !iniEl.value) iniEl.value = sete;
+        if (fimEl && !fimEl.value) fimEl.value = hoje;
+        this.renderOee();
+    },
+
+    async renderOee() {
+        const el = document.getElementById('mes-oee-content');
+        if (!el) return;
+        el.innerHTML = '<div style="color:#8b949e;text-align:center;padding:40px;">Calculando OEE...</div>';
+
+        const ini = document.getElementById('mes-oee-ini')?.value || new Date(Date.now()-7*24*60*60*1000).toISOString().slice(0,10);
+        const fim = document.getElementById('mes-oee-fim')?.value  || new Date().toISOString().slice(0,10);
+        const oee = await api.get(`/api/mes/oee?data_inicio=${ini}&data_fim=${fim}`);
+        if (!oee) { el.innerHTML = '<div style="color:#f06292;padding:20px;">Erro ao carregar OEE.</div>'; return; }
+
+        if (!oee.oee && !Object.keys(oee.processos||{}).length && !(oee.motivos||[]).length) {
+            el.innerHTML = `
+            <div style="background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.12);border-radius:12px;padding:48px;text-align:center;color:#8b949e;">
+                <div style="font-size:2.5rem;margin-bottom:14px;">📊</div>
+                <div style="font-size:1rem;color:#ccc;margin-bottom:8px;">Nenhum apontamento finalizado no período selecionado</div>
+                <div style="font-size:.82rem;">Registre apontamentos na aba <b style="color:#26c6da;">Apontamento</b> e clique em <b>Finalizar</b> para acumular dados de OEE.</div>
+            </div>`;
+            return;
+        }
+
+        const D = oee.disponibilidade || 0;
+        const Q = oee.qualidade || 0;
+        const V = oee.oee || 0;
+
+        const _c  = v => v >= 85 ? '#26a69a' : v >= 65 ? '#ffab76' : '#f06292';
+        const _bar = (v, c) => `<div style="width:100%;height:8px;background:rgba(255,255,255,.07);border-radius:4px;overflow:hidden;margin-top:8px;"><div style="height:100%;width:${v}%;background:${c};border-radius:4px;transition:width .6s;"></div></div>`;
+        const _ref = v => v>=85?'World Class ✓':v>=65?'Em desenvolvimento':'Crítico';
+
+        let html = `
+        <div style="display:grid;grid-template-columns:1fr 1.2fr 1fr;gap:14px;margin-bottom:24px;">
+            <div class="summary-card" style="border-top:3px solid ${_c(D)};text-align:center;">
+                <span class="s-label">DISPONIBILIDADE (D)</span>
+                <span class="s-value" style="color:${_c(D)};font-size:2.2rem;">${D}%</span>
+                <span class="s-sub">Tempo real / Tempo total</span>
+                ${_bar(D,_c(D))}
+            </div>
+            <div class="summary-card" style="border-top:4px solid ${_c(V)};text-align:center;box-shadow:0 0 20px ${_c(V)}22;">
+                <span class="s-label">OEE GLOBAL (D × Q)</span>
+                <span class="s-value" style="color:${_c(V)};font-size:2.8rem;font-weight:800;">${V}%</span>
+                <span class="s-sub" style="color:${_c(V)};font-weight:600;">${_ref(V)}</span>
+                ${_bar(V,_c(V))}
+            </div>
+            <div class="summary-card" style="border-top:3px solid ${_c(Q)};text-align:center;">
+                <span class="s-label">QUALIDADE (Q)</span>
+                <span class="s-value" style="color:${_c(Q)};font-size:2.2rem;">${Q}%</span>
+                <span class="s-sub">Peças boas / Total</span>
+                ${_bar(Q,_c(Q))}
+            </div>
+        </div>
+        <div style="font-size:.72rem;color:#8b949e;margin-bottom:20px;padding:8px 12px;background:rgba(255,255,255,.03);border-radius:6px;border-left:2px solid #5c6bc0;">
+            OEE = Disponibilidade × Qualidade. Performance (P) requer tempo de ciclo cadastrado por operação — disponível em versão futura.
+        </div>`;
+
+        // Tabela por processo
+        if (Object.keys(oee.processos||{}).length) {
+            html += `
+            <div style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px;">
+                <h3 style="margin:0 0 12px;font-size:.8rem;font-weight:700;color:#fff;letter-spacing:.06em;">OEE POR PROCESSO</h3>
+                <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:.79rem;">
+                    <thead><tr style="color:#8b949e;font-size:.66rem;letter-spacing:.06em;border-bottom:1px solid var(--border);">
+                        <th style="text-align:left;padding:6px 8px;">PROCESSO</th>
+                        <th style="text-align:right;padding:6px 8px;">OPs</th>
+                        <th style="text-align:right;padding:6px 8px;">TEMPO (min)</th>
+                        <th style="text-align:right;padding:6px 8px;">PARADAS (min)</th>
+                        <th style="text-align:right;padding:6px 8px;">DISPON.</th>
+                        <th style="text-align:right;padding:6px 8px;">QUALIDADE</th>
+                        <th style="text-align:right;padding:6px 8px;">PRODUZIDO</th>
+                        <th style="text-align:right;padding:6px 8px;">REFUGO</th>
+                    </tr></thead>
+                    <tbody>
+                    ${Object.entries(oee.processos).map(([proc,p])=>`
+                    <tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+                        <td style="padding:7px 8px;color:#fff;font-weight:600;">${escHTML(proc)}</td>
+                        <td style="padding:7px 8px;text-align:right;color:#8b949e;">${p.count}</td>
+                        <td style="padding:7px 8px;text-align:right;color:#8b949e;">${(p.tempo_total||0).toLocaleString('pt-BR')}</td>
+                        <td style="padding:7px 8px;text-align:right;color:#ffab76;">${(p.tempo_parada||0).toLocaleString('pt-BR')}</td>
+                        <td style="padding:7px 8px;text-align:right;color:${_c(p.D)};font-weight:700;">${p.D}%</td>
+                        <td style="padding:7px 8px;text-align:right;color:${_c(p.Q)};font-weight:700;">${p.Q}%</td>
+                        <td style="padding:7px 8px;text-align:right;color:#3fb950;font-weight:600;">${(p.qtd_prod||0).toLocaleString('pt-BR')}</td>
+                        <td style="padding:7px 8px;text-align:right;color:${(p.qtd_ref||0)>0?'#f06292':'#8b949e'}">${(p.qtd_ref||0).toLocaleString('pt-BR')}</td>
+                    </tr>`).join('')}
+                    </tbody>
+                </table>
+                </div>
+            </div>`;
+        }
+
+        // Pareto de paradas
+        if (oee.motivos?.length) {
+            const maxMin = oee.motivos[0]?.min || 1;
+            html += `
+            <div style="background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:10px;padding:16px;">
+                <h3 style="margin:0 0 14px;font-size:.8rem;font-weight:700;color:#fff;letter-spacing:.06em;">PARETO — MOTIVOS DE PARADA</h3>
+                ${oee.motivos.map(m=>`
+                <div style="margin-bottom:12px;">
+                    <div style="display:flex;justify-content:space-between;font-size:.78rem;margin-bottom:4px;">
+                        <span style="color:#ccc;">${escHTML(m.motivo)}</span>
+                        <span style="color:#ffab76;font-weight:600;">${m.min} min</span>
+                    </div>
+                    <div style="height:7px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden;">
+                        <div style="height:100%;width:${Math.round((m.min/maxMin)*100)}%;background:#ffab76;border-radius:4px;transition:width .6s;"></div>
+                    </div>
+                </div>`).join('')}
+            </div>`;
+        }
+
+        el.innerHTML = html;
     }
 };

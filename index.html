@@ -143,6 +143,16 @@
                     </li>
                 </ul>
             </nav>
+            <nav class="nav-section" id="nav-section-mes">
+                <h3 class="nav-section-header" data-key="mes" onclick="toggleNavSection(this)">
+                    MES <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-mes" onclick="navigateTo('mes')">
+                        <div class="item-content">Chão de Fábrica</div>
+                    </li>
+                </ul>
+            </nav>
         </div>
 
         <div class="sidebar-bottom">
@@ -2571,6 +2581,82 @@
             </div>
         </div>
     </div>
+</main>
+
+
+<!-- ── MES — Manufacturing Execution System ───────────────────── -->
+<main class="content" id="view-mes" style="display:none;flex-direction:column;gap:0;padding:0;overflow:hidden;">
+
+    <!-- Header -->
+    <div style="padding:20px 28px 14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;border-bottom:1px solid var(--border);flex-shrink:0;">
+        <div>
+            <h1 style="font-size:1.4rem;font-weight:800;margin:0;color:#fff;">MES — <span style="color:var(--indigo-primary);">Execução de Produção</span></h1>
+            <p style="color:#8b949e;font-size:0.78rem;margin:3px 0 0;">Apontamento de chão de fábrica · WIP em tempo real · OEE</p>
+        </div>
+        <button onclick="mes.atualizar()" style="padding:7px 18px;border-radius:8px;border:1px solid var(--border);background:transparent;color:#8b949e;font-size:.78rem;cursor:pointer;">↻ Atualizar</button>
+    </div>
+
+    <!-- Tab bar -->
+    <div style="display:flex;gap:4px;padding:12px 28px 0;border-bottom:1px solid var(--border);background:rgba(255,255,255,.02);flex-shrink:0;">
+        <button id="mes-tab-apt" onclick="mes.mudarAba('apt')"
+            style="padding:8px 22px;border-radius:8px 8px 0 0;border:1px solid var(--border);border-bottom:2px solid var(--indigo-primary);background:#161B22;color:var(--indigo-primary);font-size:.82rem;font-weight:600;cursor:pointer;">
+            Apontamento
+        </button>
+        <button id="mes-tab-wip" onclick="mes.mudarAba('wip')"
+            style="padding:8px 22px;border-radius:8px 8px 0 0;border:1px solid var(--border);border-bottom:1px solid var(--border);background:transparent;color:#8b949e;font-size:.82rem;cursor:pointer;">
+            WIP Atual
+        </button>
+        <button id="mes-tab-oee" onclick="mes.mudarAba('oee')"
+            style="padding:8px 22px;border-radius:8px 8px 0 0;border:1px solid var(--border);border-bottom:1px solid var(--border);background:transparent;color:#8b949e;font-size:.82rem;cursor:pointer;">
+            OEE &amp; Métricas
+        </button>
+    </div>
+
+    <!-- Pane: Apontamento -->
+    <div id="mes-pane-apt" style="flex:1;overflow-y:auto;padding:20px 28px;">
+        <div id="mes-apt-content" style="color:#8b949e;text-align:center;padding:40px;">Carregando...</div>
+    </div>
+
+    <!-- Pane: WIP -->
+    <div id="mes-pane-wip" style="flex:1;overflow-y:auto;padding:20px 28px;display:none;">
+        <div id="mes-wip-content" style="color:#8b949e;text-align:center;padding:40px;">Carregando...</div>
+    </div>
+
+    <!-- Pane: OEE -->
+    <div id="mes-pane-oee" style="flex:1;overflow-y:auto;padding:20px 28px;display:none;">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px;flex-wrap:wrap;">
+            <label style="font-size:.75rem;color:#8b949e;">DE</label>
+            <input type="date" id="mes-oee-ini" style="padding:6px 10px;background:#0D1117;border:1px solid var(--border);border-radius:6px;color:#fff;font-size:.82rem;">
+            <label style="font-size:.75rem;color:#8b949e;">ATÉ</label>
+            <input type="date" id="mes-oee-fim" style="padding:6px 10px;background:#0D1117;border:1px solid var(--border);border-radius:6px;color:#fff;font-size:.82rem;">
+            <button onclick="mes.renderOee()" style="padding:6px 18px;border-radius:6px;border:none;background:var(--indigo-btn,#5c6bc0);color:#fff;font-size:.78rem;cursor:pointer;">Calcular OEE</button>
+        </div>
+        <div id="mes-oee-content"></div>
+    </div>
+
+    <!-- Modal parada (global, dentro do view) -->
+    <div id="mes-modal-parada" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999;align-items:center;justify-content:center;">
+        <div style="background:#161B22;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:28px;width:380px;max-width:92vw;">
+            <h3 style="margin:0 0 18px;font-size:1rem;color:#fff;">Registrar Parada</h3>
+            <label style="font-size:.72rem;color:#8b949e;display:block;margin-bottom:5px;">TIPO</label>
+            <select id="mes-parada-tipo" style="width:100%;padding:9px 10px;background:#0D1117;border:1px solid var(--border);border-radius:6px;color:#fff;margin-bottom:14px;font-size:.85rem;">
+                <option value="nao_planejada">Não planejada (falha / quebra)</option>
+                <option value="planejada">Planejada (manutenção)</option>
+                <option value="setup">Setup / Troca de produto</option>
+                <option value="qualidade">Qualidade (retrabalho)</option>
+            </select>
+            <label style="font-size:.72rem;color:#8b949e;display:block;margin-bottom:5px;">MOTIVO *</label>
+            <input id="mes-parada-motivo" type="text" placeholder="Descreva o motivo da parada..."
+                style="width:100%;padding:9px 10px;background:#0D1117;border:1px solid var(--border);border-radius:6px;color:#fff;box-sizing:border-box;margin-bottom:20px;font-size:.85rem;">
+            <div style="display:flex;gap:10px;justify-content:flex-end;">
+                <button onclick="document.getElementById('mes-modal-parada').style.display='none'"
+                    style="padding:8px 20px;border-radius:6px;border:1px solid var(--border);background:transparent;color:#8b949e;cursor:pointer;">Cancelar</button>
+                <button onclick="mes.confirmarParada()"
+                    style="padding:8px 20px;border-radius:6px;border:none;background:#ffab76;color:#0D1117;font-weight:700;cursor:pointer;">Confirmar Parada</button>
+            </div>
+        </div>
+    </div>
+
 </main>
 
 </body>
