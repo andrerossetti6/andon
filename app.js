@@ -10369,8 +10369,13 @@ const mes = {
         const el = document.getElementById('mes-apt-content');
         if (!el) return;
         el.innerHTML = '<div style="color:#8b949e;text-align:center;padding:24px;">Carregando...</div>';
-        const data = await api.get('/api/mes/wip');
-        this._wip = data || [];
+
+        // Carrega WIP e OPs em paralelo
+        const [wipData] = await Promise.all([
+            api.get('/api/mes/wip'),
+            op.rawData.length ? Promise.resolve() : op.carregarHistorico()
+        ]);
+        this._wip = wipData || [];
 
         const parados  = this._wip.filter(a => a.status === 'parado');
         const ativos   = this._wip.filter(a => a.status === 'em_andamento');
@@ -10416,13 +10421,92 @@ const mes = {
         });
 
         if (!todos.length) {
-            cardsHtml = '<div style="color:#8b949e;font-size:.85rem;padding:12px 0 18px;">Nenhuma OP em andamento agora.</div>';
+            cardsHtml = '<div style="color:#8b949e;font-size:.85rem;padding:12px 0 4px;">Nenhuma OP em andamento agora.</div>';
+        }
+
+        // ── OPs importadas aguardando apontamento ──────────────
+        const opsPendentes = this._getOpsPendentes();
+        const opsFiltradas = this._opsFiltro
+            ? opsPendentes.filter(r => {
+                const q = this._opsFiltro.toLowerCase();
+                return (r.nop||'').toLowerCase().includes(q) || (r.cod||'').toLowerCase().includes(q) || (r.desc||'').toLowerCase().includes(q);
+              })
+            : opsPendentes;
+
+        const statusConcluido = v => /conclu|cancelad|encerrad|finaliz/i.test(String(v));
+        const opsAtivas = opsFiltradas.filter(r => !statusConcluido(r.status));
+
+        // NOPs já em andamento no WIP
+        const wipNops = new Set(this._wip.map(a => String(a.op_numero||'').trim()).filter(Boolean));
+
+        let opsPendHtml = '';
+        if (op.rawData.length) {
+            const countTotal = opsPendentes.filter(r => !statusConcluido(r.status)).length;
+            const collapsed = this._opsCollapsed !== false;
+            opsPendHtml = `
+            <div style="background:rgba(255,255,255,.025);border:1px solid rgba(38,198,218,.2);border-radius:12px;margin-bottom:16px;overflow:hidden;">
+                <div onclick="mes._toggleOpsList()" style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;cursor:pointer;user-select:none;background:rgba(38,198,218,.05);">
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        <span style="font-size:.8rem;font-weight:700;color:#26c6da;letter-spacing:.06em;">OPs IMPORTADAS — Aguardando Apontamento</span>
+                        <span style="background:#26c6da22;color:#26c6da;font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:12px;">${countTotal}</span>
+                    </div>
+                    <span style="color:#8b949e;font-size:.75rem;">${collapsed?'▾ Expandir':'▴ Recolher'}</span>
+                </div>
+                <div id="mes-ops-lista" style="display:${collapsed?'none':'block'};">
+                    <div style="padding:10px 14px 8px;border-bottom:1px solid rgba(255,255,255,.06);">
+                        <input id="mes-ops-busca" type="text" placeholder="Buscar por código, OP ou descrição..."
+                            value="${escHTML(this._opsFiltro||'')}"
+                            oninput="mes._filtrarOps(this.value)"
+                            style="width:100%;max-width:380px;padding:7px 10px;background:#0D1117;border:1px solid var(--border);border-radius:6px;color:#fff;font-size:.8rem;box-sizing:border-box;">
+                    </div>
+                    <div style="overflow-x:auto;max-height:320px;overflow-y:auto;">
+                    <table style="width:100%;border-collapse:collapse;font-size:.77rem;">
+                        <thead style="position:sticky;top:0;z-index:1;"><tr style="color:#8b949e;font-size:.64rem;letter-spacing:.06em;border-bottom:1px solid var(--border);background:#161B22;">
+                            <th style="text-align:left;padding:7px 10px;white-space:nowrap;">N. OP</th>
+                            <th style="text-align:left;padding:7px 10px;">CÓDIGO</th>
+                            <th style="text-align:left;padding:7px 10px;">DESCRIÇÃO</th>
+                            <th style="text-align:right;padding:7px 10px;">QTD</th>
+                            <th style="text-align:left;padding:7px 10px;">STATUS</th>
+                            <th style="text-align:left;padding:7px 10px;">EMISSÃO</th>
+                            <th style="text-align:left;padding:7px 10px;">PREVISÃO</th>
+                            <th style="padding:7px 10px;"></th>
+                        </tr></thead>
+                        <tbody>
+                        ${opsAtivas.length ? opsAtivas.slice(0, 200).map(r => {
+                            const emAndamento = wipNops.has(String(r.nop||'').trim()) && r.nop;
+                            const rowBg = emAndamento ? 'background:rgba(38,198,218,.05);' : '';
+                            const qtdFmt = r.qtd > 0 ? r.qtd.toLocaleString('pt-BR') : '—';
+                            const stColor = /liberado|aberto|aberta|produzin/i.test(r.status) ? '#26c6da'
+                                          : /atraso|urgent/i.test(r.status) ? '#f06292' : '#8b949e';
+                            return `<tr style="border-bottom:1px solid rgba(255,255,255,.04);${rowBg}">
+                                <td style="padding:7px 10px;color:#26c6da;font-family:monospace;font-weight:700;white-space:nowrap;">${escHTML(r.nop||'—')}</td>
+                                <td style="padding:7px 10px;font-weight:700;color:#fff;white-space:nowrap;">${escHTML(r.cod||'—')}</td>
+                                <td style="padding:7px 10px;color:#ccc;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHTML(r.desc||'')}">${escHTML(r.desc||'—')}</td>
+                                <td style="padding:7px 10px;text-align:right;color:#26a69a;font-weight:600;">${qtdFmt}</td>
+                                <td style="padding:7px 10px;"><span style="font-size:.65rem;font-weight:700;color:${stColor};padding:2px 7px;border-radius:4px;background:${stColor}22;">${escHTML(r.status||'—')}</span></td>
+                                <td style="padding:7px 10px;color:#8b949e;white-space:nowrap;">${escHTML(r.emissao||'—')}</td>
+                                <td style="padding:7px 10px;color:#8b949e;white-space:nowrap;">${escHTML(r.previsao||'—')}</td>
+                                <td style="padding:7px 10px;">
+                                    <button onclick="mes.preencherFormOP(${JSON.stringify(escHTML(r.nop||''))},${JSON.stringify(escHTML(r.cod||''))},${JSON.stringify(escHTML(r.qtd||''))})"
+                                        style="padding:4px 12px;border-radius:6px;border:none;background:var(--indigo-btn,#5c6bc0);color:#fff;font-size:.72rem;font-weight:700;cursor:pointer;white-space:nowrap;">
+                                        → Apontar
+                                    </button>
+                                </td>
+                            </tr>`;
+                        }).join('') : `<tr><td colspan="8" style="padding:20px;text-align:center;color:#8b949e;">Nenhuma OP encontrada${this._opsFiltro?' para "'+escHTML(this._opsFiltro)+'"':''}.</td></tr>`}
+                        </tbody>
+                    </table>
+                    </div>
+                    ${opsAtivas.length > 200 ? `<div style="padding:8px 14px;font-size:.72rem;color:#8b949e;border-top:1px solid rgba(255,255,255,.06);">Mostrando 200 de ${opsAtivas.length} — use a busca para filtrar.</div>` : ''}
+                </div>
+            </div>`;
         }
 
         const procOptions = this._processos.map(p => `<option value="${escHTML(p.nome)}">${escHTML(p.nome)}</option>`).join('');
 
         el.innerHTML = `
         ${cardsHtml}
+        ${opsPendHtml}
         <div style="background:rgba(255,255,255,.025);border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:8px;">
             <h3 style="margin:0 0 14px;font-size:.82rem;font-weight:700;color:#fff;letter-spacing:.06em;">+ INICIAR NOVO APONTAMENTO</h3>
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:10px;margin-bottom:14px;">
@@ -10475,6 +10559,94 @@ const mes = {
         </div>`;
 
         this._iniciarTimers();
+    },
+
+    _opsCollapsed: true,
+    _opsFiltro: '',
+
+    _getOpsPendentes() {
+        if (!op.rawData.length) return [];
+        const colNop  = op._colOP;
+        const colCod  = op._colRef;
+        const colDesc = op._colDesc;
+        const colQtd  = op._colQtd;
+        const colSt   = op._colStatus;
+        const colEm   = op._colEmissao;
+        const colPf   = op.colunas.find(c => /previs|prev.*final|entrega/i.test(c)) || null;
+
+        return op.rawData.map(r => {
+            const d = r.dados || {};
+            const qtdRaw = colQtd ? String(d[colQtd]||'0').replace(/[^\d,.\-]/g,'').replace(',','.') : '0';
+            return {
+                nop:      colNop  ? String(d[colNop]||'').trim()  : '',
+                cod:      colCod  ? String(d[colCod]||'').trim().toUpperCase()  : '',
+                desc:     colDesc ? String(d[colDesc]||'').trim() : '',
+                qtd:      parseFloat(qtdRaw)||0,
+                status:   colSt   ? String(d[colSt]||'').trim()  : '',
+                emissao:  colEm   ? String(d[colEm]||'').trim()  : '',
+                previsao: colPf   ? String(d[colPf]||'').trim()  : '',
+            };
+        }).filter(r => r.cod || r.nop);
+    },
+
+    _toggleOpsList() {
+        this._opsCollapsed = !this._opsCollapsed;
+        const el = document.getElementById('mes-ops-lista');
+        if (el) el.style.display = this._opsCollapsed ? 'none' : 'block';
+        // Update label
+        const btn = el?.previousElementSibling?.querySelector('span:last-child');
+        if (btn) btn.textContent = this._opsCollapsed ? '▾ Expandir' : '▴ Recolher';
+    },
+
+    _filtrarOps(val) {
+        this._opsFiltro = val;
+        // Re-render only the table body to avoid full re-render
+        const tbody = document.querySelector('#mes-ops-lista tbody');
+        if (!tbody) return;
+        const opsPendentes = this._getOpsPendentes().filter(r => !/conclu|cancelad|encerrad|finaliz/i.test(String(r.status)));
+        const wipNops = new Set(this._wip.map(a => String(a.op_numero||'').trim()).filter(Boolean));
+        const q = val.toLowerCase();
+        const filtered = q ? opsPendentes.filter(r =>
+            (r.nop||'').toLowerCase().includes(q) || (r.cod||'').toLowerCase().includes(q) || (r.desc||'').toLowerCase().includes(q)
+        ) : opsPendentes;
+
+        tbody.innerHTML = filtered.length ? filtered.slice(0,200).map(r => {
+            const emAndamento = wipNops.has(String(r.nop||'').trim()) && r.nop;
+            const rowBg = emAndamento ? 'background:rgba(38,198,218,.05);' : '';
+            const qtdFmt = r.qtd > 0 ? r.qtd.toLocaleString('pt-BR') : '—';
+            const stColor = /liberado|aberto|aberta|produzin/i.test(r.status) ? '#26c6da'
+                          : /atraso|urgent/i.test(r.status) ? '#f06292' : '#8b949e';
+            return `<tr style="border-bottom:1px solid rgba(255,255,255,.04);${rowBg}">
+                <td style="padding:7px 10px;color:#26c6da;font-family:monospace;font-weight:700;white-space:nowrap;">${escHTML(r.nop||'—')}</td>
+                <td style="padding:7px 10px;font-weight:700;color:#fff;white-space:nowrap;">${escHTML(r.cod||'—')}</td>
+                <td style="padding:7px 10px;color:#ccc;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHTML(r.desc||'')}">${escHTML(r.desc||'')}</td>
+                <td style="padding:7px 10px;text-align:right;color:#26a69a;font-weight:600;">${qtdFmt}</td>
+                <td style="padding:7px 10px;"><span style="font-size:.65rem;font-weight:700;color:${stColor};padding:2px 7px;border-radius:4px;background:${stColor}22;">${escHTML(r.status||'—')}</span></td>
+                <td style="padding:7px 10px;color:#8b949e;white-space:nowrap;">${escHTML(r.emissao||'—')}</td>
+                <td style="padding:7px 10px;color:#8b949e;white-space:nowrap;">${escHTML(r.previsao||'—')}</td>
+                <td style="padding:7px 10px;">
+                    <button onclick="mes.preencherFormOP(${JSON.stringify(escHTML(r.nop||''))},${JSON.stringify(escHTML(r.cod||''))},${JSON.stringify(escHTML(r.qtd||''))})"
+                        style="padding:4px 12px;border-radius:6px;border:none;background:var(--indigo-btn,#5c6bc0);color:#fff;font-size:.72rem;font-weight:700;cursor:pointer;">
+                        → Apontar
+                    </button>
+                </td>
+            </tr>`;
+        }).join('') : `<tr><td colspan="8" style="padding:20px;text-align:center;color:#8b949e;">Nenhuma OP encontrada${q?' para "'+escHTML(q)+'"':''}.</td></tr>`;
+    },
+
+    preencherFormOP(nop, cod, qtd) {
+        const codEl  = document.getElementById('mes-apt-cod');
+        const opEl   = document.getElementById('mes-apt-op');
+        const qtdEl  = document.getElementById('mes-apt-planejado');
+        const procEl = document.getElementById('mes-apt-processo');
+        if (codEl)  { codEl.value  = cod;  codEl.style.borderColor = '#26c6da'; setTimeout(()=>codEl.style.borderColor='',1500); }
+        if (opEl)   opEl.value  = nop;
+        if (qtdEl && qtd)  qtdEl.value  = Math.round(qtd);
+        // Scroll to form and focus processo
+        const form = procEl?.closest('div[style*="border-radius:12px"]');
+        form?.scrollIntoView({ behavior:'smooth', block:'center' });
+        setTimeout(() => procEl?.focus(), 400);
+        mostrarToast(`OP ${nop||cod} carregada — selecione o processo e inicie`, 'sucesso');
     },
 
     _abrirModalParada(aptId) {
