@@ -874,33 +874,40 @@ function navigateTo(viewName) {
     document.querySelectorAll('.nav-section li').forEach(li => li.classList.remove('active'));
     document.querySelectorAll('.sub-menu li').forEach(li => li.classList.remove('sub-active'));
 
+    // ① Config  ② Import  ③ S&OP  ④ TOC  ⑤ Preactor  ⑥ MES  ⑦ Dashboards
     const navMap = {
-        vendas:        'nav-analise',
-        cliente:       'nav-analise',
-        banco:         'nav-analise',
-        estoque:       'nav-analise',
-        op:            'nav-analise',
-        costura:       'nav-analise',
-        calendario:    'nav-arq',
-        processos:     'nav-arq',
-        capacidade:    'nav-arq',
-        toc:           'nav-arq',
+        // ① Configuração
+        banco:         'nav-config',
+        processos:     'nav-config',
+        capacidade:    'nav-config',
+        calendario:    'nav-config',
+        // ② Importação
+        vendas:        'nav-import',
+        estoque:       'nav-import',
+        op:            'nav-import',
+        cliente:       'nav-import',
+        costura:       'nav-import',
+        // ③ S&OP
         previsao:      'nav-soep-grp',
         politica:      'nav-soep-grp',
         'plano-prod':  'nav-soep-grp',
         soep:          'nav-soep-grp',
-        timeline:      'nav-soep-grp',
+        // ④ TOC
+        toc:           'nav-toc',
+        // ⑤ Preactor
+        timeline:      'nav-preactor',
+        // ⑥ MES
+        mes:           'nav-mes',
+        // ⑦ Dashboards
         pesquisa:      'nav-pesquisa',
         vxe:           'nav-vxe',
         'op-dash':     'nav-op-dash',
-        'pedidos':     'nav-pedidos',
-        'comparador':   'nav-comparador',
+        pedidos:       'nav-pedidos',
+        comparador:    'nav-comparador',
         'clientes-dash':'nav-clientes-dash',
-        'mes':         'nav-mes',
-        dashboard:     'nav-analise',
         abc:           'nav-abc-cruzada',
         'abc-micro':   'nav-abc-cruzada',
-        'abc-estoque': 'nav-abc-cruzada'
+        'abc-estoque': 'nav-abc-cruzada',
     };
     const navEl = document.getElementById(navMap[viewName]);
     if (navEl) navEl.classList.add('active');
@@ -959,7 +966,6 @@ function navigateTo(viewName) {
     } else if (viewName === 'capacidade') {
         document.querySelector('[data-view="capacidade"]')?.classList.add('sub-active');
     } else if (viewName === 'toc') {
-        document.querySelector('[data-view="toc"]')?.classList.add('sub-active');
         toc._popularAnos();
         toc._renderCapacidade();
         // Se veio do OP Dashboard com fila, mostra imediatamente
@@ -1015,7 +1021,6 @@ function navigateTo(viewName) {
         document.querySelector('[data-view="soep"]')?.classList.add('sub-active');
         setTimeout(() => soepDash.render(), 50);
     } else if (viewName === 'timeline') {
-        document.querySelector('[data-view="timeline"]')?.classList.add('sub-active');
         timeline._popularMeses();
     } else if (viewName === 'mes') {
         document.getElementById('nav-mes')?.classList.add('active');
