@@ -1,5 +1,20 @@
 // Lógica Central do Dashboard SIN1
 
+// Pontos coloridos SVG para indicadores de status (substitui emojis coloridos)
+const DOT = {
+    red:    `<svg width="9" height="9" viewBox="0 0 9 9" style="vertical-align:middle;flex-shrink:0;"><circle cx="4.5" cy="4.5" r="4.5" fill="#f06292"/></svg>`,
+    yellow: `<svg width="9" height="9" viewBox="0 0 9 9" style="vertical-align:middle;flex-shrink:0;"><circle cx="4.5" cy="4.5" r="4.5" fill="#ffca28"/></svg>`,
+    green:  `<svg width="9" height="9" viewBox="0 0 9 9" style="vertical-align:middle;flex-shrink:0;"><circle cx="4.5" cy="4.5" r="4.5" fill="#3fb950"/></svg>`,
+    blue:   `<svg width="9" height="9" viewBox="0 0 9 9" style="vertical-align:middle;flex-shrink:0;"><circle cx="4.5" cy="4.5" r="4.5" fill="#26c6da"/></svg>`,
+    orange: `<svg width="9" height="9" viewBox="0 0 9 9" style="vertical-align:middle;flex-shrink:0;"><circle cx="4.5" cy="4.5" r="4.5" fill="#e3b341"/></svg>`,
+    gray:   `<svg width="9" height="9" viewBox="0 0 9 9" style="vertical-align:middle;flex-shrink:0;"><circle cx="4.5" cy="4.5" r="4.5" fill="#484f58"/></svg>`,
+    check:  `<svg width="11" height="11" viewBox="0 0 11 11" fill="none" style="vertical-align:middle;flex-shrink:0;"><circle cx="5.5" cy="5.5" r="5.5" fill="#3fb950"/><polyline points="2.5,5.5 4.5,7.5 8.5,3.5" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    warn:   `<svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="#ffca28" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0;"><path d="M7 1L13.5 12H0.5L7 1z"/><line x1="7" y1="5" x2="7" y2="8"/><circle cx="7" cy="10.5" r=".8" fill="#ffca28" stroke="none"/></svg>`,
+    info:   `<svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="#58a6ff" stroke-width="1.4" stroke-linecap="round" style="vertical-align:middle;flex-shrink:0;"><circle cx="7" cy="7" r="6"/><line x1="7" y1="6" x2="7" y2="10"/><circle cx="7" cy="4" r=".7" fill="#58a6ff" stroke="none"/></svg>`,
+    gear:   `<svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="#8b949e" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;flex-shrink:0;"><circle cx="7" cy="7" r="2.2"/><path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.93 2.93l1.06 1.06M10.01 10.01l1.06 1.06M2.93 11.07l1.06-1.06M10.01 3.99l1.06-1.06"/></svg>`,
+    bolt:   `<svg width="11" height="13" viewBox="0 0 11 13" fill="#e3b341" style="vertical-align:middle;flex-shrink:0;"><path d="M6.5 1L1 7.5h4.5L4.5 12 10 5.5H5.5L6.5 1z"/></svg>`,
+};
+
 // Escapa HTML para evitar XSS em dados inseridos via innerHTML
 function escHTML(s) {
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -502,7 +517,7 @@ const homeDash = {
                 gargaloEl.textContent = pct + '%';
                 gargaloEl.style.color = color;
                 if (gargaloCard) gargaloCard.style.borderTop = `3px solid ${color}`;
-                if (gargaloSub) gargaloSub.textContent = (top.nome || top.id || 'processo') + (pct >= 100 ? ' ⚠ GARGALO' : '');
+                if (gargaloSub) gargaloSub.textContent = (top.nome || top.id || 'processo') + (pct >= 100 ? ' — GARGALO' : '');
             }
         }
     },
@@ -594,13 +609,13 @@ const homeDash = {
         const critCount = alertas.filter(a => a.tipo === 'critico').length;
         if (badge) { badge.textContent = critCount; badge.style.display = critCount > 0 ? '' : 'none'; }
 
-        if (!alertas.length) { el.innerHTML = '<p style="color:#26a69a;font-size:0.8rem;">✓ Nenhum alerta no momento.</p>'; return; }
+        if (!alertas.length) { el.innerHTML = `<p style="color:#26a69a;font-size:0.8rem;display:flex;align-items:center;gap:6px;">${DOT.check} Nenhum alerta no momento.</p>`; return; }
 
         const cores = { critico: '#f06292', aviso: '#ffab76', info: '#8b949e' };
-        const icons = { critico: '🔴', aviso: '🟡', info: 'ℹ️' };
+        const icons = { critico: DOT.red, aviso: DOT.warn, info: DOT.info };
         el.innerHTML = alertas.map(a => `
-            <div onclick="navigateTo('${a.acao}')" style="display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:6px;cursor:pointer;border-left:3px solid ${cores[a.tipo]};">
-                <span style="font-size:0.85rem;">${icons[a.tipo]}</span>
+            <div onclick="navigateTo('${a.acao}')" style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:rgba(255,255,255,0.03);border-radius:6px;cursor:pointer;border-left:3px solid ${cores[a.tipo]};">
+                ${icons[a.tipo]}
                 <span style="font-size:0.78rem;color:#e6edf3;">${escHTML(a.msg)}</span>
             </div>`).join('');
     },
@@ -623,23 +638,52 @@ const homeDash = {
     _pipeline() {
         const el = document.getElementById('home-pipeline');
         if (!el) return;
+        // SVG icons profissionais — stroke-based, 18×18
+        const SVG = {
+            config: `<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="2" y1="5" x2="16" y2="5"/><circle cx="6" cy="5" r="2.2" fill="var(--bg-card,#161b22)" stroke="currentColor" stroke-width="1.5"/>
+                <line x1="2" y1="13" x2="16" y2="13"/><circle cx="12" cy="13" r="2.2" fill="var(--bg-card,#161b22)" stroke="currentColor" stroke-width="1.5"/>
+            </svg>`,
+            import: `<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="5,8 9,12 13,8"/><line x1="9" y1="2" x2="9" y2="12"/>
+                <path d="M3 15h12"/>
+            </svg>`,
+            soep: `<svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor">
+                <rect x="1.5" y="11" width="3.5" height="5.5" rx="0.6" opacity="0.55"/>
+                <rect x="7.25" y="7" width="3.5" height="9.5" rx="0.6" opacity="0.78"/>
+                <rect x="13" y="3" width="3.5" height="13.5" rx="0.6"/>
+            </svg>`,
+            toc: `<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="2,2 16,2 10.8,9 10.8,16 7.2,14.2 7.2,9"/>
+            </svg>`,
+            preactor: `<svg width="18" height="18" viewBox="0 0 18 18" fill="currentColor">
+                <rect x="1" y="3" width="8.5" height="2.8" rx="1" opacity="0.9"/>
+                <rect x="5" y="7.6" width="7" height="2.8" rx="1" opacity="0.68"/>
+                <rect x="2" y="12.2" width="10.5" height="2.8" rx="1" opacity="0.82"/>
+            </svg>`,
+            mes: `<svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="1,9 4,9 6,3 8,15 10,6 12,12 14,9 17,9"/>
+            </svg>`,
+        };
         const etapas = [
-            { label: 'Config.',   icon: '⚙',  ok: banco.rawData.length > 0,              view: 'banco',    sub: banco.rawData.length ? banco.rawData.length + ' SKUs' : 'banco vazio' },
-            { label: 'Importação',icon: '📥',  ok: vendas.rawData.length > 0 && estoque.rawData.length > 0, view: 'vendas', sub: vendas.rawData.length ? vendas.rawData.length + ' itens venda' : 'sem dados' },
-            { label: 'S&OP',      icon: '📊',  ok: !!(previsao._forecast?.length),         view: 'previsao', sub: previsao._forecast?.length ? previsao._forecast.length + ' SKUs prev.' : 'sem previsão' },
-            { label: 'TOC',       icon: '🔩',  ok: !!(toc._resultProcs?.length),           view: 'toc',      sub: toc._resultProcs?.length ? 'gargalo calculado' : 'não calculado' },
-            { label: 'Preactor',  icon: '📅',  ok: !!(timeline._resultado?.ordens?.length), view: 'timeline', sub: timeline._resultado?.ordens?.length ? 'Gantt gerado' : 'não sequenciado' },
-            { label: 'MES',       icon: '🏭',  ok: mes._wip?.length > 0 || mes._processos?.length > 0, view: 'mes', sub: mes._wip?.length ? mes._wip.length + ' no WIP' : 'nenhum apontamento' },
+            { label: 'Config.',   icon: SVG.config,   ok: banco.rawData.length > 0,                                              view: 'banco',    sub: banco.rawData.length    ? banco.rawData.length + ' SKUs'      : 'banco vazio'        },
+            { label: 'Importação',icon: SVG.import,   ok: vendas.rawData.length > 0 && estoque.rawData.length > 0,               view: 'vendas',   sub: vendas.rawData.length   ? vendas.rawData.length + ' itens'    : 'sem dados'          },
+            { label: 'S&OP',      icon: SVG.soep,     ok: !!(previsao._forecast?.length),                                        view: 'previsao', sub: previsao._forecast?.length ? previsao._forecast.length + ' SKUs prev.' : 'sem previsão' },
+            { label: 'TOC',       icon: SVG.toc,      ok: !!(toc._resultProcs?.length),                                          view: 'toc',      sub: toc._resultProcs?.length  ? 'gargalo calculado'               : 'não calculado'      },
+            { label: 'Preactor',  icon: SVG.preactor, ok: !!(timeline._resultado?.ordens?.length),                               view: 'timeline', sub: timeline._resultado?.ordens?.length ? 'Gantt gerado'         : 'não sequenciado'    },
+            { label: 'MES',       icon: SVG.mes,      ok: mes._wip?.length > 0 || mes._processos?.length > 0,                    view: 'mes',      sub: mes._wip?.length          ? mes._wip.length + ' no WIP'       : 'nenhum apontamento' },
         ];
         el.innerHTML = etapas.map((e, i) => {
-            const color = e.ok ? '#3fb950' : '#555';
-            const bg    = e.ok ? 'rgba(63,185,80,.06)' : 'rgba(255,255,255,.02)';
-            return `<div onclick="navigateTo('${e.view}')" style="flex:1;min-width:90px;cursor:pointer;text-align:center;padding:12px 8px;background:${bg};border-right:${i < etapas.length-1 ? '1px solid rgba(255,255,255,.05)' : 'none'};position:relative;transition:background .15s;" onmouseenter="this.style.background='rgba(255,255,255,.05)'" onmouseleave="this.style.background='${bg}'">
-                <div style="font-size:1.1rem;margin-bottom:4px;">${e.icon}</div>
-                <div style="font-size:.72rem;font-weight:700;color:${e.ok ? '#e6edf3' : '#8b949e'};">${e.label}</div>
-                <div style="font-size:.63rem;color:#8b949e;margin-top:2px;">${e.sub}</div>
-                <div style="position:absolute;top:6px;right:7px;font-size:.65rem;color:${color};">${e.ok ? '✓' : '○'}</div>
-                ${i < etapas.length-1 ? '<div style="position:absolute;right:-6px;top:50%;transform:translateY(-50%);color:#555;font-size:.75rem;z-index:1;">›</div>' : ''}
+            const ok    = e.ok;
+            const color = ok ? '#3fb950' : '#484f58';
+            const icClr = ok ? '#58a6ff' : '#484f58';
+            const bg    = ok ? 'rgba(56,139,253,.05)' : 'transparent';
+            return `<div onclick="navigateTo('${e.view}')" style="flex:1;min-width:90px;cursor:pointer;text-align:center;padding:14px 8px 12px;background:${bg};border-right:${i < etapas.length-1 ? '1px solid rgba(255,255,255,.05)' : 'none'};position:relative;transition:background .18s;" onmouseenter="this.style.background='rgba(255,255,255,.04)'" onmouseleave="this.style.background='${bg}'">
+                <div style="display:flex;justify-content:center;align-items:center;margin-bottom:7px;color:${icClr};">${e.icon}</div>
+                <div style="font-size:.72rem;font-weight:700;color:${ok ? '#e6edf3' : '#6e7681'};letter-spacing:.02em;">${e.label}</div>
+                <div style="font-size:.62rem;color:#484f58;margin-top:3px;">${e.sub}</div>
+                <div style="position:absolute;top:7px;right:8px;width:7px;height:7px;border-radius:50%;background:${ok ? '#3fb950' : '#30363d'};box-shadow:${ok ? '0 0 5px rgba(63,185,80,.5)' : 'none'};"></div>
+                ${i < etapas.length-1 ? `<div style="position:absolute;right:-7px;top:50%;transform:translateY(-50%);z-index:2;"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="#30363d" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,2 9,6 3,10"/></svg></div>` : ''}
             </div>`;
         }).join('');
     },
@@ -686,7 +730,7 @@ const homeDash = {
                             const div = document.createElement('div');
                             div.onclick = () => navigateTo('mes');
                             div.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:rgba(255,255,255,.03);border-radius:6px;cursor:pointer;border-left:3px solid #ffca28;margin-top:6px;';
-                            div.innerHTML = `<span style="font-size:.85rem;">🟡</span><span style="font-size:.78rem;color:#e6edf3;">${parados} apontamento(s) MES em PARADA</span>`;
+                            div.innerHTML = `${DOT.warn}<span style="font-size:.78rem;color:#e6edf3;">${parados} apontamento(s) MES em PARADA</span>`;
                             alertasEl.appendChild(div);
                         }
                     }
@@ -5081,7 +5125,7 @@ const previsao = {
                 </tr></thead><tbody>
                 ${rows.map((r,i)=>{
                     const cor  = r.mape<=15?'#26a69a':r.mape<=30?'#ffca28':'#f06292';
-                    const qual = r.mape<=15?'✓ Boa':r.mape<=30?'~ Regular':'✗ Alta variação';
+                    const qual = r.mape<=15?'Boa':r.mape<=30?'Regular':'Alta variação';
                     const viesAbs = Math.abs(r.vies);
                     const viesTxt = viesAbs<=5?'neutro':r.vies>0?`+${r.vies.toFixed(1)}% super`:`${r.vies.toFixed(1)}% sub`;
                     const viesCor = viesAbs<=5?'var(--text-dim)':'#ffca28';
@@ -5605,7 +5649,7 @@ const soepDash = {
         if (!el) return;
         if (!this._snapshots.length) {
             el.innerHTML = `<div style="padding:32px;text-align:center;color:var(--text-dim);">
-                <div style="font-size:2rem;margin-bottom:12px;">📸</div>
+                <div style="display:flex;justify-content:center;margin-bottom:12px;color:var(--text-dim);"><svg width="32" height="32" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 11a3 3 0 0 1 3-3h2.5l1.8-3h9.4l1.8 3H28a3 3 0 0 1 3 3v13a3 3 0 0 1-3 3H5a3 3 0 0 1-3-3V11z"/><circle cx="16" cy="18" r="4.5"/></svg></div>
                 <div style="font-size:.9rem;margin-bottom:16px;">Nenhum snapshot salvo ainda.</div>
                 <div style="font-size:.82rem;">Clique em <strong>Salvar Snapshot</strong> após calcular a Previsão de Demanda para começar a rastrear a acurácia.</div>
             </div>`;
@@ -5655,7 +5699,7 @@ const soepDash = {
             const errPct = prevTotal > 0 ? Math.abs(diff/prevTotal*100) : null;
             const temReal = realTotal > 0;
             const cor = !temReal ? 'var(--text-dim)' : errPct<=10?'#26a69a':errPct<=20?'#ffca28':'#f06292';
-            const status = !temReal ? '⏳ Futuro' : errPct<=10?'✓ Boa':errPct<=20?'~ Regular':'✗ Alta variação';
+            const status = !temReal ? 'Futuro' : errPct<=10?'Boa':errPct<=20?'Regular':'Alta variação';
             // Data formatada
             const [a,m] = mes.split('-');
             const ABBR=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
@@ -6415,8 +6459,8 @@ const timeline = {
         const sumEl = document.getElementById('tl-summary');
         if (sumEl) {
             let txt = `${r.totalOrdens} ordens · ${(r.totalMinutos/60).toFixed(0)}h carga${r.modo==='backward'?' · EDD':''}`;
-            if (lateCount) txt += ` · <span style="color:#f06292">⚠ ${lateCount} atrasada${lateCount>1?'s':''}</span>`;
-            if (riskCount) txt += ` · <span style="color:#ffca28">⚡ ${riskCount} em risco</span>`;
+            if (lateCount) txt += ` · <span style="color:#f06292;display:inline-flex;align-items:center;gap:4px;">${DOT.red} ${lateCount} atrasada${lateCount>1?'s':''}</span>`;
+            if (riskCount) txt += ` · <span style="color:#ffca28;display:inline-flex;align-items:center;gap:4px;">${DOT.yellow} ${riskCount} em risco</span>`;
             sumEl.innerHTML = txt;
         }
 
@@ -6485,7 +6529,7 @@ const timeline = {
                         </div>
                         <div style="font-size:.82rem;font-weight:800;color:${cor};">${cargaMin?pct.toFixed(0)+'%':'—'}</div>
                         ${nSkus?`<div style="font-size:.65rem;color:var(--text-dim);margin-top:2px;">${nSkus} SKU${nSkus>1?'s':''}</div>`:''}
-                        ${setupMin>0?`<div style="font-size:.6rem;color:#ff9800;">⚙ ${(setupMin/60).toFixed(1)}h setup</div>`:''}
+                        ${setupMin>0?`<div style="font-size:.6rem;color:#ff9800;display:flex;align-items:center;gap:3px;">${DOT.gear} ${(setupMin/60).toFixed(1)}h setup</div>`:''}
                         ${pct>100?`<div style="font-size:.62rem;color:#f06292;font-weight:700;">+${(pct-100).toFixed(0)}% extra</div>`:''}
                     </div></td>`;
             });
@@ -6517,7 +6561,7 @@ const timeline = {
             const ord = { late:0, risk:1, ok:2, nodate:3 };
             return (ord[a.status]||3)-(ord[b.status]||3) || (a.data_entrega||'9999').localeCompare(b.data_entrega||'9999');
         });
-        const icons  = { late:'🔴', risk:'🟡', ok:'🟢', nodate:'⚪' };
+        const icons  = { late: DOT.red, risk: DOT.yellow, ok: DOT.green, nodate: DOT.gray };
         const labels = { late:'ATRASADO', risk:'EM RISCO', ok:'NO PRAZO', nodate:'SEM PRAZO' };
         const colors = { late:'#f06292', risk:'#ffca28', ok:'#26a69a', nodate:'#666' };
         const lc = items.filter(s=>s.status==='late').length;
@@ -6652,7 +6696,7 @@ const timeline = {
         let html = '';
         if (setupMin > 0) {
             html += `<div style="background:rgba(255,152,0,.1);border:1px solid rgba(255,152,0,.3);border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:.78rem;color:#ff9800;">
-                ⚙ Setup/Changeover: ${(setupMin/60).toFixed(1)}h nesta semana</div>`;
+                <span style="display:flex;align-items:center;gap:6px;">${DOT.gear} Setup/Changeover: ${(setupMin/60).toFixed(1)}h nesta semana</span></div>`;
         }
         html += `<table style="width:100%;border-collapse:collapse;font-size:.82rem;">
             <thead><tr style="color:var(--text-dim);font-size:.68rem;letter-spacing:.07em;border-bottom:1px solid var(--border-color);">
@@ -6668,7 +6712,7 @@ const timeline = {
         sorted.forEach((it, i) => {
             const pct = capMin>0 ? it.mins/capMin*100 : 0;
             const so  = Object.values(r.statusOrdens).find(s=>s.codigo===it.codigo);
-            const sIcon = so ? ({late:'🔴',risk:'🟡',ok:'🟢',nodate:'⚪'}[so.status]||'') : '';
+            const sIcon = so ? ({late:DOT.red,risk:DOT.yellow,ok:DOT.green,nodate:DOT.gray}[so.status]||'') : '';
             const moverOpts = r.semanas.map(s=>`<option value="${s.idx}"${s.idx===semIdx?' selected':''}>Sem ${s.idx+1} (${s.label})</option>`).join('');
             html += `<tr style="background:${i%2?'var(--bg-input)':'transparent'};"
                 draggable="true" ondragstart="timeline._onDragStart(event,'${escHTML(it.codigo)}','${procId}',${semIdx})">
@@ -9343,15 +9387,15 @@ const pesquisa = {
         const sep = `<span style="font-size:1.4rem;color:var(--text-dim);margin-top:16px;">×</span>`;
 
         const interpretacoes = {
-            AA: { icon:'✅', texto:'Equilíbrio — alto giro e bom estoque.',          cor:'#26a69a' },
-            AB: { icon:'🟡', texto:'Atenção — alto giro, estoque médio.',             cor:'#ffab76' },
-            AC: { icon:'🔴', texto:'Risco de ruptura — alto giro, estoque crítico.',  cor:'#f06292' },
-            BA: { icon:'🟡', texto:'Estoque excedente para giro médio.',              cor:'#ffab76' },
-            BB: { icon:'🔵', texto:'Equilíbrio moderado.',                            cor:'#26c6da' },
-            BC: { icon:'🟠', texto:'Atenção — estoque baixo para giro médio.',        cor:'#e3b341' },
-            CA: { icon:'🟠', texto:'Estoque parado — baixo giro, muito estoque.',     cor:'#e3b341' },
-            CB: { icon:'⚪', texto:'Estoque acima do necessário para baixo giro.',    cor:'#8b949e' },
-            CC: { icon:'⚪', texto:'Candidato a revisão — baixo giro e estoque.',     cor:'#8b949e' },
+            AA: { icon: DOT.check,  texto:'Equilíbrio — alto giro e bom estoque.',          cor:'#26a69a' },
+            AB: { icon: DOT.yellow, texto:'Atenção — alto giro, estoque médio.',             cor:'#ffab76' },
+            AC: { icon: DOT.red,    texto:'Risco de ruptura — alto giro, estoque crítico.',  cor:'#f06292' },
+            BA: { icon: DOT.yellow, texto:'Estoque excedente para giro médio.',              cor:'#ffab76' },
+            BB: { icon: DOT.blue,   texto:'Equilíbrio moderado.',                            cor:'#26c6da' },
+            BC: { icon: DOT.orange, texto:'Atenção — estoque baixo para giro médio.',        cor:'#e3b341' },
+            CA: { icon: DOT.orange, texto:'Estoque parado — baixo giro, muito estoque.',     cor:'#e3b341' },
+            CB: { icon: DOT.gray,   texto:'Estoque acima do necessário para baixo giro.',    cor:'#8b949e' },
+            CC: { icon: DOT.gray,   texto:'Candidato a revisão — baixo giro e estoque.',     cor:'#8b949e' },
         };
         const chave = cv && ce ? cv+ce : null;
         const interp = chave ? interpretacoes[chave] : null;
@@ -10977,7 +11021,7 @@ const mes = {
         if (!oee.oee && !Object.keys(oee.processos||{}).length && !(oee.motivos||[]).length) {
             el.innerHTML = `
             <div style="background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.12);border-radius:12px;padding:48px;text-align:center;color:#8b949e;">
-                <div style="font-size:2.5rem;margin-bottom:14px;">📊</div>
+                <div style="display:flex;justify-content:center;margin-bottom:14px;color:var(--text-dim);"><svg width="40" height="40" viewBox="0 0 40 40" fill="currentColor"><rect x="3" y="24" width="8" height="13" rx="1.2" opacity="0.55"/><rect x="16" y="16" width="8" height="21" rx="1.2" opacity="0.78"/><rect x="29" y="7" width="8" height="30" rx="1.2"/></svg></div>
                 <div style="font-size:1rem;color:#ccc;margin-bottom:8px;">Nenhum apontamento finalizado no período selecionado</div>
                 <div style="font-size:.82rem;">Registre apontamentos na aba <b style="color:#26c6da;">Apontamento</b> e clique em <b>Finalizar</b> para acumular dados de OEE.</div>
             </div>`;
@@ -11227,7 +11271,7 @@ const reuniaoDiaria = {
         const corG  = gPct == null ? '#8b949e' : gPct >= 100 ? '#f06292' : gPct >= 85 ? '#ffca28' : '#3fb950';
 
         const cores  = { critico: '#f06292', aviso: '#ffca28', info: '#8b949e' };
-        const icons  = { critico: '🔴', aviso: '🟡', info: 'ℹ️' };
+        const icons  = { critico: DOT.red, aviso: DOT.warn, info: DOT.info };
         const critN  = alertas.filter(a => a.tipo === 'critico').length;
 
         const card = (content, cor='rgba(255,255,255,.05)', border='rgba(255,255,255,.08)') =>

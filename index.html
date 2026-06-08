@@ -216,10 +216,10 @@
                 <p style="color:#8b949e;font-size:0.82rem;margin:2px 0 0;" id="home-date">—</p>
             </div>
             <div style="display:flex;gap:8px;">
-                <button onclick="reuniaoDiaria.abrir()" style="padding:6px 16px;border-radius:8px;border:1px solid rgba(99,102,241,0.4);background:rgba(99,102,241,0.1);color:#a5b4fc;font-size:0.78rem;cursor:pointer;font-weight:600;">📋 Reunião Diária</button>
-                <button onclick="homeDash.render()" style="padding:6px 16px;border-radius:8px;border:1px solid var(--border);background:transparent;color:#8b949e;font-size:0.78rem;cursor:pointer;">↻ Atualizar</button>
-                <button onclick="baixarBackup()" style="padding:6px 16px;border-radius:8px;border:1px solid rgba(38,198,218,0.3);background:transparent;color:#26c6da;font-size:0.78rem;cursor:pointer;">⬇ Backup</button>
-                <button onclick="resetarDados()" style="padding:6px 16px;border-radius:8px;border:1px solid rgba(240,98,146,0.3);background:transparent;color:#f06292;font-size:0.78rem;cursor:pointer;">🗑 Limpar dados</button>
+                <button onclick="reuniaoDiaria.abrir()" style="display:flex;align-items:center;gap:6px;padding:6px 16px;border-radius:8px;border:1px solid rgba(99,102,241,0.4);background:rgba(99,102,241,0.1);color:#a5b4fc;font-size:0.78rem;cursor:pointer;font-weight:600;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="11" rx="1.5"/><line x1="5" y1="1" x2="5" y2="5"/><line x1="11" y1="1" x2="11" y2="5"/><line x1="2" y1="7" x2="14" y2="7"/></svg> Reunião Diária</button>
+                <button onclick="homeDash.render()" style="display:flex;align-items:center;gap:6px;padding:6px 16px;border-radius:8px;border:1px solid var(--border);background:transparent;color:#8b949e;font-size:0.78rem;cursor:pointer;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 8A6 6 0 1 1 9 2.07"/><polyline points="14,2 14,6 10,6"/></svg> Atualizar</button>
+                <button onclick="baixarBackup()" style="display:flex;align-items:center;gap:6px;padding:6px 16px;border-radius:8px;border:1px solid rgba(38,198,218,0.3);background:transparent;color:#26c6da;font-size:0.78rem;cursor:pointer;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="4,7 8,11 12,7"/><line x1="8" y1="2" x2="8" y2="11"/><path d="M3 14h10"/></svg> Backup</button>
+                <button onclick="resetarDados()" style="display:flex;align-items:center;gap:6px;padding:6px 16px;border-radius:8px;border:1px solid rgba(240,98,146,0.3);background:transparent;color:#f06292;font-size:0.78rem;cursor:pointer;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,4 13,4"/><path d="M5 4V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1"/><path d="M6 7v5M10 7v5"/><path d="M4 4l.8 9a1 1 0 0 0 1 .9h4.4a1 1 0 0 0 1-.9L12 4"/></svg> Limpar dados</button>
             </div>
         </div>
 
@@ -320,27 +320,27 @@
             <span class="s-label" style="margin-bottom:10px;display:block;">ACESSO RÁPIDO</span>
             <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;" id="home-quick-access">
                 <div class="summary-card" onclick="navigateTo('vendas')" style="cursor:pointer;text-align:center;padding:14px 8px;transition:border-color .2s;" onmouseenter="this.style.borderColor='#26c6da'" onmouseleave="this.style.borderColor=''">
-                    <div style="font-size:1.4rem;margin-bottom:4px;">📦</div>
+                    <div style="display:flex;justify-content:center;align-items:center;height:28px;margin-bottom:6px;color:#26c6da;"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h2l2.4 10.6a2 2 0 0 0 1.9 1.4h8.4a2 2 0 0 0 1.9-1.4L21 7H6"/><circle cx="9" cy="19" r="1.2" fill="currentColor" stroke="none"/><circle cx="17" cy="19" r="1.2" fill="currentColor" stroke="none"/></svg></div>
                     <div style="font-size:0.72rem;color:#8b949e;">Vendas</div>
                 </div>
                 <div class="summary-card" onclick="navigateTo('estoque')" style="cursor:pointer;text-align:center;padding:14px 8px;" onmouseenter="this.style.borderColor='#26a69a'" onmouseleave="this.style.borderColor=''">
-                    <div style="font-size:1.4rem;margin-bottom:4px;">🗄️</div>
+                    <div style="display:flex;justify-content:center;align-items:center;height:28px;margin-bottom:6px;color:#26a69a;"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="11" cy="6" rx="8" ry="3"/><path d="M3 6v4c0 1.66 3.58 3 8 3s8-1.34 8-3V6"/><path d="M3 10v4c0 1.66 3.58 3 8 3s8-1.34 8-3v-4"/></svg></div>
                     <div style="font-size:0.72rem;color:#8b949e;">Estoque</div>
                 </div>
                 <div class="summary-card" onclick="navigateTo('op')" style="cursor:pointer;text-align:center;padding:14px 8px;" onmouseenter="this.style.borderColor='#ffab76'" onmouseleave="this.style.borderColor=''">
-                    <div style="font-size:1.4rem;margin-bottom:4px;">🔧</div>
+                    <div style="display:flex;justify-content:center;align-items:center;height:28px;margin-bottom:6px;color:#ffab76;"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="12" y="3" width="7" height="7" rx="1"/><rect x="12" y="12" width="7" height="7" rx="1"/><path d="M3 12h3M6 12v7"/></svg></div>
                     <div style="font-size:0.72rem;color:#8b949e;">Ordens de Prod.</div>
                 </div>
                 <div class="summary-card" onclick="navigateTo('vxe')" style="cursor:pointer;text-align:center;padding:14px 8px;" onmouseenter="this.style.borderColor='#7c4dff'" onmouseleave="this.style.borderColor=''">
-                    <div style="font-size:1.4rem;margin-bottom:4px;">📊</div>
+                    <div style="display:flex;justify-content:center;align-items:center;height:28px;margin-bottom:6px;color:#7c4dff;"><svg width="22" height="22" viewBox="0 0 22 22" fill="currentColor"><rect x="2" y="13" width="4" height="7" rx="0.7" opacity="0.6"/><rect x="9" y="9" width="4" height="11" rx="0.7" opacity="0.8"/><rect x="16" y="4" width="4" height="16" rx="0.7"/></svg></div>
                     <div style="font-size:0.72rem;color:#8b949e;">Vendas × Estoque</div>
                 </div>
                 <div class="summary-card" onclick="navigateTo('pesquisa')" style="cursor:pointer;text-align:center;padding:14px 8px;" onmouseenter="this.style.borderColor='#f06292'" onmouseleave="this.style.borderColor=''">
-                    <div style="font-size:1.4rem;margin-bottom:4px;">🔍</div>
+                    <div style="display:flex;justify-content:center;align-items:center;height:28px;margin-bottom:6px;color:#f06292;"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="6"/><line x1="18" y1="18" x2="14.35" y2="14.35"/></svg></div>
                     <div style="font-size:0.72rem;color:#8b949e;">Pesquisa ABC</div>
                 </div>
                 <div class="summary-card" onclick="navigateTo('clientes-dash')" style="cursor:pointer;text-align:center;padding:14px 8px;" onmouseenter="this.style.borderColor='#26c6da'" onmouseleave="this.style.borderColor=''">
-                    <div style="font-size:1.4rem;margin-bottom:4px;">👥</div>
+                    <div style="display:flex;justify-content:center;align-items:center;height:28px;margin-bottom:6px;color:#26c6da;"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><path d="M2 19c0-3.31 3.13-6 7-6"/><circle cx="16" cy="10" r="2.5"/><path d="M12 19c0-2.76 1.79-5 4-5s4 2.24 4 5"/></svg></div>
                     <div style="font-size:0.72rem;color:#8b949e;">Clientes</div>
                 </div>
             </div>
@@ -976,12 +976,14 @@
         <!-- Abas -->
         <div style="display:flex;gap:var(--sp-2);flex-shrink:0;">
             <button id="tab-btn-feriados" onclick="disponibilidade.abrirAba('feriados')"
-                class="year-tab active" style="border-radius:8px;padding:8px 20px;font-size:0.82rem;">
-                📅 Calendário de Feriados
+                class="year-tab active" style="border-radius:8px;padding:8px 20px;font-size:0.82rem;display:flex;align-items:center;gap:7px;">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="1.5" y="2.5" width="13" height="12" rx="1.5"/><line x1="5" y1="1" x2="5" y2="4"/><line x1="11" y1="1" x2="11" y2="4"/><line x1="1.5" y1="6.5" x2="14.5" y2="6.5"/></svg>
+                Calendário de Feriados
             </button>
             <button id="tab-btn-turnos" onclick="disponibilidade.abrirAba('turnos')"
-                class="year-tab" style="border-radius:8px;padding:8px 20px;font-size:0.82rem;">
-                🕐 Turnos
+                class="year-tab" style="border-radius:8px;padding:8px 20px;font-size:0.82rem;display:flex;align-items:center;gap:7px;">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="6"/><polyline points="8,4 8,8 11,10"/></svg>
+                Turnos
             </button>
         </div>
 
@@ -1505,7 +1507,7 @@
                 <div class="comp-slot-header">
                     <span class="comp-slot-badge" style="background:#26c6da20;color:#26c6da;">A</span>
                     <span style="color:#26c6da;font-size:0.8rem;font-weight:600;">Série A</span>
-                    <button class="comp-clear-btn" onclick="comparador.clearSlot(0)" title="Limpar">✕</button>
+                    <button class="comp-clear-btn" onclick="comparador.clearSlot(0)" title="Limpar"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="1" y1="1" x2="9" y2="9"/><line x1="9" y1="1" x2="1" y2="9"/></svg></button>
                 </div>
                 <div class="comp-slot-body">
                     <div class="comp-field">
@@ -2322,7 +2324,7 @@
             <p class="page-subtitle">Visão executiva — Demanda · Produção · Estoque · Capacidade · Ações</p>
         </div>
         <div style="display:flex;gap:10px;">
-            <button onclick="soepDash.salvarSnapshotAtual()" style="padding:9px 18px;border-radius:8px;border:1px solid var(--indigo-btn);background:transparent;color:var(--indigo-primary);font-size:.83rem;font-weight:600;cursor:pointer;" title="Salva a previsão atual para comparar com o realizado depois">📸 Snapshot</button>
+            <button onclick="soepDash.salvarSnapshotAtual()" style="padding:9px 18px;border-radius:8px;border:1px solid var(--indigo-btn);background:transparent;color:var(--indigo-primary);font-size:.83rem;font-weight:600;cursor:pointer;" title="Salva a previsão atual para comparar com o realizado depois"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:middle;margin-right:5px;"><path d="M1 6a2 2 0 0 1 2-2h1.17a2 2 0 0 0 1.66-.9l.5-.7A2 2 0 0 1 8 1.5a2 2 0 0 1 1.67.9l.5.7A2 2 0 0 0 11.83 4H13a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V6z"/><circle cx="8" cy="9" r="2.5"/></svg>Snapshot</button>
             <button onclick="soepDash.render()" style="padding:9px 22px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.83rem;font-weight:700;cursor:pointer;">ATUALIZAR</button>
         </div>
     </header>
@@ -2406,7 +2408,7 @@
                     <div class="s-label">ACURÁCIA DA PREVISÃO — PREVISTO VS REALIZADO</div>
                     <div style="font-size:.75rem;color:var(--text-dim);margin-top:4px;">Clique em qualquer mês para ver os 20 SKUs com maior variação</div>
                 </div>
-                <button onclick="soepDash.salvarSnapshotAtual()" style="padding:8px 18px;border-radius:7px;border:1px solid var(--indigo-btn);background:transparent;color:var(--indigo-primary);font-size:.8rem;font-weight:600;cursor:pointer;">📸 Salvar Snapshot Atual</button>
+                <button onclick="soepDash.salvarSnapshotAtual()" style="display:flex;align-items:center;gap:7px;padding:8px 18px;border-radius:7px;border:1px solid var(--indigo-btn);background:transparent;color:var(--indigo-primary);font-size:.8rem;font-weight:600;cursor:pointer;"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6a2 2 0 0 1 2-2h1.17a2 2 0 0 0 1.66-.9l.5-.7A2 2 0 0 1 8 1.5a2 2 0 0 1 1.67.9l.5.7A2 2 0 0 0 11.83 4H13a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V6z"/><circle cx="8" cy="9" r="2.5"/></svg> Salvar Snapshot Atual</button>
             </div>
             <div id="soep-prev-real-content"></div>
         </div>
@@ -2507,7 +2509,7 @@
             <div class="summary-card">
                 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
                     <div class="s-label" id="tl-det-titulo"></div>
-                    <button onclick="document.getElementById('tl-detalhe').style.display='none'" style="background:transparent;border:none;color:var(--text-dim);font-size:1.1rem;cursor:pointer;">✕</button>
+                    <button onclick="document.getElementById('tl-detalhe').style.display='none'" style="background:transparent;border:none;color:var(--text-dim);cursor:pointer;display:flex;align-items:center;padding:4px;"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="1" y1="1" x2="11" y2="11"/><line x1="11" y1="1" x2="1" y2="11"/></svg></button>
                 </div>
                 <div id="tl-det-conteudo"></div>
             </div>
@@ -2753,7 +2755,7 @@
         <div style="display:flex;align-items:center;gap:12px;">
             <span id="rd-refresh-badge" style="font-size:0.7rem;color:#8b949e;"></span>
             <button onclick="reuniaoDiaria.render()" style="padding:6px 14px;border-radius:7px;border:1px solid rgba(255,255,255,.1);background:transparent;color:#8b949e;font-size:0.75rem;cursor:pointer;">↻ Atualizar</button>
-            <button onclick="reuniaoDiaria.fechar()" style="padding:6px 16px;border-radius:7px;border:1px solid rgba(240,98,146,.3);background:transparent;color:#f06292;font-size:0.78rem;font-weight:700;cursor:pointer;">✕ Fechar</button>
+            <button onclick="reuniaoDiaria.fechar()" style="display:flex;align-items:center;gap:6px;padding:6px 16px;border-radius:7px;border:1px solid rgba(240,98,146,.3);background:transparent;color:#f06292;font-size:0.78rem;font-weight:700;cursor:pointer;"><svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="1" y1="1" x2="10" y2="10"/><line x1="10" y1="1" x2="1" y2="10"/></svg> Fechar</button>
         </div>
     </div>
 
