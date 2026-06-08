@@ -392,6 +392,8 @@ const homeDash = {
         this._top5();
         this._alertas();
         this._atividades();
+        this._pipeline();
+        this._oeeAsync();
     },
 
     _kpis() {
@@ -461,6 +463,48 @@ const homeDash = {
         const ops = op.rawData.length;
         this._set('home-ops', ops > 0 ? ops.toLocaleString('pt-BR') : '—');
         this._set('home-ops-sub', ops > 0 ? 'ordens importadas' : 'sem dados de OP');
+
+        // ── R$ em risco (Política de Estoques) ──
+        const riscoEl   = document.getElementById('home-risco');
+        const riscoSub  = document.getElementById('home-risco-sub');
+        const riscoCard = document.getElementById('home-card-risco');
+        if (riscoEl && politicaEstoque._rows.length) {
+            let revRisco = 0;
+            politicaEstoque._rows.forEach(r => { if (r.revenueRisco) revRisco += r.revenueRisco; });
+            const ruptura = politicaEstoque._rows.filter(r => r.status === 'RUPTURA').length;
+            const risco   = politicaEstoque._rows.filter(r => r.status === 'RISCO').length;
+            if (revRisco > 0) {
+                riscoEl.textContent = politicaEstoque._fmtR(revRisco);
+                riscoEl.style.color = '#f06292';
+                if (riscoCard) riscoCard.style.borderTop = '3px solid #f06292';
+            } else if (ruptura + risco > 0) {
+                riscoEl.textContent = (ruptura + risco) + ' SKUs';
+                riscoEl.style.color = '#ffca28';
+                if (riscoCard) riscoCard.style.borderTop = '3px solid #ffca28';
+            } else {
+                riscoEl.textContent = '✓ OK';
+                riscoEl.style.color = '#26a69a';
+                if (riscoCard) riscoCard.style.borderTop = '3px solid #26a69a';
+            }
+            if (riscoSub) riscoSub.textContent = `${ruptura} RUPTURA · ${risco} RISCO`;
+        }
+
+        // ── Gargalo TOC ──
+        const gargaloEl   = document.getElementById('home-gargalo');
+        const gargaloSub  = document.getElementById('home-gargalo-sub');
+        const gargaloCard = document.getElementById('home-card-gargalo');
+        if (gargaloEl && toc._resultProcs?.length) {
+            const validos = toc._resultProcs.filter(p => !p.semDados);
+            const top = validos.sort((a, b) => (b.util||0) - (a.util||0))[0];
+            if (top) {
+                const pct   = Math.round((top.util||0) * 100);
+                const color = pct >= 100 ? '#f06292' : pct >= 85 ? '#ffca28' : '#26a69a';
+                gargaloEl.textContent = pct + '%';
+                gargaloEl.style.color = color;
+                if (gargaloCard) gargaloCard.style.borderTop = `3px solid ${color}`;
+                if (gargaloSub) gargaloSub.textContent = (top.nome || top.id || 'processo') + (pct >= 100 ? ' ⚠ GARGALO' : '');
+            }
+        }
     },
 
     _top5() {
@@ -525,6 +569,28 @@ const homeDash = {
             if (semEstoque > 0) alertas.push({ tipo: 'critico', msg: `${semEstoque} código(s) com estoque ZERO`, acao: 'vxe' });
         }
 
+        // ── R$ em risco (Política de Estoques) ──
+        if (politicaEstoque._rows.length) {
+            let revRisco = 0;
+            politicaEstoque._rows.forEach(r => { if (r.revenueRisco) revRisco += r.revenueRisco; });
+            const ruptura = politicaEstoque._rows.filter(r => r.status === 'RUPTURA').length;
+            const risco   = politicaEstoque._rows.filter(r => r.status === 'RISCO').length;
+            if (revRisco > 0) {
+                alertas.push({ tipo: 'critico', msg: `${politicaEstoque._fmtR(revRisco)} em risco — ${ruptura} RUPTURA · ${risco} RISCO`, acao: 'politica' });
+            } else if (ruptura + risco > 0) {
+                alertas.push({ tipo: 'aviso', msg: `${ruptura + risco} SKU(s) abaixo do estoque ideal`, acao: 'politica' });
+            }
+        }
+
+        // ── TOC gargalo sobrecarregado ──
+        if (toc._resultProcs?.length) {
+            const sobrecarregados = toc._resultProcs.filter(p => !p.semDados && (p.util||0) > 1);
+            if (sobrecarregados.length) {
+                const top = sobrecarregados.sort((a, b) => b.util - a.util)[0];
+                alertas.push({ tipo: 'critico', msg: `Gargalo ${top.nome || top.id}: ${Math.round(top.util * 100)}% de utilização`, acao: 'toc' });
+            }
+        }
+
         const critCount = alertas.filter(a => a.tipo === 'critico').length;
         if (badge) { badge.textContent = critCount; badge.style.display = critCount > 0 ? '' : 'none'; }
 
@@ -552,7 +618,87 @@ const homeDash = {
             </div>`).join('');
     },
 
-    _set(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+    _set(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; },
+
+    _pipeline() {
+        const el = document.getElementById('home-pipeline');
+        if (!el) return;
+        const etapas = [
+            { label: 'Config.',   icon: '⚙',  ok: banco.rawData.length > 0,              view: 'banco',    sub: banco.rawData.length ? banco.rawData.length + ' SKUs' : 'banco vazio' },
+            { label: 'Importação',icon: '📥',  ok: vendas.rawData.length > 0 && estoque.rawData.length > 0, view: 'vendas', sub: vendas.rawData.length ? vendas.rawData.length + ' itens venda' : 'sem dados' },
+            { label: 'S&OP',      icon: '📊',  ok: !!(previsao._forecast?.length),         view: 'previsao', sub: previsao._forecast?.length ? previsao._forecast.length + ' SKUs prev.' : 'sem previsão' },
+            { label: 'TOC',       icon: '🔩',  ok: !!(toc._resultProcs?.length),           view: 'toc',      sub: toc._resultProcs?.length ? 'gargalo calculado' : 'não calculado' },
+            { label: 'Preactor',  icon: '📅',  ok: !!(timeline._resultado?.ordens?.length), view: 'timeline', sub: timeline._resultado?.ordens?.length ? 'Gantt gerado' : 'não sequenciado' },
+            { label: 'MES',       icon: '🏭',  ok: mes._wip?.length > 0 || mes._processos?.length > 0, view: 'mes', sub: mes._wip?.length ? mes._wip.length + ' no WIP' : 'nenhum apontamento' },
+        ];
+        el.innerHTML = etapas.map((e, i) => {
+            const color = e.ok ? '#3fb950' : '#555';
+            const bg    = e.ok ? 'rgba(63,185,80,.06)' : 'rgba(255,255,255,.02)';
+            return `<div onclick="navigateTo('${e.view}')" style="flex:1;min-width:90px;cursor:pointer;text-align:center;padding:12px 8px;background:${bg};border-right:${i < etapas.length-1 ? '1px solid rgba(255,255,255,.05)' : 'none'};position:relative;transition:background .15s;" onmouseenter="this.style.background='rgba(255,255,255,.05)'" onmouseleave="this.style.background='${bg}'">
+                <div style="font-size:1.1rem;margin-bottom:4px;">${e.icon}</div>
+                <div style="font-size:.72rem;font-weight:700;color:${e.ok ? '#e6edf3' : '#8b949e'};">${e.label}</div>
+                <div style="font-size:.63rem;color:#8b949e;margin-top:2px;">${e.sub}</div>
+                <div style="position:absolute;top:6px;right:7px;font-size:.65rem;color:${color};">${e.ok ? '✓' : '○'}</div>
+                ${i < etapas.length-1 ? '<div style="position:absolute;right:-6px;top:50%;transform:translateY(-50%);color:#555;font-size:.75rem;z-index:1;">›</div>' : ''}
+            </div>`;
+        }).join('');
+    },
+
+    async _oeeAsync() {
+        try {
+            const [oeeData, wipData] = await Promise.all([
+                api.get('/api/mes/oee'),
+                api.get('/api/mes/wip')
+            ]);
+
+            const oeeEl   = document.getElementById('home-oee');
+            const oeeSub  = document.getElementById('home-oee-sub');
+            const oeeCard = document.getElementById('home-card-oee');
+            if (oeeEl && oeeData) {
+                const v = Math.round((oeeData.oee || 0) * 10) / 10;
+                if (v > 0) {
+                    const color = v >= 85 ? '#26a69a' : v >= 65 ? '#ffca28' : '#f06292';
+                    oeeEl.textContent = v + '%';
+                    oeeEl.style.color = color;
+                    if (oeeCard) oeeCard.style.borderTop = `3px solid ${color}`;
+                    if (oeeSub) oeeSub.textContent = `D: ${Math.round((oeeData.disponibilidade||0)*10)/10}% × Q: ${Math.round((oeeData.qualidade||0)*10)/10}%`;
+                } else {
+                    oeeEl.textContent = '—';
+                    if (oeeSub) oeeSub.textContent = 'sem apontamentos finalizados';
+                }
+            }
+
+            const wipEl   = document.getElementById('home-wip');
+            const wipSub  = document.getElementById('home-wip-sub');
+            const wipCard = document.getElementById('home-card-wip');
+            if (wipEl && Array.isArray(wipData)) {
+                const ativos  = wipData.filter(a => a.status === 'em_andamento').length;
+                const parados = wipData.filter(a => a.status === 'parado').length;
+                if (wipData.length > 0) {
+                    wipEl.textContent = wipData.length;
+                    const color = parados > 0 ? '#ffca28' : '#26c6da';
+                    wipEl.style.color = color;
+                    if (wipCard) wipCard.style.borderTop = `3px solid ${color}`;
+                    if (wipSub) wipSub.textContent = `${ativos} ativos · ${parados} pausados`;
+                    if (parados > 0) {
+                        const alertasEl = document.getElementById('home-alertas');
+                        if (alertasEl) {
+                            const div = document.createElement('div');
+                            div.onclick = () => navigateTo('mes');
+                            div.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:rgba(255,255,255,.03);border-radius:6px;cursor:pointer;border-left:3px solid #ffca28;margin-top:6px;';
+                            div.innerHTML = `<span style="font-size:.85rem;">🟡</span><span style="font-size:.78rem;color:#e6edf3;">${parados} apontamento(s) MES em PARADA</span>`;
+                            alertasEl.appendChild(div);
+                        }
+                    }
+                } else {
+                    wipEl.textContent = '0';
+                    wipEl.style.color = '#8b949e';
+                    if (wipSub) wipSub.textContent = 'nenhum em andamento';
+                    if (wipCard) wipCard.style.borderTop = '3px solid rgba(255,255,255,.08)';
+                }
+            }
+        } catch { /* MES tables may not exist yet */ }
+    }
 };
 
 // ── Histórico de Atividade ────────────────────────────────────────
@@ -1014,6 +1160,12 @@ function navigateTo(viewName) {
         if (acWrap) acWrap.style.display = soepDash._snapshots.length ? '' : 'none';
     } else if (viewName === 'politica') {
         document.querySelector('[data-view="politica"]')?.classList.add('sub-active');
+        try {
+            const saved = JSON.parse(localStorage.getItem('pol-params') || '{}');
+            if (saved.leadTime != null) { const e = document.getElementById('pol-lead');  if (e) e.value = saved.leadTime; }
+            if (saved.zBase   != null) { const e = document.getElementById('pol-nivel'); if (e) e.value = saved.zBase; }
+            if (saved.nMeses  != null) { const e = document.getElementById('pol-hist');  if (e) e.value = saved.nMeses; }
+        } catch {}
     } else if (viewName === 'plano-prod') {
         document.querySelector('[data-view="plano-prod"]')?.classList.add('sub-active');
         if (previsao._forecast.length) setTimeout(() => planoProducao.render(), 50);
@@ -4051,7 +4203,8 @@ const capacidade = criarModuloArq('capacidade',  'capacidade');
 
 // ====== TOC — TEORIA DAS RESTRIÇÕES ======
 const toc = {
-    _filaGargalo: [],  // OPs enviadas pelo OP Dashboard
+    _filaGargalo: [],
+    _resultProcs: [],
     _sortFila: 'carga',
     // Processos com mapeamento para colunas do banco de dados
     _PROCS: [
@@ -5163,6 +5316,7 @@ const politicaEstoque = {
         const zBase    = parseFloat(document.getElementById('pol-nivel')?.value) || 1.28;
         const nMeses   = parseInt(document.getElementById('pol-hist')?.value) || 12;
         const useAbc   = document.getElementById('pol-abc-auto')?.checked;
+        localStorage.setItem('pol-params', JSON.stringify({ leadTime, zBase, nMeses }));
 
         const months = vendas.monthCols.slice(-nMeses);
         if (!months.length) { mostrarToast('Sem dados de vendas para calcular.', 'erro'); return; }
@@ -10918,5 +11072,248 @@ const mes = {
         }
 
         el.innerHTML = html;
+    },
+
+    _chipMotivo(btn) {
+        document.getElementById('mes-parada-motivo').value = btn.textContent.trim();
+        document.querySelectorAll('#mes-motivos-chips button').forEach(b => {
+            b.style.background = 'rgba(255,255,255,.04)';
+            b.style.color = '#8b949e';
+            b.style.borderColor = 'rgba(255,255,255,.1)';
+        });
+        btn.style.background = 'rgba(255,171,118,.15)';
+        btn.style.color = '#ffab76';
+        btn.style.borderColor = '#ffab76';
+    }
+};
+
+// ── REUNIÃO DIÁRIA ────────────────────────────────────────────────
+const reuniaoDiaria = {
+    _timer: null,
+    _countdown: 30,
+    _countTimer: null,
+
+    abrir() {
+        const el = document.getElementById('modal-reuniao');
+        if (!el) return;
+        el.style.display = 'flex';
+        document.body.style.overflow = 'hidden';
+        this.render();
+        this._startCountdown();
+    },
+
+    fechar() {
+        const el = document.getElementById('modal-reuniao');
+        if (el) el.style.display = 'none';
+        document.body.style.overflow = '';
+        clearInterval(this._timer);
+        clearInterval(this._countTimer);
+        this._timer = null;
+    },
+
+    _startCountdown() {
+        clearInterval(this._timer);
+        clearInterval(this._countTimer);
+        this._countdown = 30;
+        this._countTimer = setInterval(() => {
+            this._countdown--;
+            const badge = document.getElementById('rd-refresh-badge');
+            if (badge) badge.textContent = `atualiza em ${this._countdown}s`;
+            if (this._countdown <= 0) {
+                this._countdown = 30;
+                this.render();
+            }
+        }, 1000);
+    },
+
+    _fmtHora(d) {
+        return new Date(d).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    },
+
+    _cor(v, limites) {
+        // limites = [vermelho, amarelo] — acima do amarelo = verde
+        if (v >= limites[1]) return '#3fb950';
+        if (v >= limites[0]) return '#ffca28';
+        return '#f06292';
+    },
+
+    async render() {
+        // Atualiza relógio
+        const dtEl = document.getElementById('rd-datetime');
+        const agora = new Date();
+        if (dtEl) dtEl.textContent = agora.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' }) + ' · ' + agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+        const body = document.getElementById('rd-body');
+        if (!body) return;
+        body.innerHTML = '<div style="color:#8b949e;font-size:.85rem;padding:20px 0;">Carregando dados...</div>';
+
+        const hoje = agora.toISOString().slice(0, 10);
+
+        try {
+            const [wip, oeeHoje, aptHoje] = await Promise.all([
+                api.get('/api/mes/wip'),
+                api.get(`/api/mes/oee?data_inicio=${hoje}&data_fim=${hoje}`),
+                api.get(`/api/mes/apontamentos?data_inicio=${hoje}&data_fim=${hoje}&status=finalizado`)
+            ]);
+
+            const ativos  = (wip || []).filter(a => a.status === 'em_andamento');
+            const parados = (wip || []).filter(a => a.status === 'parado');
+            const qtdHoje = (aptHoje || []).reduce((s, a) => s + (a.qtd_produzida || 0), 0);
+            const refHoje = (aptHoje || []).reduce((s, a) => s + (a.qtd_refugo || 0), 0);
+
+            // Gargalo do TOC (in-memory)
+            const gargaloProc = toc._resultProcs?.filter(p => !p.semDados)
+                .sort((a, b) => (b.util || 0) - (a.util || 0))[0] || null;
+
+            // Alertas (recomputa síncrono)
+            const alertas = this._alertas();
+
+            // Paradas ativas com detalhes
+            const paradasAtivas = parados.map(a => {
+                const ult = (a.paradas_mes || []).find(p => !p.fim);
+                return { ...a, paradaAtual: ult };
+            });
+
+            body.innerHTML = this._html({
+                ativos, parados, paradasAtivas,
+                oeeHoje, qtdHoje, refHoje, aptHoje: aptHoje || [],
+                gargaloProc, alertas
+            });
+
+        } catch (e) {
+            body.innerHTML = `<div style="color:#f06292;padding:20px;">Erro ao carregar dados: ${escHTML(e.message)}</div>`;
+        }
+    },
+
+    _alertas() {
+        const alertas = [];
+        if (!vendas.rawData.length)  alertas.push({ tipo: 'info', msg: 'Vendas não importadas', acao: 'vendas' });
+        if (!estoque.rawData.length) alertas.push({ tipo: 'info', msg: 'Estoque não importado', acao: 'estoque' });
+        if (!op.rawData.length)      alertas.push({ tipo: 'info', msg: 'OPs não importadas', acao: 'op' });
+
+        if (vendas.rawData.length && estoque.rawData.length) {
+            const estMap = {};
+            estoque.rawData.forEach(r => { estMap[String(r.codigo||'').toUpperCase()] = (estMap[String(r.codigo||'').toUpperCase()]||0)+(r.quantidade||0); });
+            let zero = 0;
+            vendas.rawData.forEach(r => { if ((estMap[String(r.codigo||'').toUpperCase()]||0) === 0) zero++; });
+            if (zero > 0) alertas.push({ tipo: 'critico', msg: `${zero} código(s) com estoque ZERO`, acao: 'vxe' });
+        }
+        if (politicaEstoque._rows.length) {
+            let rev = 0;
+            politicaEstoque._rows.forEach(r => { if (r.revenueRisco) rev += r.revenueRisco; });
+            const rup = politicaEstoque._rows.filter(r => r.status === 'RUPTURA').length;
+            const ris = politicaEstoque._rows.filter(r => r.status === 'RISCO').length;
+            if (rev > 0) alertas.push({ tipo: 'critico', msg: `${politicaEstoque._fmtR(rev)} em risco — ${rup} RUPTURA · ${ris} RISCO`, acao: 'politica' });
+            else if (rup + ris > 0) alertas.push({ tipo: 'aviso', msg: `${rup + ris} SKU(s) abaixo do estoque ideal`, acao: 'politica' });
+        }
+        if (toc._resultProcs?.length) {
+            const sob = toc._resultProcs.filter(p => !p.semDados && (p.util||0) > 1);
+            if (sob.length) {
+                const top = sob.sort((a,b)=>b.util-a.util)[0];
+                alertas.push({ tipo: 'critico', msg: `Gargalo ${top.nome||top.id}: ${Math.round(top.util*100)}% utilização`, acao: 'toc' });
+            }
+        }
+        return alertas;
+    },
+
+    _html({ ativos, parados, paradasAtivas, oeeHoje, qtdHoje, refHoje, aptHoje, gargaloProc, alertas }) {
+        const oee = Math.round(oeeHoje?.oee || 0);
+        const D   = Math.round(oeeHoje?.disponibilidade || 0);
+        const Q   = Math.round(oeeHoje?.qualidade || 0);
+        const corOEE = oee >= 85 ? '#3fb950' : oee >= 65 ? '#ffca28' : '#f06292';
+
+        const gPct  = gargaloProc ? Math.round((gargaloProc.util||0)*100) : null;
+        const gNome = gargaloProc ? (gargaloProc.nome || gargaloProc.id) : null;
+        const corG  = gPct == null ? '#8b949e' : gPct >= 100 ? '#f06292' : gPct >= 85 ? '#ffca28' : '#3fb950';
+
+        const cores  = { critico: '#f06292', aviso: '#ffca28', info: '#8b949e' };
+        const icons  = { critico: '🔴', aviso: '🟡', info: 'ℹ️' };
+        const critN  = alertas.filter(a => a.tipo === 'critico').length;
+
+        const card = (content, cor='rgba(255,255,255,.05)', border='rgba(255,255,255,.08)') =>
+            `<div style="background:${cor};border:1px solid ${border};border-radius:14px;padding:22px 24px;">${content}</div>`;
+
+        const kpiLabel = t => `<div style="font-size:.7rem;font-weight:700;letter-spacing:1.5px;color:#8b949e;text-transform:uppercase;margin-bottom:6px;">${t}</div>`;
+        const kpiVal   = (v, c='#fff', sz='2.8rem') => `<div style="font-size:${sz};font-weight:800;color:${c};line-height:1;">${v}</div>`;
+        const kpiSub   = t => `<div style="font-size:.75rem;color:#8b949e;margin-top:6px;">${t}</div>`;
+
+        // ── Row 1: 3 KPIs grandes ──
+        const row1 = `<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+
+            ${card(`
+                ${kpiLabel('WIP Agora')}
+                <div style="display:flex;align-items:baseline;gap:12px;">
+                    ${kpiVal(ativos.length + parados.length, ativos.length+parados.length > 0 ? '#26c6da' : '#8b949e')}
+                    <div style="font-size:.85rem;color:#8b949e;">apontamentos</div>
+                </div>
+                ${kpiSub(`<span style="color:#3fb950;">▶ ${ativos.length} rodando</span> &nbsp;·&nbsp; <span style="color:${parados.length > 0 ? '#ffca28' : '#8b949e'};">⏸ ${parados.length} pausados</span>`)}
+            `, 'rgba(38,198,218,.05)', 'rgba(38,198,218,.15)')}
+
+            ${card(`
+                ${kpiLabel('OEE Hoje')}
+                <div style="display:flex;align-items:baseline;gap:12px;">
+                    ${kpiVal(oee > 0 ? oee + '%' : '—', corOEE)}
+                    <div style="font-size:.85rem;color:#8b949e;">${oee >= 85 ? 'Classe mundial' : oee >= 65 ? 'Aceitável' : oee > 0 ? 'Atenção' : 'sem dados'}</div>
+                </div>
+                ${kpiSub(oee > 0 ? `Disponibilidade: <strong style="color:#e6edf3;">${D}%</strong> &nbsp;·&nbsp; Qualidade: <strong style="color:#e6edf3;">${Q}%</strong>` : 'Inicie apontamentos no MES')}
+            `, `rgba(${oee >= 85 ? '63,185,80' : oee >= 65 ? '255,202,40' : '240,98,146'},.04)`, `rgba(${oee >= 85 ? '63,185,80' : oee >= 65 ? '255,202,40' : '240,98,146'},.15)`)}
+
+            ${card(`
+                ${kpiLabel('Gargalo — TOC')}
+                <div style="display:flex;align-items:baseline;gap:12px;">
+                    ${kpiVal(gPct != null ? gPct + '%' : '—', corG)}
+                    <div style="font-size:.85rem;color:#8b949e;">${gNome || 'rode análise TOC'}</div>
+                </div>
+                ${kpiSub(gPct == null ? 'Acesse TOC para calcular' : gPct >= 100 ? '<span style="color:#f06292;">⚠ CAPACIDADE ESGOTADA</span>' : gPct >= 85 ? '<span style="color:#ffca28;">Zona de atenção</span>' : '<span style="color:#3fb950;">Capacidade disponível</span>')}
+            `, `rgba(${corG === '#f06292' ? '240,98,146' : corG === '#ffca28' ? '255,202,40' : '63,185,80'},.04)`, `rgba(${corG === '#f06292' ? '240,98,146' : corG === '#ffca28' ? '255,202,40' : '63,185,80'},.15)`)}
+        </div>`;
+
+        // ── Row 2: KPIs de produção do dia ──
+        const row2 = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+            ${card(`${kpiLabel('Produzido Hoje')} ${kpiVal(qtdHoje.toLocaleString('pt-BR'), '#26c6da', '2rem')} ${kpiSub('unidades finalizadas')}`)}
+            ${card(`${kpiLabel('Refugo Hoje')} ${kpiVal(refHoje.toLocaleString('pt-BR'), refHoje > 0 ? '#f06292' : '#3fb950', '2rem')} ${kpiSub(qtdHoje > 0 ? ((refHoje/qtdHoje*100).toFixed(1) + '% do produzido') : '—')}`)}
+            ${card(`${kpiLabel('OPs Finalizadas Hoje')} ${kpiVal(aptHoje.length, '#a5b4fc', '2rem')} ${kpiSub('apontamentos encerrados')}`)}
+        </div>`;
+
+        // ── Row 3: Alertas ──
+        const alertasHTML = alertas.length === 0
+            ? '<p style="color:#3fb950;font-size:.85rem;">✓ Nenhum alerta crítico no momento.</p>'
+            : alertas.map(a => `
+                <div onclick="reuniaoDiaria.fechar();navigateTo('${a.acao}')" style="display:flex;align-items:center;gap:12px;padding:11px 14px;background:rgba(255,255,255,.03);border-radius:8px;cursor:pointer;border-left:3px solid ${cores[a.tipo]};transition:background .15s;" onmouseenter="this.style.background='rgba(255,255,255,.06)'" onmouseleave="this.style.background='rgba(255,255,255,.03)'">
+                    <span style="font-size:1rem;">${icons[a.tipo]}</span>
+                    <span style="font-size:.85rem;color:#e6edf3;flex:1;">${escHTML(a.msg)}</span>
+                    <span style="font-size:.7rem;color:#8b949e;">→ ${escHTML(a.acao)}</span>
+                </div>`).join('');
+
+        const row3 = card(`
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+                <span style="font-size:.7rem;font-weight:700;letter-spacing:1.5px;color:#8b949e;text-transform:uppercase;">Alertas Críticos</span>
+                ${critN > 0 ? `<span style="background:#f06292;color:#fff;border-radius:10px;padding:2px 8px;font-size:.68rem;font-weight:700;">${critN}</span>` : ''}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:7px;">${alertasHTML}</div>
+        `);
+
+        // ── Row 4: Paradas ativas ──
+        let row4 = '';
+        if (paradasAtivas.length > 0) {
+            const rows = paradasAtivas.map(a => {
+                const par = a.paradaAtual;
+                const desde = par?.inicio ? this._fmtHora(par.inicio) : '—';
+                return `<div style="display:grid;grid-template-columns:120px 140px 90px 1fr auto;gap:12px;align-items:center;padding:10px 14px;background:rgba(255,202,40,.04);border-radius:8px;border-left:3px solid #ffca28;">
+                    <span style="font-size:.78rem;font-weight:700;color:#e6edf3;">${escHTML(a.op_numero || a.cod)}</span>
+                    <span style="font-size:.78rem;color:#8b949e;">${escHTML(a.processo)}</span>
+                    <span style="font-size:.75rem;color:#ffca28;">desde ${desde}</span>
+                    <span style="font-size:.78rem;color:#e6edf3;">${escHTML(par?.motivo || '—')}</span>
+                    <button onclick="reuniaoDiaria.fechar();navigateTo('mes')" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(255,202,40,.3);background:transparent;color:#ffca28;font-size:.7rem;cursor:pointer;">Ver MES</button>
+                </div>`;
+            }).join('');
+
+            row4 = card(`
+                <div style="font-size:.7rem;font-weight:700;letter-spacing:1.5px;color:#ffca28;text-transform:uppercase;margin-bottom:12px;">⏸ Paradas Ativas Agora</div>
+                <div style="display:flex;flex-direction:column;gap:6px;">${rows}</div>
+            `, 'rgba(255,202,40,.03)', 'rgba(255,202,40,.12)');
+        }
+
+        return row1 + row2 + row3 + row4;
     }
 };

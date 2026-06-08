@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>SIGS — Manual Campo a Campo</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Inter',Arial,sans-serif;font-size:10pt;line-height:1.6;color:#1a1a2e;background:#fff;}
+
+/* CAPA */
+.cover{min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;background:linear-gradient(135deg,#0f0f1a 0%,#1a1a2e 60%,#16213e 100%);padding:80px 72px;page-break-after:always;position:relative;overflow:hidden;}
+.cover::before{content:'';position:absolute;top:-100px;right:-100px;width:500px;height:500px;border-radius:50%;background:radial-gradient(circle,rgba(99,102,241,.25) 0%,transparent 70%);}
+.cover-tag{font-size:8.5pt;font-weight:700;letter-spacing:3px;color:#6366f1;text-transform:uppercase;margin-bottom:18px;}
+.cover h1{font-size:38pt;font-weight:800;color:#fff;line-height:1.1;margin-bottom:6px;}
+.cover h1 span{color:#6366f1;}
+.cover-sub{font-size:14pt;font-weight:400;color:rgba(255,255,255,.55);margin-bottom:40px;}
+.cover-divider{width:60px;height:4px;background:#6366f1;border-radius:2px;margin-bottom:32px;}
+.cover-desc{font-size:10.5pt;color:rgba(255,255,255,.5);max-width:520px;line-height:1.9;margin-bottom:48px;}
+.cover-meta{display:flex;gap:48px;}
+.cover-meta-label{font-size:7pt;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.3);margin-bottom:3px;}
+.cover-meta-val{font-size:9.5pt;font-weight:600;color:rgba(255,255,255,.7);}
+
+/* LAYOUT */
+.page{padding:40px 56px;}
+.page-break{page-break-before:always;}
+
+/* MÓDULO HEADER */
+.mod-header{display:flex;align-items:center;gap:14px;margin-bottom:24px;padding-bottom:14px;border-bottom:3px solid #6366f1;page-break-after:avoid;}
+.mod-icon{width:44px;height:44px;border-radius:10px;background:#6366f1;display:flex;align-items:center;justify-content:center;font-size:18pt;flex-shrink:0;}
+.mod-header h2{font-size:15pt;font-weight:800;color:#1a1a2e;}
+.mod-route{font-size:7.5pt;font-weight:600;letter-spacing:1.5px;color:#6366f1;background:rgba(99,102,241,.08);padding:3px 10px;border-radius:12px;border:1px solid rgba(99,102,241,.2);margin-left:auto;}
+.mod-desc{font-size:9.5pt;color:#5a5a8a;margin-bottom:20px;padding:10px 14px;background:#f8f8ff;border-radius:8px;border-left:3px solid #6366f1;}
+
+/* PASSOS */
+.step-block{margin-bottom:18px;page-break-inside:avoid;}
+.step-num{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:#6366f1;color:#fff;font-size:8pt;font-weight:800;flex-shrink:0;margin-right:8px;}
+.step-title{font-size:10pt;font-weight:700;color:#2d2d4e;display:flex;align-items:center;margin-bottom:10px;}
+
+/* CAMPO TABLE */
+.campo-table{width:100%;border-collapse:collapse;font-size:9pt;margin-bottom:6px;}
+.campo-table thead tr{background:#f4f4fc;}
+.campo-table th{padding:8px 12px;text-align:left;font-size:7.5pt;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#2d2d4e;border-bottom:2px solid #e0e0f0;}
+.campo-table td{padding:8px 12px;border-bottom:1px solid #f0f0f8;vertical-align:top;}
+.campo-table tr:last-child td{border-bottom:none;}
+.campo-name{font-weight:700;color:#1a1a2e;}
+.campo-fill{color:#3a3a5c;}
+.campo-provides{color:#2d2d4e;}
+.campo-ex{font-size:8pt;color:#7c3aed;background:#faf5ff;padding:1px 6px;border-radius:4px;font-style:italic;}
+
+/* RESULTADO BOX */
+.resultado{background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:12px 16px;margin:14px 0;page-break-inside:avoid;}
+.resultado-title{font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:1px;color:#16a34a;margin-bottom:6px;}
+.resultado p{font-size:9pt;color:#166534;margin:0;}
+
+/* CALLOUTS */
+.callout{border-left:4px solid #6366f1;background:rgba(99,102,241,.05);padding:10px 14px;border-radius:0 7px 7px 0;margin:12px 0;page-break-inside:avoid;}
+.callout.warn{border-color:#f59e0b;background:rgba(245,158,11,.06);}
+.callout.tip{border-color:#16a34a;background:rgba(22,163,74,.05);}
+.callout-title{font-size:7.5pt;font-weight:700;letter-spacing:1px;text-transform:uppercase;margin-bottom:4px;color:#6366f1;}
+.callout.warn .callout-title{color:#b45309;}
+.callout.tip  .callout-title{color:#16a34a;}
+.callout p{font-size:9pt;color:#3a3a5c;margin:0;}
+
+/* BADGE */
+.badge{display:inline-block;padding:2px 7px;border-radius:8px;font-size:7.5pt;font-weight:700;}
+.badge-obs{background:#fef2f2;color:#dc2626;border:1px solid #fecaca;}
+.badge-opt{background:#eff6ff;color:#2563eb;border:1px solid #bfdbfe;}
+.badge-req{background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;}
+
+/* SUMÁRIO */
+.toc-page{padding:50px 56px;page-break-after:always;}
+.toc-entry{display:flex;align-items:baseline;padding:8px 0;border-bottom:1px solid #f0f0f8;}
+.toc-num{font-size:8.5pt;font-weight:700;color:#6366f1;width:24px;flex-shrink:0;}
+.toc-name{font-size:10pt;font-weight:600;color:#2d2d4e;flex:1;}
+.toc-dots{flex:1;border-bottom:1px dotted #ccc;margin:0 10px 3px;}
+.toc-pg{font-size:9pt;color:#8b8bae;font-weight:600;}
+
+/* FLUXO */
+.flow{display:flex;align-items:center;gap:0;margin:16px 0;border-radius:8px;overflow:hidden;border:1px solid #e0e0f0;}
+.flow-step{flex:1;text-align:center;padding:12px 6px;background:#f4f4fc;}
+.flow-step .fi{font-size:13pt;}
+.flow-step .fl{font-size:7.5pt;font-weight:700;color:#2d2d4e;margin-top:2px;}
+.flow-step.active{background:#ede9fe;border-top:3px solid #6366f1;}
+.flow-step.active .fl{color:#6366f1;}
+.flow-arrow{font-size:11pt;color:#c0c0e0;padding:0 2px;background:#f4f4fc;}
+
+/* OPÇÕES TABLE */
+.opt-table{width:100%;border-collapse:collapse;font-size:8.5pt;margin:8px 0;}
+.opt-table th{background:#f4f4fc;padding:7px 10px;text-align:left;font-weight:700;font-size:7.5pt;text-transform:uppercase;letter-spacing:.5px;color:#2d2d4e;border-bottom:2px solid #e0e0f0;}
+.opt-table td{padding:7px 10px;border-bottom:1px solid #f0f0f8;vertical-align:top;}
+.opt-val{font-weight:700;color:#6366f1;}
+
+@page{size:A4;margin:0;}
+</style>
+</head>
+<body>
+
+<!-- CAPA -->
+<div class="cover">
+  <div class="cover-tag">Gestão Industrial · Stoll</div>
+  <h1><span>SIGS</span></h1>
+  <div class="cover-sub">Guia Campo a Campo</div>
+  <div class="cover-divider"></div>
+  <div class="cover-desc">
+    Instruções detalhadas de preenchimento para cada tela e cada campo do sistema.
+    O que digitar, o que selecionar, e o que cada campo vai gerar para sua tomada de decisão.
+  </div>
+  <div class="cover-meta">
+    <div><div class="cover-meta-label">Versão</div><div class="cover-meta-val">Junho 2026</div></div>
+    <div><div class="cover-meta-label">Tipo</div><div class="cover-meta-val">Operacional — campo a campo</div></div>
+  </div>
+</div>
+
+<!-- SUMÁRIO -->
+<div class="toc-page">
+  <div style="font-size:20pt;font-weight:800;color:#1a1a2e;margin-bottom:4px;">Sumário</div>
+  <div style="font-size:9.5pt;color:#8b8bae;margin-bottom:32px;">Guia campo a campo — SIGS Stoll</div>
+  <div class="toc-entry"><span class="toc-num">1</span><span class="toc-name">Configuração — Base de Dados</span><span class="toc-dots"></span><span class="toc-pg">3</span></div>
+  <div class="toc-entry"><span class="toc-num">2</span><span class="toc-name">Configuração — Processos</span><span class="toc-dots"></span><span class="toc-pg">3</span></div>
+  <div class="toc-entry"><span class="toc-num">3</span><span class="toc-name">Configuração — Matriz de Set Up</span><span class="toc-dots"></span><span class="toc-pg">4</span></div>
+  <div class="toc-entry"><span class="toc-num">4</span><span class="toc-name">Configuração — Calendário (Turnos e Feriados)</span><span class="toc-dots"></span><span class="toc-pg">4</span></div>
+  <div class="toc-entry"><span class="toc-num">5</span><span class="toc-name">Importação — Vendas</span><span class="toc-dots"></span><span class="toc-pg">5</span></div>
+  <div class="toc-entry"><span class="toc-num">6</span><span class="toc-name">Importação — Estoque</span><span class="toc-dots"></span><span class="toc-pg">5</span></div>
+  <div class="toc-entry"><span class="toc-num">7</span><span class="toc-name">Importação — Ordens de Produção</span><span class="toc-dots"></span><span class="toc-pg">6</span></div>
+  <div class="toc-entry"><span class="toc-num">8</span><span class="toc-name">Importação — Cliente e Costura</span><span class="toc-dots"></span><span class="toc-pg">6</span></div>
+  <div class="toc-entry"><span class="toc-num">9</span><span class="toc-name">S&OP — Previsão de Demanda</span><span class="toc-dots"></span><span class="toc-pg">7</span></div>
+  <div class="toc-entry"><span class="toc-num">10</span><span class="toc-name">S&OP — Política de Estoques</span><span class="toc-dots"></span><span class="toc-pg">8</span></div>
+  <div class="toc-entry"><span class="toc-num">11</span><span class="toc-name">S&OP — Plano de Produção e Dashboard</span><span class="toc-dots"></span><span class="toc-pg">9</span></div>
+  <div class="toc-entry"><span class="toc-num">12</span><span class="toc-name">TOC — Gargalo</span><span class="toc-dots"></span><span class="toc-pg">10</span></div>
+  <div class="toc-entry"><span class="toc-num">13</span><span class="toc-name">PREACTOR — Linha do Tempo</span><span class="toc-dots"></span><span class="toc-pg">11</span></div>
+  <div class="toc-entry"><span class="toc-num">14</span><span class="toc-name">MES — Iniciar Apontamento</span><span class="toc-dots"></span><span class="toc-pg">12</span></div>
+  <div class="toc-entry"><span class="toc-num">15</span><span class="toc-name">MES — Registrar Parada</span><span class="toc-dots"></span><span class="toc-pg">13</span></div>
+  <div class="toc-entry"><span class="toc-num">16</span><span class="toc-name">MES — Finalizar e OEE</span><span class="toc-dots"></span><span class="toc-pg">13</span></div>
+  <div class="toc-entry"><span class="toc-num">17</span><span class="toc-name">Dashboard e Reunião Diária</span><span class="toc-dots"></span><span class="toc-pg">14</span></div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 1 — BASE DE DADOS
+════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+<div class="mod-header">
+  <div class="mod-icon">⚙</div>
+  <div><h2>1 · Base de Dados</h2><div style="font-size:8pt;color:#8b8bae;margin-top:2px;">Cadastro do portfólio de produtos</div></div>
+  <div class="mod-route">CONFIGURAÇÃO → Base de Dados</div>
+</div>
+<div class="mod-desc">Registra os SKUs ativos da empresa. É a referência mestre que todos os outros módulos usam para cruzar códigos, descrições e segmentos.</div>
+
+<div class="step-block">
+  <div class="step-title"><span class="step-num">1</span>Clique em <strong>Importar</strong> e selecione o arquivo CSV ou XLS do seu cadastro de produtos.</div>
+  <table class="campo-table">
+    <thead><tr><th>Coluna no arquivo</th><th>O que colocar</th><th>O que fornece ao sistema</th><th></th></tr></thead>
+    <tbody>
+      <tr><td class="campo-name">Código</td><td class="campo-fill">Código único do produto (ex: <span class="campo-ex">BL001</span>)</td><td class="campo-provides">Chave de ligação entre todos os módulos. Sem código correto, nenhum cruzamento funciona.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+      <tr><td class="campo-name">Descrição</td><td class="campo-fill">Nome completo do produto (ex: <span class="campo-ex">Blusa Listrada P</span>)</td><td class="campo-provides">Aparece nos dashboards e relatórios no lugar do código.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+      <tr><td class="campo-name">Segmento</td><td class="campo-fill">Categoria ou linha (ex: <span class="campo-ex">Feminino / Inverno</span>)</td><td class="campo-provides">Permite filtrar análises por grupo de produto na Previsão e ABC.</td><td><span class="badge badge-opt">opcional</span></td></tr>
+      <tr><td class="campo-name">Tempo por processo</td><td class="campo-fill">Minutos de cada etapa produtiva por unidade (ex: <span class="campo-ex">Tecelagem: 12 min</span>)</td><td class="campo-provides">Alimenta o TOC para calcular carga por processo. Sem esses dados, o TOC usa estimativas.</td><td><span class="badge badge-opt">recomendado</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="step-block">
+  <div class="step-title"><span class="step-num">2</span>Confirme o mapeamento de colunas quando o sistema perguntar.</div>
+  <p style="font-size:9pt;color:#5a5a8a;">O sistema detecta automaticamente as colunas, mas você precisa confirmar qual coluna é o "código" e qual é a "descrição". Revise com atenção — um mapeamento errado se propaga por todos os módulos.</p>
+</div>
+
+<div class="resultado"><div class="resultado-title">O que você obtém</div><p>Portfólio cadastrado. O sistema passa a reconhecer cada código importado de vendas/estoque/OPs e exibir o nome correto nos relatórios.</p></div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 2 — PROCESSOS
+════════════════════════════════════════════════ -->
+<div class="mod-header" style="margin-top:28px;">
+  <div class="mod-icon">🔧</div>
+  <div><h2>2 · Processos</h2><div style="font-size:8pt;color:#8b8bae;margin-top:2px;">Etapas da linha de produção</div></div>
+  <div class="mod-route">CONFIGURAÇÃO → Processos</div>
+</div>
+<div class="mod-desc">Define as etapas produtivas da fábrica. Esses processos aparecem no TOC, no Preactor e no MES.</div>
+
+<table class="campo-table">
+  <thead><tr><th>Campo</th><th>O que digitar</th><th>O que fornece</th><th></th></tr></thead>
+  <tbody>
+    <tr><td class="campo-name">Nome do processo</td><td class="campo-fill">Nome da etapa (ex: <span class="campo-ex">Costura Manual</span>, <span class="campo-ex">Tecelagem</span>, <span class="campo-ex">Embalagem</span>)</td><td class="campo-provides">Aparece como opção no MES ao iniciar um apontamento, e é o processo analisado pelo TOC.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+  </tbody>
+</table>
+<p style="font-size:9pt;color:#5a5a8a;margin-top:6px;">Clique <strong>+ Adicionar</strong> para cada etapa. Cadastre todos os processos da fábrica antes de usar o TOC ou o MES.</p>
+<div class="resultado"><div class="resultado-title">O que você obtém</div><p>Lista de processos disponíveis para seleção no MES, análise no TOC e sequenciamento no Preactor.</p></div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 3 — MATRIZ DE SET UP
+════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+<div class="mod-header">
+  <div class="mod-icon">📐</div>
+  <div><h2>3 · Matriz de Set Up</h2><div style="font-size:8pt;color:#8b8bae;margin-top:2px;">Tempo de troca entre famílias de produtos</div></div>
+  <div class="mod-route">CONFIGURAÇÃO → Matriz de Set Up</div>
+</div>
+<div class="mod-desc">Registra quanto tempo leva para trocar de um produto para outro em cada processo. O Preactor usa esses dados para minimizar o tempo perdido com setup ao sequenciar as OPs.</div>
+
+<table class="campo-table">
+  <thead><tr><th>Campo</th><th>O que digitar</th><th>O que fornece</th><th></th></tr></thead>
+  <tbody>
+    <tr><td class="campo-name">Processo</td><td class="campo-fill">Selecione o processo onde ocorre a troca (ex: <span class="campo-ex">Costura Manual</span>)</td><td class="campo-provides">Define em qual processo esse tempo de setup se aplica.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+    <tr><td class="campo-name">Família DE</td><td class="campo-fill">Família/segmento do produto que estava sendo produzido (ex: <span class="campo-ex">Feminino</span>)</td><td class="campo-provides">Ponto de partida da troca. Quando o Preactor termina esse grupo, aplica o tempo de setup.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+    <tr><td class="campo-name">Família PARA</td><td class="campo-fill">Família do próximo produto (ex: <span class="campo-ex">Masculino</span>)</td><td class="campo-provides">Destino da troca. O Preactor aloca esse tempo entre as duas OPs na linha do tempo.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+    <tr><td class="campo-name">Minutos</td><td class="campo-fill">Tempo real de setup em minutos (ex: <span class="campo-ex">45</span>)</td><td class="campo-provides">Bloco de tempo reservado no Gantt. Quanto maior, mais impacto no sequenciamento.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+  </tbody>
+</table>
+<div class="callout tip"><div class="callout-title">Dica prática</div><p>Se a troca entre duas famílias é idêntica em qualquer direção, cadastre nos dois sentidos com o mesmo valor. Se trocar de A→B é mais rápido que B→A, cadastre valores diferentes.</p></div>
+<div class="resultado"><div class="resultado-title">O que você obtém</div><p>O Preactor passa a considerar setup ao sequenciar as OPs — evitando sequências que desperdiçam mais tempo de troca. Reduz o tempo total de produção sem aumentar capacidade.</p></div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 4 — CALENDÁRIO
+════════════════════════════════════════════════ -->
+<div class="mod-header" style="margin-top:28px;">
+  <div class="mod-icon">📅</div>
+  <div><h2>4 · Calendário — Turnos e Feriados</h2><div style="font-size:8pt;color:#8b8bae;margin-top:2px;">Capacidade real disponível</div></div>
+  <div class="mod-route">CONFIGURAÇÃO → Calendário</div>
+</div>
+<div class="mod-desc">Define quantas horas por dia a fábrica realmente trabalha. Base de cálculo do TOC e do Preactor. Sem isso, os cálculos assumem valores padrão que podem não refletir a realidade.</div>
+
+<div class="step-block">
+  <div class="step-title"><span class="step-num">1</span>Cadastrar Turnos</div>
+  <table class="campo-table">
+    <thead><tr><th>Campo</th><th>O que digitar</th><th>O que fornece</th><th></th></tr></thead>
+    <tbody>
+      <tr><td class="campo-name">Nome do turno</td><td class="campo-fill"><span class="campo-ex">Manhã</span>, <span class="campo-ex">Tarde</span>, <span class="campo-ex">Noite</span></td><td class="campo-provides">Identificação no MES ao selecionar o turno no apontamento.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+      <tr><td class="campo-name">Início</td><td class="campo-fill">Horário no formato HH:MM (ex: <span class="campo-ex">07:00</span>)</td><td class="campo-provides">Define quando começa o turno. O Preactor usa isso para alocar OPs corretamente no tempo.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+      <tr><td class="campo-name">Fim</td><td class="campo-fill">Horário no formato HH:MM (ex: <span class="campo-ex">15:00</span>)</td><td class="campo-provides">Define quando termina. A diferença entre início e fim = horas disponíveis por turno.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+      <tr><td class="campo-name">Dias da semana</td><td class="campo-fill">Marque os dias ativos (ex: <span class="campo-ex">Seg a Sex</span>)</td><td class="campo-provides">O TOC e o Preactor contam apenas os dias marcados como dias úteis disponíveis.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+      <tr><td class="campo-name">Processo</td><td class="campo-fill">Processo específico ou deixar em branco para todos</td><td class="campo-provides">Permite que processos diferentes tenham turnos diferentes (ex: tecelagem 24h, embalagem 8h).</td><td><span class="badge badge-opt">opcional</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="step-block" style="margin-top:14px;">
+  <div class="step-title"><span class="step-num">2</span>Cadastrar Feriados</div>
+  <table class="campo-table">
+    <thead><tr><th>Campo</th><th>O que digitar</th><th>O que fornece</th></tr></thead>
+    <tbody>
+      <tr><td class="campo-name">Data</td><td class="campo-fill">Data no formato DD/MM/AAAA (ex: <span class="campo-ex">25/12/2026</span>)</td><td class="campo-provides">O TOC desconta esse dia da capacidade. O Preactor não aloca produção nessa data.</td></tr>
+      <tr><td class="campo-name">Nome</td><td class="campo-fill"><span class="campo-ex">Natal</span>, <span class="campo-ex">Corpus Christi</span></td><td class="campo-provides">Identificação no calendário visual.</td></tr>
+    </tbody>
+  </table>
+</div>
+<div class="resultado"><div class="resultado-title">O que você obtém</div><p>Capacidade real calculada. O TOC mostrará utilização correta (%) e o Preactor distribuirá as OPs respeitando dias úteis, horários de início e fim de cada turno.</p></div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 5 — IMPORTAÇÃO VENDAS
+════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+<div class="mod-header">
+  <div class="mod-icon">📦</div>
+  <div><h2>5 · Importação — Vendas</h2><div style="font-size:8pt;color:#8b8bae;margin-top:2px;">Histórico mensal por produto</div></div>
+  <div class="mod-route">IMPORTAÇÃO → Vendas</div>
+</div>
+<div class="mod-desc">Carrega o histórico de vendas mensais. É a base de toda a previsão de demanda, política de estoques e análise ABC. Quanto mais histórico, melhor a previsão.</div>
+
+<div class="step-block">
+  <div class="step-title"><span class="step-num">1</span>Clique em <strong>Importar</strong> e selecione o arquivo.</div>
+  <div class="callout warn"><div class="callout-title">Formato do arquivo</div><p>O arquivo deve ter uma linha por produto, com colunas de meses no formato <strong>MM/AAAA</strong> ou <strong>Jan/24</strong>. Cada coluna de mês deve conter a quantidade vendida naquele mês.</p></div>
+</div>
+
+<div class="step-block">
+  <div class="step-title"><span class="step-num">2</span>Mapeie as colunas quando solicitado:</div>
+  <table class="campo-table">
+    <thead><tr><th>Campo a mapear</th><th>O que é</th><th>O que fornece</th><th></th></tr></thead>
+    <tbody>
+      <tr><td class="campo-name">Código</td><td class="campo-fill">Coluna com o código do produto. Deve bater exatamente com a Base de Dados.</td><td class="campo-provides">Chave de cruzamento com estoque, OPs e banco. Mapeamento errado = sem cruzamento.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+      <tr><td class="campo-name">Descrição</td><td class="campo-fill">Coluna com o nome do produto</td><td class="campo-provides">Exibição nos dashboards e relatórios.</td><td><span class="badge badge-opt">opcional</span></td></tr>
+      <tr><td class="campo-name">Segmento / Modelo</td><td class="campo-fill">Coluna de categoria (ex: Feminino, Inverno)</td><td class="campo-provides">Filtro de segmento na Previsão de Demanda e análise ABC.</td><td><span class="badge badge-opt">opcional</span></td></tr>
+      <tr><td class="campo-name">Colunas de meses</td><td class="campo-fill">O sistema detecta automaticamente colunas no formato de data</td><td class="campo-provides">Cada coluna vira um ponto na série histórica. Mínimo recomendado: 12 meses.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+    </tbody>
+  </table>
+</div>
+<div class="resultado"><div class="resultado-title">O que você obtém</div><p>Histórico de vendas disponível para Previsão de Demanda, Política de Estoques, Dashboard (vendas do mês + top 5 produtos), análise ABC e cruzamento Vendas × Estoque.</p></div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 6 — ESTOQUE
+════════════════════════════════════════════════ -->
+<div class="mod-header" style="margin-top:28px;">
+  <div class="mod-icon">🗄️</div>
+  <div><h2>6 · Importação — Estoque</h2><div style="font-size:8pt;color:#8b8bae;margin-top:2px;">Posição atual de estoque</div></div>
+  <div class="mod-route">IMPORTAÇÃO → Estoque</div>
+</div>
+<div class="mod-desc">Carrega a posição atual de estoque. Alimenta a Política de Estoques (cobertura), o Dashboard (estoque crítico) e o cruzamento VxE.</div>
+
+<table class="campo-table">
+  <thead><tr><th>Campo a mapear</th><th>O que é</th><th>O que fornece</th><th></th></tr></thead>
+  <tbody>
+    <tr><td class="campo-name">Código</td><td class="campo-fill">Código do produto — deve ser igual ao código das Vendas</td><td class="campo-provides">Permite cruzar estoque com demanda para calcular cobertura.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+    <tr><td class="campo-name">Quantidade</td><td class="campo-fill">Estoque atual em unidades (ex: <span class="campo-ex">350</span>)</td><td class="campo-provides">Usado para calcular cobertura em meses: estoque ÷ demanda média. Base para RUPTURA/RISCO/OK/EXCESSO.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+    <tr><td class="campo-name">Valor unitário</td><td class="campo-fill">Preço de custo por unidade em R$ (ex: <span class="campo-ex">45,90</span>)</td><td class="campo-provides">Ativa os indicadores financeiros: R$ em risco, capital parado em excesso. <strong>Sem esse campo, o impacto financeiro não aparece.</strong></td><td><span class="badge badge-opt">recomendado</span></td></tr>
+  </tbody>
+</table>
+<div class="resultado"><div class="resultado-title">O que você obtém</div><p>Dashboard mostra "Estoque Crítico" (quantidade de SKUs com menos de 1 mês de cobertura). Política de Estoques calcula status (RUPTURA/RISCO/OK/EXCESSO) e — se houver valor — o R$ em risco.</p></div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 7 — OPs
+════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+<div class="mod-header">
+  <div class="mod-icon">🔩</div>
+  <div><h2>7 · Importação — Ordens de Produção</h2><div style="font-size:8pt;color:#8b8bae;margin-top:2px;">OPs abertas do ERP</div></div>
+  <div class="mod-route">IMPORTAÇÃO → Ordens de Produção</div>
+</div>
+<div class="mod-desc">Carrega as OPs abertas ou planejadas do ERP. Alimenta o Preactor (o que sequenciar), o MES (o que apontar) e o Dashboard (OPs em aberto).</div>
+
+<table class="campo-table">
+  <thead><tr><th>Campo a mapear</th><th>O que é</th><th>O que fornece</th><th></th></tr></thead>
+  <tbody>
+    <tr><td class="campo-name">Nº OP</td><td class="campo-fill">Número da ordem de produção (ex: <span class="campo-ex">OP-2024-001</span>)</td><td class="campo-provides">Identificação da OP no Preactor e no MES. Aparece no card de apontamento.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+    <tr><td class="campo-name">Código</td><td class="campo-fill">Código do produto a produzir — deve bater com a Base de Dados</td><td class="campo-provides">Liga a OP ao produto correto. O MES preenche o formulário automaticamente ao selecionar a OP.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+    <tr><td class="campo-name">Quantidade</td><td class="campo-fill">Unidades a produzir (ex: <span class="campo-ex">500</span>)</td><td class="campo-provides">Base para o planejamento no Preactor e para o campo "Qtd Planejada" no MES.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+    <tr><td class="campo-name">Status</td><td class="campo-fill">Situação atual da OP (ex: <span class="campo-ex">Aberta</span>, <span class="campo-ex">Em produção</span>)</td><td class="campo-provides">Filtra quais OPs aparecem como "pendentes" no MES e quais já foram concluídas.</td><td><span class="badge badge-opt">opcional</span></td></tr>
+    <tr><td class="campo-name">Emissão</td><td class="campo-fill">Data de abertura da OP (ex: <span class="campo-ex">15/03/2026</span>)</td><td class="campo-provides">Base para prioridade FIFO no Preactor — OPs mais antigas entram primeiro.</td><td><span class="badge badge-opt">recomendado</span></td></tr>
+    <tr><td class="campo-name">Previsão / Entrega</td><td class="campo-fill">Data de entrega prometida ao cliente</td><td class="campo-provides">Base para prioridade EDD no Preactor — OPs com prazo mais apertado entram primeiro.</td><td><span class="badge badge-opt">recomendado</span></td></tr>
+  </tbody>
+</table>
+<div class="resultado"><div class="resultado-title">O que você obtém</div><p>Lista de OPs pendentes aparece no MES (clique para preencher o formulário automaticamente). Preactor recebe as OPs para sequenciar. Dashboard exibe a contagem de OPs em aberto.</p></div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 8 — CLIENTE E COSTURA
+════════════════════════════════════════════════ -->
+<div class="mod-header" style="margin-top:28px;">
+  <div class="mod-icon">👥</div>
+  <div><h2>8 · Importação — Cliente e Costura</h2></div>
+  <div class="mod-route">IMPORTAÇÃO → Cliente / Costura</div>
+</div>
+
+<table class="campo-table">
+  <thead><tr><th>Módulo</th><th>Campo</th><th>O que digitar</th><th>O que fornece</th></tr></thead>
+  <tbody>
+    <tr><td rowspan="2"><strong>Cliente</strong></td><td class="campo-name">Nome do cliente</td><td class="campo-fill">Razão social ou nome fantasia</td><td class="campo-provides">Ranking de clientes no Dashboard de Clientes e faturamento acumulado na home.</td></tr>
+    <tr><td class="campo-name">Valor total</td><td class="campo-fill">Faturamento total em R$ no período (ex: <span class="campo-ex">R$ 125.000</span>)</td><td class="campo-provides">Card "Faturamento Clientes" no Dashboard. Base para o ranking de clientes.</td></tr>
+    <tr><td rowspan="2"><strong>Costura</strong></td><td class="campo-name">Código</td><td class="campo-fill">Código do produto</td><td class="campo-provides">Dados específicos de eficiência do processo de costura.</td></tr>
+    <tr><td class="campo-name">Dados de eficiência</td><td class="campo-fill">Tempos, rendimento ou índices de eficiência da costura</td><td class="campo-provides">Análise específica do processo produtivo de costura.</td></tr>
+  </tbody>
+</table>
+<div class="callout"><div class="callout-title">Atenção — dados de cliente</div><p>O arquivo de cliente contém R$ 16M+ de faturamento em 12.908 linhas. Nunca exclua sem necessidade. Faça backup antes de reimportar.</p></div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 9 — PREVISÃO DE DEMANDA
+════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+<div class="mod-header">
+  <div class="mod-icon">📊</div>
+  <div><h2>9 · S&OP — Previsão de Demanda</h2><div style="font-size:8pt;color:#8b8bae;margin-top:2px;">Estimativa de vendas futuras por SKU</div></div>
+  <div class="mod-route">S&OP → Previsão de Demanda</div>
+</div>
+<div class="mod-desc">Calcula quanto de cada produto você provavelmente vai vender nos próximos meses, com base no histórico de vendas. Requer Vendas importadas.</div>
+
+<table class="campo-table">
+  <thead><tr><th>Campo</th><th>Opções disponíveis</th><th>Quando usar / O que fornece</th><th></th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="campo-name">Base histórica</td>
+      <td>
+        <div><strong>Últimos 12 meses</strong></div>
+        <div><strong>Últimos 24 meses</strong></div>
+      </td>
+      <td class="campo-provides">Define quantos meses de histórico o modelo usa para aprender. 12 meses é suficiente para capturar um ciclo completo de sazonalidade. 24 meses aumenta precisão em produtos estáveis.</td>
+      <td><span class="badge badge-req">obrigatório</span></td>
+    </tr>
+    <tr>
+      <td class="campo-name">Horizonte da previsão</td>
+      <td>
+        <div><strong>3 meses</strong></div>
+        <div><strong>6 meses</strong></div>
+        <div><strong>12 meses</strong></div>
+      </td>
+      <td class="campo-provides">Até onde prever. 3 meses = maior precisão, curto prazo. 12 meses = planejamento anual, menor precisão. Use 6 meses para o S&OP mensal.</td>
+      <td><span class="badge badge-req">obrigatório</span></td>
+    </tr>
+    <tr>
+      <td class="campo-name">Método de previsão</td>
+      <td>
+        <div><strong>Média Móvel</strong></div>
+        <div><strong>Holt-Winters</strong></div>
+        <div><strong>Regressão Linear</strong></div>
+      </td>
+      <td class="campo-provides">O algoritmo matemático que calcula a previsão. Veja tabela abaixo.</td>
+      <td><span class="badge badge-req">obrigatório</span></td>
+    </tr>
+    <tr>
+      <td class="campo-name">Agrupar por</td>
+      <td>Código / Segmento / Modelo</td>
+      <td class="campo-provides">Nível de detalhe da previsão. Por código = SKU a SKU. Por segmento = linha de produto.</td>
+      <td><span class="badge badge-opt">opcional</span></td>
+    </tr>
+    <tr>
+      <td class="campo-name">Usar dados de cliente</td>
+      <td>Checkbox ✓ / ✗</td>
+      <td class="campo-provides">Ativando: combina dados de vendas com faturamento de clientes para previsão mais robusta. Use quando os dois arquivos foram importados.</td>
+      <td><span class="badge badge-opt">opcional</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div style="margin-top:14px;">
+  <div style="font-size:8.5pt;font-weight:700;color:#2d2d4e;margin-bottom:8px;">Como escolher o método:</div>
+  <table class="opt-table">
+    <thead><tr><th>Método</th><th>Quando usar</th><th>Indicador de qualidade</th></tr></thead>
+    <tbody>
+      <tr><td class="opt-val">Média Móvel</td><td>Demanda estável, sem tendência ou sazonalidade clara. Produto com vendas parecidas mês a mês.</td><td rowspan="3" style="vertical-align:middle;text-align:center;"><strong>MAPE</strong><br><span style="font-size:7.5pt;color:#8b8bae;">Erro médio por SKU<br><br>&lt;15% → excelente<br>15–30% → ok<br>&gt;30% → troque o método</span></td></tr>
+      <tr><td class="opt-val">Holt-Winters</td><td>Demanda sazonal: vendas que sobem no inverno e caem no verão (ou vice-versa). Coleções, datas comemorativas.</td></tr>
+      <tr><td class="opt-val">Regressão Linear</td><td>Produto em crescimento ou declínio constante ao longo do tempo.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="callout tip"><div class="callout-title">Boa prática</div><p>Rode primeiro com Holt-Winters para todos. Depois, para os produtos com MAPE acima de 30%, troque para Média Móvel ou Regressão e compare. O MAPE é calculado automaticamente e exibido por SKU.</p></div>
+
+<div class="resultado"><div class="resultado-title">O que você obtém</div><p>Tabela com previsão de vendas por SKU para os próximos meses. Esses valores alimentam automaticamente a Política de Estoques e o Plano de Produção.</p></div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 10 — POLÍTICA DE ESTOQUES
+════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+<div class="mod-header">
+  <div class="mod-icon">🛡️</div>
+  <div><h2>10 · S&OP — Política de Estoques</h2><div style="font-size:8pt;color:#8b8bae;margin-top:2px;">Quanto manter de cada produto</div></div>
+  <div class="mod-route">S&OP → Política de Estoques</div>
+</div>
+<div class="mod-desc">Calcula o nível ideal de estoque para cada SKU e classifica em RUPTURA / RISCO / OK / EXCESSO. Requer Vendas + Estoque importados e Previsão calculada.</div>
+
+<table class="campo-table">
+  <thead><tr><th>Campo</th><th>O que digitar / selecionar</th><th>O que fornece</th><th></th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="campo-name">Lead Time (meses)</td>
+      <td class="campo-fill">Tempo total até ter o produto pronto e disponível, em meses. Inclui produção + aprovação + logística.<br>Faixa: <span class="campo-ex">0,5 a 6 meses</span></td>
+      <td class="campo-provides">Quanto maior o lead time, maior o estoque de segurança necessário. Um lead time subestimado leva a rupturas.</td>
+      <td><span class="badge badge-req">obrigatório</span></td>
+    </tr>
+    <tr>
+      <td class="campo-name">Nível de Serviço</td>
+      <td>
+        <div><strong>70% (Z = 1,04)</strong> — tolerância alta a falta</div>
+        <div><strong>80% (Z = 1,28)</strong> — padrão recomendado</div>
+        <div><strong>90% (Z = 1,65)</strong> — risco baixo</div>
+        <div><strong>95% (Z = 1,96)</strong> — crítico / sem ruptura</div>
+      </td>
+      <td class="campo-provides">Define o estoque de segurança. 95% significa que o sistema garante que 95% das vezes o produto estará disponível. Quanto maior, maior o estoque necessário.</td>
+      <td><span class="badge badge-req">obrigatório</span></td>
+    </tr>
+    <tr>
+      <td class="campo-name">Horizonte histórico</td>
+      <td>
+        <div><strong>12 meses</strong> — padrão para coleções anuais</div>
+        <div><strong>24 meses</strong> — produtos com ciclo de 2 anos</div>
+        <div>Mínimo: 3 meses</div>
+      </td>
+      <td class="campo-provides">Quantos meses de história são usados para calcular a variabilidade da demanda. Mais meses = mais estável o cálculo. Menos meses = mais sensível a mudanças recentes.</td>
+      <td><span class="badge badge-req">obrigatório</span></td>
+    </tr>
+    <tr>
+      <td class="campo-name">ABC automático</td>
+      <td class="campo-fill">Checkbox ✓ = ativar diferenciação por classe ABC<br>Produtos A recebem 95% de serviço, B = 90%, C = 70%</td>
+      <td class="campo-provides">Otimiza o capital: coloca mais estoque nos produtos que mais vendem (A) e menos nos de baixo giro (C). Reduz o capital total imobilizado sem aumentar o risco de ruptura nos itens importantes.</td>
+      <td><span class="badge badge-opt">recomendado</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout"><div class="callout-title">Os parâmetros são salvos automaticamente</div><p>Da próxima vez que abrir esta tela, os valores estarão preenchidos com os últimos valores usados. Clique <strong>Calcular</strong> para recalcular com o estoque mais recente.</p></div>
+
+<div style="margin-top:14px;">
+  <div style="font-size:8.5pt;font-weight:700;color:#2d2d4e;margin-bottom:8px;">O que o sistema classifica para cada SKU:</div>
+  <table class="opt-table">
+    <thead><tr><th>Status</th><th>Situação</th><th>Decisão imediata</th></tr></thead>
+    <tbody>
+      <tr><td><strong style="color:#dc2626;">RUPTURA</strong></td><td>Estoque abaixo do estoque de segurança. Risco real de não entregar.</td><td>Produzir com prioridade máxima. Verificar se há OP aberta.</td></tr>
+      <tr><td><strong style="color:#d97706;">RISCO</strong></td><td>Estoque abaixo do ponto de reposição ideal.</td><td>Programar produção no próximo ciclo.</td></tr>
+      <tr><td><strong style="color:#16a34a;">OK</strong></td><td>Dentro da política definida.</td><td>Monitorar normalmente.</td></tr>
+      <tr><td><strong style="color:#2563eb;">EXCESSO</strong></td><td>Mais de 2× o ideal em estoque. Capital parado.</td><td>Não produzir. Girar via promoções ou mix alternativo.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="resultado"><div class="resultado-title">O que você obtém</div><p>Classificação de todos os SKUs + quantidade a produzir de cada um + impacto financeiro (R$ em risco por RUPTURA e RISCO, R$ parado por EXCESSO). Esses valores aparecem automaticamente no Dashboard e nos alertas da Reunião Diária.</p></div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 11 — PLANO + DASHBOARD S&OP
+════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+<div class="mod-header">
+  <div class="mod-icon">📋</div>
+  <div><h2>11 · S&OP — Plano de Produção e Dashboard</h2></div>
+  <div class="mod-route">S&OP → Plano de Produção / Dashboard S&OP</div>
+</div>
+
+<div class="step-block">
+  <div class="step-title">Plano de Produção — sem campos adicionais</div>
+  <p style="font-size:9pt;color:#5a5a8a;margin-bottom:10px;">Esta tela é gerada automaticamente pela combinação de Previsão de Demanda + Política de Estoques. Não há campos para preencher — apenas visualizar e exportar.</p>
+  <table class="campo-table">
+    <thead><tr><th>O que aparece</th><th>O que significa</th><th>Para onde vai</th></tr></thead>
+    <tbody>
+      <tr><td class="campo-name">Demanda prevista</td><td>Quantidade que o modelo prevê vender no mês</td><td>Base para a coluna "a produzir"</td></tr>
+      <tr><td class="campo-name">Estoque atual</td><td>Posição atual importada do arquivo de estoque</td><td>Subtrai do necessário para definir o quanto produzir</td></tr>
+      <tr><td class="campo-name">Qtd a produzir</td><td>Resultado: demanda prevista − estoque disponível + estoque de segurança</td><td>Use como base para emitir OPs no ERP e alimentar o Preactor</td></tr>
+    </tbody>
+  </table>
+  <div class="callout tip"><div class="callout-title">Ação</div><p>Exporte o plano para XLS e use como lista de OPs a emitir no seu ERP. Depois importe as OPs geradas de volta no módulo de Importação → Ordens de Produção.</p></div>
+</div>
+
+<div class="step-block" style="margin-top:16px;">
+  <div class="step-title">Dashboard S&OP — campos de registro de ação</div>
+  <table class="campo-table">
+    <thead><tr><th>Campo</th><th>O que digitar</th><th>O que fornece</th></tr></thead>
+    <tbody>
+      <tr><td class="campo-name">Descrição da ação</td><td class="campo-fill">O que será feito (ex: <span class="campo-ex">Aumentar produção de BL001 em 30%</span>)</td><td class="campo-provides">Registro do compromisso na reunião de S&OP para acompanhamento futuro.</td></tr>
+      <tr><td class="campo-name">Responsável</td><td class="campo-fill">Nome ou área responsável (ex: <span class="campo-ex">Produção / André</span>)</td><td class="campo-provides">Rastreabilidade — quem se comprometeu.</td></tr>
+      <tr><td class="campo-name">Prazo</td><td class="campo-fill">Data de conclusão da ação</td><td class="campo-provides">Controle de cumprimento nas reuniões seguintes.</td></tr>
+      <tr><td class="campo-name">Módulo</td><td class="campo-fill">De onde veio a decisão (ex: <span class="campo-ex">Política</span>, <span class="campo-ex">TOC</span>)</td><td class="campo-provides">Rastreabilidade da origem da decisão.</td></tr>
+    </tbody>
+  </table>
+</div>
+<div class="resultado"><div class="resultado-title">O que você obtém</div><p>Histórico de decisões e ações do S&OP. Snapshots das previsões anteriores para comparar previsão vs. realizado nas reuniões mensais.</p></div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 12 — TOC
+════════════════════════════════════════════════ -->
+<div class="mod-header" style="margin-top:28px;">
+  <div class="mod-icon">🔩</div>
+  <div><h2>12 · TOC — Gargalo</h2><div style="font-size:8pt;color:#8b8bae;margin-top:2px;">Onde está o limite da fábrica</div></div>
+  <div class="mod-route">TOC → Gargalo (TOC)</div>
+</div>
+<div class="mod-desc">Identifica qual processo produtivo está limitando toda a capacidade da fábrica. Requer Base de Dados com tempos por processo + Vendas ou OPs importadas.</div>
+
+<table class="campo-table">
+  <thead><tr><th>Campo</th><th>O que digitar</th><th>O que fornece</th><th></th></tr></thead>
+  <tbody>
+    <tr><td class="campo-name">Ano de análise</td><td class="campo-fill">Selecione o ano (ex: <span class="campo-ex">2026</span>)</td><td class="campo-provides">Define o período de demanda usado para calcular a carga de cada processo.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+    <tr><td class="campo-name">Máquinas / operadores</td><td class="campo-fill">Quantas máquinas ou operadores trabalham nesse processo (ex: <span class="campo-ex">3</span>)</td><td class="campo-provides">Multiplica a capacidade disponível. 3 máquinas = 3× mais capacidade. Se errar aqui, o gargalo calculado não reflete a realidade.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+    <tr><td class="campo-name">Horas por dia</td><td class="campo-fill">Horas efetivas de produção por dia (ex: <span class="campo-ex">8</span> para 1 turno, <span class="campo-ex">16</span> para 2 turnos)</td><td class="campo-provides">Base da capacidade: máquinas × horas/dia × dias úteis = capacidade total em minutos.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+    <tr><td class="campo-name">OEE %</td><td class="campo-fill">Eficiência real do processo em % (ex: <span class="campo-ex">75</span>%). Se não souber, use <span class="campo-ex">80</span>.</td><td class="campo-provides">Desconta paradas, setups e perdas de qualidade da capacidade teórica. Uma máquina de 8h com OEE 75% produz efetivamente 6h. Sem esse ajuste, o gargalo parece ter mais capacidade do que tem.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+  </tbody>
+</table>
+
+<div class="callout warn"><div class="callout-title">Atenção — preencha para todos os processos</div><p>Cada processo listado tem seus próprios campos de máquinas, horas/dia e OEE. Preencha todos antes de clicar Calcular. Um processo com máquinas = 0 será ignorado na análise.</p></div>
+<div class="resultado"><div class="resultado-title">O que você obtém</div><p>Gráfico de utilização por processo. O processo mais próximo ou acima de 100% é o gargalo. A fila do gargalo mostra as OPs esperando. O alerta aparece no Dashboard automaticamente se ultrapassar 100%.</p></div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 13 — PREACTOR
+════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+<div class="mod-header">
+  <div class="mod-icon">📅</div>
+  <div><h2>13 · PREACTOR — Linha do Tempo</h2><div style="font-size:8pt;color:#8b8bae;margin-top:2px;">Sequenciar a produção no Gantt</div></div>
+  <div class="mod-route">PREACTOR → Linha do Tempo</div>
+</div>
+<div class="mod-desc">Distribui as OPs no tempo, processo a processo, formando o Gantt de produção. Requer OPs importadas ou Plano de Produção calculado, e Calendário configurado.</div>
+
+<table class="campo-table">
+  <thead><tr><th>Campo</th><th>Opções</th><th>O que fornece</th><th></th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="campo-name">Fonte das ordens</td>
+      <td>
+        <div><strong>Plano de Produção (S&OP)</strong></div>
+        <div><strong>OP Abertas</strong></div>
+        <div><strong>Plano + OP</strong></div>
+      </td>
+      <td class="campo-provides">Define de onde vêm as ordens a sequenciar.<br><strong>Plano:</strong> usa o resultado do S&OP (quantidade calculada).<br><strong>OP Abertas:</strong> usa as OPs reais importadas do ERP.<br><strong>Plano + OP:</strong> combina os dois — recomendado.</td>
+      <td><span class="badge badge-req">obrigatório</span></td>
+    </tr>
+    <tr>
+      <td class="campo-name">Mês do plano</td>
+      <td>Selecione o mês a sequenciar</td>
+      <td class="campo-provides">Filtra apenas as OPs daquele mês. "Todos os meses" mostra o backlog completo.</td>
+      <td><span class="badge badge-opt">opcional</span></td>
+    </tr>
+    <tr>
+      <td class="campo-name">Prioridade</td>
+      <td>
+        <div><strong>FIFO</strong> — data de emissão (mais antigas primeiro)</div>
+        <div><strong>EDD</strong> — data de entrega (prazo mais apertado primeiro)</div>
+        <div><strong>Maior quantidade</strong></div>
+        <div><strong>CPV</strong> — valor crítico mais alto primeiro</div>
+      </td>
+      <td class="campo-provides">Determina a ordem em que as OPs entram na fila de cada processo.<br><strong>EDD é o mais recomendado</strong> — garante que os prazos prometidos ao cliente sejam atendidos primeiro.</td>
+      <td><span class="badge badge-req">obrigatório</span></td>
+    </tr>
+    <tr>
+      <td class="campo-name">Modo de sequenciamento</td>
+      <td>
+        <div><strong>Progressivo (Forward)</strong> — agenda da data de hoje em diante</div>
+        <div><strong>Reverso — EDD (Backward)</strong> — agenda de trás para frente a partir da data de entrega</div>
+      </td>
+      <td class="campo-provides"><strong>Forward:</strong> "quando consigo entregar?"<br><strong>Backward:</strong> "quando preciso começar para entregar na data?" — use quando o cliente já tem uma data prometida.</td>
+      <td><span class="badge badge-req">obrigatório</span></td>
+    </tr>
+    <tr>
+      <td class="campo-name">Horizonte</td>
+      <td>4 / 6 / 8 / 12 semanas</td>
+      <td class="campo-provides">Até quando o Gantt é gerado. 6 semanas é o padrão para planejamento mensal. 12 semanas para visão trimestral.</td>
+      <td><span class="badge badge-req">obrigatório</span></td>
+    </tr>
+    <tr>
+      <td class="campo-name">Data de início</td>
+      <td class="campo-fill">Data a partir da qual a produção começa (padrão: hoje)</td>
+      <td class="campo-provides">Ponto de partida do Gantt. Use uma data futura se a fábrica já tem compromissos confirmados até uma certa data.</td>
+      <td><span class="badge badge-opt">opcional</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout tip"><div class="callout-title">Regra prática após calcular</div><p>Barras em <strong style="color:#dc2626;">vermelho</strong> no Gantt = conflito de capacidade (processo sobrecarregado naquele período). Reordene as OPs ou estenda o horizonte até eliminar os vermelhos antes de confirmar o plano.</p></div>
+<div class="resultado"><div class="resultado-title">O que você obtém</div><p>Gantt visual por processo com cada OP posicionada no tempo. Mostra quando cada OP começa e termina em cada etapa, onde estão os conflitos e se os prazos de entrega serão cumpridos.</p></div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 14 — MES APONTAMENTO
+════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+<div class="mod-header">
+  <div class="mod-icon">🏭</div>
+  <div><h2>14 · MES — Iniciar Apontamento</h2><div style="font-size:8pt;color:#8b8bae;margin-top:2px;">Registrar produção em tempo real</div></div>
+  <div class="mod-route">MES → Chão de Fábrica → Aba Apontamento</div>
+</div>
+<div class="mod-desc">Registra o início de uma produção no chão de fábrica. A partir daqui o cronômetro começa e o WIP é alimentado em tempo real.</div>
+
+<div class="step-block">
+  <div class="step-title"><span class="step-num">1</span>Selecione uma OP pendente da lista (opcional — preenche automático) ou preencha manualmente:</div>
+  <table class="campo-table">
+    <thead><tr><th>Campo</th><th>O que digitar</th><th>O que fornece ao sistema</th><th></th></tr></thead>
+    <tbody>
+      <tr><td class="campo-name">Código do produto</td><td class="campo-fill">Código do SKU sendo produzido (ex: <span class="campo-ex">BL001</span>). Ao clicar em uma OP da lista, este campo é preenchido automaticamente.</td><td class="campo-provides">Identifica o que foi produzido. Alimenta as análises de OEE por produto e relatórios de WIP.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+      <tr><td class="campo-name">Processo</td><td class="campo-fill">Selecione o processo produtivo onde está acontecendo a produção (ex: <span class="campo-ex">Costura Manual</span>)</td><td class="campo-provides">Define em qual etapa da cadeia produtiva o apontamento ocorre. O OEE é calculado por processo.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+      <tr><td class="campo-name">Nº OP</td><td class="campo-fill">Número da Ordem de Produção (ex: <span class="campo-ex">OP-2026-001</span>). Preenchido automaticamente se selecionou da lista.</td><td class="campo-provides">Liga o apontamento à OP correspondente. Permite rastrear o progresso de cada ordem.</td><td><span class="badge badge-opt">recomendado</span></td></tr>
+      <tr><td class="campo-name">Operador</td><td class="campo-fill">Nome de quem está produzindo (ex: <span class="campo-ex">João Silva</span>)</td><td class="campo-provides">Rastreabilidade de produtividade por operador. Aparece no histórico de apontamentos.</td><td><span class="badge badge-opt">recomendado</span></td></tr>
+      <tr><td class="campo-name">Turno</td><td class="campo-fill">Selecione: <strong>Manhã</strong>, <strong>Tarde</strong>, <strong>Noite</strong> ou <strong>Integral</strong></td><td class="campo-provides">Agrupa apontamentos por turno para análise de produtividade entre turnos.</td><td><span class="badge badge-opt">recomendado</span></td></tr>
+      <tr><td class="campo-name">Máquina</td><td class="campo-fill">ID ou nome da máquina (ex: <span class="campo-ex">CM-03</span>, <span class="campo-ex">Máquina Plana 3</span>)</td><td class="campo-provides">Rastreabilidade por equipamento. Permite identificar máquinas com mais paradas no Pareto.</td><td><span class="badge badge-opt">opcional</span></td></tr>
+      <tr><td class="campo-name">Qtd planejada</td><td class="campo-fill">Quantidade de peças prevista para esse lote (ex: <span class="campo-ex">500</span>). Preenchido automaticamente pela OP.</td><td class="campo-provides">Base de comparação: ao finalizar, o sistema mostra se produziu mais ou menos que o planejado.</td><td><span class="badge badge-opt">recomendado</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="step-block">
+  <div class="step-title"><span class="step-num">2</span>Clique <strong>Iniciar Apontamento</strong> — o cronômetro começa automaticamente.</div>
+  <p style="font-size:9pt;color:#5a5a8a;">O apontamento aparece imediatamente no WIP e no Dashboard (card WIP Ativo). O tempo começa a contar.</p>
+</div>
+<div class="resultado"><div class="resultado-title">O que você obtém</div><p>Apontamento ativo visível no WIP em tempo real. O cronômetro corre até você registrar uma parada ou finalizar.</p></div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 15 — PARADA + 16 FINALIZAR
+════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+<div class="mod-header">
+  <div class="mod-icon">⏸</div>
+  <div><h2>15 · MES — Registrar Parada</h2><div style="font-size:8pt;color:#8b8bae;margin-top:2px;">Quando a produção para por qualquer motivo</div></div>
+  <div class="mod-route">MES → card do apontamento ativo → Registrar Parada</div>
+</div>
+<div class="mod-desc">Registra o motivo e o tipo de cada interrupção. Esses dados alimentam o Pareto de paradas no OEE — que mostra quais causas mais prejudicam a eficiência.</div>
+
+<table class="campo-table">
+  <thead><tr><th>Campo</th><th>Opções / O que digitar</th><th>Como impacta o OEE</th><th></th></tr></thead>
+  <tbody>
+    <tr>
+      <td class="campo-name">Tipo de parada</td>
+      <td>
+        <div><strong>Não planejada</strong> — quebra ou falha inesperada</div>
+        <div><strong>Planejada</strong> — manutenção preventiva agendada</div>
+        <div><strong>Setup / Troca</strong> — troca de produto ou regulagem</div>
+        <div><strong>Qualidade</strong> — retrabalho por defeito em série</div>
+      </td>
+      <td class="campo-provides">Toda parada reduz a Disponibilidade (D) no OEE. O tipo alimenta a análise de categorias do Pareto.</td>
+      <td><span class="badge badge-req">obrigatório</span></td>
+    </tr>
+    <tr>
+      <td class="campo-name">Motivo</td>
+      <td>
+        <div><strong>Chips rápidos:</strong> Falta de material · Manutenção corretiva · Setup/Troca · Falta de operador · Defeito de qualidade · Falta de energia</div>
+        <div>Ou escreva livremente qualquer outro motivo</div>
+      </td>
+      <td class="campo-provides">Alimenta o Pareto de motivos no OEE. Os motivos que mais aparecem são os que mais afetam a eficiência — e onde deve ir a atenção da gestão.</td>
+      <td><span class="badge badge-req">obrigatório</span></td>
+    </tr>
+  </tbody>
+</table>
+<div class="callout tip"><div class="callout-title">Dica</div><p>Clique em um dos chips de motivo rápido — ele preenche o campo automaticamente e fica destacado. Para retomar, clique <strong>Retomar Apontamento</strong> no card. A duração da parada é calculada automaticamente.</p></div>
+
+<!-- FINALIZAR -->
+<div class="mod-header" style="margin-top:28px;">
+  <div class="mod-icon">✅</div>
+  <div><h2>16 · MES — Finalizar e OEE</h2></div>
+  <div class="mod-route">MES → card → Finalizar / Aba OEE</div>
+</div>
+
+<div class="step-block">
+  <div class="step-title">Campos de finalização do apontamento:</div>
+  <table class="campo-table">
+    <thead><tr><th>Campo</th><th>O que digitar</th><th>O que fornece</th><th></th></tr></thead>
+    <tbody>
+      <tr><td class="campo-name">Qtd produzida</td><td class="campo-fill">Peças efetivamente produzidas e aprovadas (ex: <span class="campo-ex">487</span>)</td><td class="campo-provides">Base do indicador de Qualidade (Q) no OEE: (produzido − refugo) ÷ produzido.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+      <tr><td class="campo-name">Qtd refugo</td><td class="campo-fill">Peças rejeitadas ou descartadas (ex: <span class="campo-ex">13</span>). Se não houve refugo, deixe 0.</td><td class="campo-provides">Reduz diretamente o componente de Qualidade (Q) do OEE. Aparece no Pareto se combinado com o motivo da parada de qualidade.</td><td><span class="badge badge-req">obrigatório</span></td></tr>
+      <tr><td class="campo-name">Observação</td><td class="campo-fill">Qualquer nota relevante (ex: <span class="campo-ex">Lote com variação de cor no final</span>)</td><td class="campo-provides">Registro histórico consultável no relatório de apontamentos.</td><td><span class="badge badge-opt">opcional</span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="step-block" style="margin-top:14px;">
+  <div class="step-title">Aba OEE — filtros de período:</div>
+  <table class="campo-table">
+    <thead><tr><th>Campo</th><th>O que selecionar</th><th>O que fornece</th></tr></thead>
+    <tbody>
+      <tr><td class="campo-name">Data início</td><td class="campo-fill">Data de início do período a analisar</td><td class="campo-provides">Delimita quais apontamentos finalizados entram no cálculo do OEE.</td></tr>
+      <tr><td class="campo-name">Data fim</td><td class="campo-fill">Data de fim do período</td><td class="campo-provides">Completa o filtro. OEE do dia = mesma data nos dois campos.</td></tr>
+    </tbody>
+  </table>
+</div>
+<div class="resultado"><div class="resultado-title">O que você obtém no OEE</div><p><strong>D% (Disponibilidade)</strong> = quanto tempo a máquina ficou produzindo vs. parada. <strong>Q% (Qualidade)</strong> = aproveitamento das peças produzidas. <strong>OEE</strong> = D × Q. <strong>Pareto</strong> = os 10 motivos de parada que mais custam tempo — atacar os primeiros é onde está o maior ganho.</p></div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     MÓDULO 17 — DASHBOARD E REUNIÃO DIÁRIA
+════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+<div class="mod-header">
+  <div class="mod-icon">🏠</div>
+  <div><h2>17 · Dashboard e Reunião Diária</h2><div style="font-size:8pt;color:#8b8bae;margin-top:2px;">Visão consolidada para decisão</div></div>
+  <div class="mod-route">Dashboard (tela inicial)</div>
+</div>
+<div class="mod-desc">O Dashboard não tem campos para preencher — ele lê os dados de todos os módulos automaticamente. O botão Reunião Diária abre um painel focado nos 4 indicadores mais críticos.</div>
+
+<div class="step-block">
+  <div class="step-title">O que cada card mostra e de onde vem:</div>
+  <table class="campo-table">
+    <thead><tr><th>Card</th><th>Fonte do dado</th><th>Decisão que habilita</th></tr></thead>
+    <tbody>
+      <tr><td class="campo-name">Vendas no mês</td><td>Importação → Vendas (coluna mais recente)</td><td>Comparar com meta mensal. Se baixo, revisar mix ou promoções.</td></tr>
+      <tr><td class="campo-name">Faturamento clientes</td><td>Importação → Cliente (soma do campo Valor Total)</td><td>Visibilidade de receita acumulada. Comparar com orçamento.</td></tr>
+      <tr><td class="campo-name">Estoque crítico</td><td>Cruzamento automático: Vendas ÷ Estoque &lt; 1 mês</td><td>Quantidade de SKUs em perigo. Acione produção para os mais vendidos.</td></tr>
+      <tr><td class="campo-name">OPs em aberto</td><td>Importação → Ordens de Produção</td><td>Backlog de produção. Se muito alto, avaliar capacidade.</td></tr>
+      <tr><td class="campo-name">Códigos ativos</td><td>Importação → Vendas (SKUs com venda &gt; 0)</td><td>Tamanho do portfólio ativo. Comparar com o cadastro total.</td></tr>
+      <tr><td class="campo-name">R$ em risco</td><td>Política de Estoques (revenueRisco calculado)</td><td>Capital em risco por falta de estoque. Priorizar produção.</td></tr>
+      <tr><td class="campo-name">OEE Real (7 dias)</td><td>MES → apontamentos finalizados (última semana)</td><td>Eficiência da semana. Se &lt;65%, investigar Pareto de paradas.</td></tr>
+      <tr><td class="campo-name">WIP Ativo</td><td>MES → apontamentos em andamento agora</td><td>Produção em curso. Se pausado, ver motivo no MES.</td></tr>
+      <tr><td class="campo-name">Gargalo — Utilização</td><td>TOC → processo com maior utilização calculada</td><td>Se &gt;100%, gargalo real. Decidir horas extras ou subcontratação.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="step-block" style="margin-top:16px;">
+  <div class="step-title">📋 Reunião Diária — o que aparece automaticamente:</div>
+  <table class="campo-table">
+    <thead><tr><th>Seção</th><th>O que exibe</th><th>Decisão que habilita</th></tr></thead>
+    <tbody>
+      <tr><td class="campo-name">WIP Agora</td><td>Apontamentos rodando + pausados neste momento</td><td>Há produção parada? Quem está produzindo agora?</td></tr>
+      <tr><td class="campo-name">OEE Hoje</td><td>D%, Q%, OEE% do dia com cor semafórica</td><td>A eficiência hoje está dentro do esperado?</td></tr>
+      <tr><td class="campo-name">Gargalo TOC</td><td>Processo mais carregado e % utilização com cor</td><td>O gargalo está comprometendo o plano de hoje?</td></tr>
+      <tr><td class="campo-name">Produzido hoje</td><td>Unidades finalizadas + refugo + OPs encerradas</td><td>Estamos no ritmo para cumprir o plano do dia?</td></tr>
+      <tr><td class="campo-name">Alertas críticos</td><td>Estoque zero, R$ em risco, gargalo &gt;100%, MES em parada</td><td>O que precisa de ação imediata? Clicar navega direto ao módulo.</td></tr>
+      <tr><td class="campo-name">Paradas ativas</td><td>Qual OP está parada, qual processo, desde quando, por quê</td><td>Acionar supervisão ou manutenção imediatamente.</td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:9pt;color:#5a5a8a;margin-top:8px;">O painel atualiza sozinho a cada <strong>30 segundos</strong>. Clique em qualquer alerta ou parada para ir direto ao módulo responsável.</p>
+</div>
+
+<div style="margin-top:40px;padding-top:24px;border-top:1px solid #f0f0f8;display:flex;justify-content:space-between;align-items:center;">
+  <div style="font-size:8pt;color:#ababce;">SIGS — Guia Campo a Campo · Versão Junho 2026</div>
+  <div style="font-size:8pt;color:#ababce;">Documento de uso interno · Gestão / Administração</div>
+</div>
+
+</div>
+
+</body>
+</html>

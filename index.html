@@ -216,6 +216,7 @@
                 <p style="color:#8b949e;font-size:0.82rem;margin:2px 0 0;" id="home-date">—</p>
             </div>
             <div style="display:flex;gap:8px;">
+                <button onclick="reuniaoDiaria.abrir()" style="padding:6px 16px;border-radius:8px;border:1px solid rgba(99,102,241,0.4);background:rgba(99,102,241,0.1);color:#a5b4fc;font-size:0.78rem;cursor:pointer;font-weight:600;">📋 Reunião Diária</button>
                 <button onclick="homeDash.render()" style="padding:6px 16px;border-radius:8px;border:1px solid var(--border);background:transparent;color:#8b949e;font-size:0.78rem;cursor:pointer;">↻ Atualizar</button>
                 <button onclick="baixarBackup()" style="padding:6px 16px;border-radius:8px;border:1px solid rgba(38,198,218,0.3);background:transparent;color:#26c6da;font-size:0.78rem;cursor:pointer;">⬇ Backup</button>
                 <button onclick="resetarDados()" style="padding:6px 16px;border-radius:8px;border:1px solid rgba(240,98,146,0.3);background:transparent;color:#f06292;font-size:0.78rem;cursor:pointer;">🗑 Limpar dados</button>
@@ -251,6 +252,30 @@
             </div>
         </div>
 
+        <!-- KPIs Estratégicos -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;">
+            <div class="summary-card" id="home-card-risco" style="border-top:3px solid rgba(255,255,255,.08);">
+                <span class="s-label">R$ EM RISCO (EST.)</span>
+                <span class="s-value" id="home-risco" style="color:#8b949e;font-size:1.3rem;">—</span>
+                <span class="s-sub" id="home-risco-sub">calcule Política de Estoques</span>
+            </div>
+            <div class="summary-card" id="home-card-oee" style="border-top:3px solid rgba(255,255,255,.08);">
+                <span class="s-label">OEE REAL (7 DIAS)</span>
+                <span class="s-value" id="home-oee" style="color:#8b949e;font-size:1.5rem;">—</span>
+                <span class="s-sub" id="home-oee-sub">disponibilidade × qualidade</span>
+            </div>
+            <div class="summary-card" id="home-card-wip" style="border-top:3px solid rgba(255,255,255,.08);">
+                <span class="s-label">WIP ATIVO</span>
+                <span class="s-value" id="home-wip" style="color:#8b949e;font-size:1.5rem;">—</span>
+                <span class="s-sub" id="home-wip-sub">apontamentos no momento</span>
+            </div>
+            <div class="summary-card" id="home-card-gargalo" style="border-top:3px solid rgba(255,255,255,.08);">
+                <span class="s-label">GARGALO — UTILIZAÇÃO</span>
+                <span class="s-value" id="home-gargalo" style="color:#8b949e;font-size:1.5rem;">—</span>
+                <span class="s-sub" id="home-gargalo-sub">execute análise TOC</span>
+            </div>
+        </div>
+
         <!-- Top Produtos + Alertas -->
         <div style="display:grid;grid-template-columns:1.2fr 0.8fr;gap:16px;">
 
@@ -279,6 +304,15 @@
         <div class="summary-card" style="padding:16px 20px;">
             <span class="s-label" style="margin-bottom:10px;display:block;">ÚLTIMAS ATIVIDADES</span>
             <div id="home-atividades"></div>
+        </div>
+
+        <!-- Fluxo do Sistema -->
+        <div class="summary-card" style="padding:16px 20px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <span class="s-label" style="margin:0;">FLUXO DO SISTEMA</span>
+                <span style="font-size:.68rem;color:#8b949e;">estado da sessão atual</span>
+            </div>
+            <div id="home-pipeline" style="display:flex;align-items:stretch;overflow-x:auto;gap:0;border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,.06);"></div>
         </div>
 
         <!-- Acesso rápido -->
@@ -2683,6 +2717,14 @@
                 <option value="qualidade">Qualidade (retrabalho)</option>
             </select>
             <label style="font-size:.72rem;color:#8b949e;display:block;margin-bottom:5px;">MOTIVO *</label>
+            <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px;" id="mes-motivos-chips">
+                <button type="button" onclick="mes._chipMotivo(this)" style="padding:3px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#8b949e;font-size:.72rem;cursor:pointer;">Falta de material</button>
+                <button type="button" onclick="mes._chipMotivo(this)" style="padding:3px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#8b949e;font-size:.72rem;cursor:pointer;">Manutenção corretiva</button>
+                <button type="button" onclick="mes._chipMotivo(this)" style="padding:3px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#8b949e;font-size:.72rem;cursor:pointer;">Setup / Troca</button>
+                <button type="button" onclick="mes._chipMotivo(this)" style="padding:3px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#8b949e;font-size:.72rem;cursor:pointer;">Falta de operador</button>
+                <button type="button" onclick="mes._chipMotivo(this)" style="padding:3px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#8b949e;font-size:.72rem;cursor:pointer;">Defeito de qualidade</button>
+                <button type="button" onclick="mes._chipMotivo(this)" style="padding:3px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.04);color:#8b949e;font-size:.72rem;cursor:pointer;">Falta de energia</button>
+            </div>
             <input id="mes-parada-motivo" type="text" placeholder="Descreva o motivo da parada..."
                 style="width:100%;padding:9px 10px;background:#0D1117;border:1px solid var(--border);border-radius:6px;color:#fff;box-sizing:border-box;margin-bottom:20px;font-size:.85rem;">
             <div style="display:flex;gap:10px;justify-content:flex-end;">
@@ -2695,6 +2737,34 @@
     </div>
 
 </main>
+
+<!-- ── MODAL REUNIÃO DIÁRIA ─────────────────────────────────── -->
+<div id="modal-reuniao" style="display:none;position:fixed;inset:0;background:#0D1117;z-index:10000;overflow-y:auto;flex-direction:column;">
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 32px;border-bottom:1px solid rgba(255,255,255,.08);background:#0D1117;position:sticky;top:0;z-index:1;">
+        <div style="display:flex;align-items:center;gap:16px;">
+            <div style="width:10px;height:10px;border-radius:50%;background:#3fb950;box-shadow:0 0 8px #3fb950;animation:pulse-dot 2s infinite;"></div>
+            <div>
+                <div style="font-size:1rem;font-weight:800;color:#fff;letter-spacing:.5px;">REUNIÃO DIÁRIA</div>
+                <div id="rd-datetime" style="font-size:0.75rem;color:#8b949e;margin-top:1px;"></div>
+            </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;">
+            <span id="rd-refresh-badge" style="font-size:0.7rem;color:#8b949e;"></span>
+            <button onclick="reuniaoDiaria.render()" style="padding:6px 14px;border-radius:7px;border:1px solid rgba(255,255,255,.1);background:transparent;color:#8b949e;font-size:0.75rem;cursor:pointer;">↻ Atualizar</button>
+            <button onclick="reuniaoDiaria.fechar()" style="padding:6px 16px;border-radius:7px;border:1px solid rgba(240,98,146,.3);background:transparent;color:#f06292;font-size:0.78rem;font-weight:700;cursor:pointer;">✕ Fechar</button>
+        </div>
+    </div>
+
+    <!-- Conteúdo dinâmico -->
+    <div id="rd-body" style="padding:28px 32px;display:flex;flex-direction:column;gap:20px;max-width:1400px;margin:0 auto;width:100%;"></div>
+
+</div>
+
+<style>
+@keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:.4} }
+</style>
 
 </body>
 </html>

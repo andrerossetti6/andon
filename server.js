@@ -973,7 +973,10 @@ app.get('/api/setup', async (_req, res) => {
     const faltando = [];
     for (const t of TABELAS) {
         const { error } = await supabase.from(t.nome).select('id').limit(1);
-        if (error && error.code === '42P01') faltando.push(t);
+        // PGRST205 = PostgREST schema cache miss (table missing); 42P01 = PostgreSQL undefined_table
+        if (error && (error.code === '42P01' || error.code === 'PGRST205' || String(error.code).startsWith('PGRST'))) {
+            faltando.push(t);
+        }
     }
 
     const todasOk = faltando.length === 0;
