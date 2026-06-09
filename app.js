@@ -1149,6 +1149,8 @@ function navigateTo(viewName) {
     } else if (viewName === 'calendario') {
         document.querySelector('[data-view="calendario"]')?.classList.add('sub-active');
         disponibilidade.abrirAba(disponibilidade._abaAtiva);
+        disponibilidade.carregarFeriados().catch(() => {});
+        disponibilidade.carregarTurnos().catch(() => {});
     } else if (viewName === 'processos') {
         document.querySelector('[data-view="processos"]')?.classList.add('sub-active');
         processosGerenciamento.voltarLista();
@@ -3878,11 +3880,19 @@ const disponibilidade = {
         document.getElementById('panel-turnos').style.display   = aba === 'turnos'   ? 'flex' : 'none';
         document.getElementById('tab-btn-feriados').classList.toggle('active', aba === 'feriados');
         document.getElementById('tab-btn-turnos').classList.toggle('active',   aba === 'turnos');
+        // Sempre recarrega dados ao abrir a aba — garante persistência após reload
+        if (aba === 'feriados') this.carregarFeriados().catch(() => {});
+        if (aba === 'turnos')   this.carregarTurnos().catch(() => {});
     },
 
     // ── FERIADOS ──────────────────────────────────────────────
     async carregarFeriados() {
         const data = await api.get('/api/feriados');
+        if (data === null) {
+            // Silencia erro mas não limpa dados já carregados — mantém estado anterior
+            if (!this._feriados.length) this.renderFeriados();
+            return;
+        }
         this._feriados = data || [];
         this.renderFeriados();
     },
@@ -4305,20 +4315,24 @@ const toc = {
         const cap = this._getCap();
         grid.innerHTML = this._PROCS.map(p => {
             const c = cap[p.id] || { maquinas: 1, horasDia: 8, oee: 100 };
-            return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-color);">
-                <span style="flex:1;font-size:0.82rem;font-weight:600;color:var(--text-primary);">${p.nome}</span>
-                <input id="toc-maq-${p.id}" type="number" value="${c.maquinas}" min="0" step="0.5"
-                    style="width:52px;padding:5px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.82rem;text-align:center;"
-                    title="Máquinas/operadores">
-                <span style="font-size:0.72rem;color:var(--text-dim);">máq ×</span>
-                <input id="toc-hdia-${p.id}" type="number" value="${c.horasDia}" min="1" max="24" step="0.5"
-                    style="width:52px;padding:5px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.82rem;text-align:center;"
-                    title="Horas por dia">
-                <span style="font-size:0.72rem;color:var(--text-dim);">h/dia ·</span>
-                <input id="toc-oee-${p.id}" type="number" value="${c.oee ?? 100}" min="10" max="100" step="1"
-                    style="width:52px;padding:5px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.82rem;text-align:center;"
-                    title="OEE % (Eficiência Global do Equipamento)">
-                <span style="font-size:0.72rem;color:var(--text-dim);">% OEE</span>
+            return `<div style="display:flex;flex-direction:column;gap:8px;padding:10px 14px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-color);">
+                <span style="font-size:0.82rem;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${p.nome}">${p.nome}</span>
+                <div style="display:flex;align-items:center;gap:6px;">
+                    <input id="toc-maq-${p.id}" type="number" value="${c.maquinas}" min="0" step="0.5"
+                        style="width:48px;padding:4px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.8rem;text-align:center;"
+                        title="Máquinas/operadores">
+                    <span style="font-size:0.7rem;color:var(--text-dim);">máq</span>
+                    <span style="font-size:0.7rem;color:var(--text-dim);margin:0 1px;">×</span>
+                    <input id="toc-hdia-${p.id}" type="number" value="${c.horasDia}" min="1" max="24" step="0.5"
+                        style="width:48px;padding:4px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.8rem;text-align:center;"
+                        title="Horas por dia">
+                    <span style="font-size:0.7rem;color:var(--text-dim);">h/dia</span>
+                    <span style="font-size:0.7rem;color:var(--text-dim);margin:0 1px;">·</span>
+                    <input id="toc-oee-${p.id}" type="number" value="${c.oee ?? 100}" min="10" max="100" step="1"
+                        style="width:48px;padding:4px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.8rem;text-align:center;"
+                        title="OEE %">
+                    <span style="font-size:0.7rem;color:var(--text-dim);">% OEE</span>
+                </div>
             </div>`;
         }).join('');
     },
@@ -7119,25 +7133,29 @@ const processosGerenciamento = {
         }
         const statusColor = s => ({ 'Ativo':'#26a69a','Manutenção':'#ffab76','Inativo':'#8b949e','Setup':'#26c6da' }[s] || '#8b949e');
         tbody.innerHTML = this._maquinas.map(m => `
-            <tr>
-                <td style="font-weight:600;color:var(--indigo-primary);">${m.id_maquina || '—'}</td>
-                <td>${m.modelo || '—'}</td>
-                <td class="td-center">${m.oee != null ? Number(m.oee).toFixed(1) + '%' : '—'}</td>
-                <td class="td-center">
-                    <span style="display:inline-block;padding:2px 10px;border-radius:20px;font-size:0.72rem;font-weight:600;
+            <tr style="transition:background .12s;" onmouseenter="this.style.background='rgba(255,255,255,.03)'" onmouseleave="this.style.background=''">
+                <td style="font-weight:600;color:var(--indigo-primary);padding:14px 16px;">${escHTML(m.id_maquina || '—')}</td>
+                <td style="padding:14px 16px;">${escHTML(m.modelo || '—')}</td>
+                <td class="td-center" style="padding:14px 16px;">${m.oee != null ? Number(m.oee).toFixed(1) + '%' : '—'}</td>
+                <td class="td-center" style="padding:14px 16px;">
+                    <span style="display:inline-block;padding:3px 12px;border-radius:20px;font-size:0.72rem;font-weight:600;
                         background:${statusColor(m.status)}22;color:${statusColor(m.status)};border:1px solid ${statusColor(m.status)}44;">
-                        ${m.status || '—'}
+                        ${escHTML(m.status || '—')}
                     </span>
                 </td>
-                <td class="td-center">${m.n_pessoas != null ? m.n_pessoas : '—'}</td>
-                <td class="td-center">
-                    <div style="display:flex;gap:10px;justify-content:center;align-items:center;">
+                <td class="td-center" style="padding:14px 16px;">${m.n_pessoas != null ? m.n_pessoas : '—'}</td>
+                <td style="padding:10px 16px;">
+                    <div style="display:flex;gap:8px;align-items:center;">
                         <button onclick="processosGerenciamento.abrirModalMaquina('${m.id}')"
-                            title="Editar" style="background:none;border:none;color:#8b949e;cursor:pointer;padding:2px;line-height:1;">
-                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z"/></svg>
+                            style="display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;border:1px solid rgba(88,166,255,.3);background:rgba(88,166,255,.06);color:#58a6ff;font-size:0.75rem;font-weight:600;cursor:pointer;white-space:nowrap;">
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13H3v-2L11.5 2.5z"/></svg>
+                            Editar
                         </button>
                         <button onclick="processosGerenciamento.excluirMaquina('${m.id}')"
-                            title="Excluir" style="background:none;border:none;color:#f06292;cursor:pointer;padding:2px;font-size:1rem;line-height:1;font-weight:600;">✕</button>
+                            style="display:flex;align-items:center;gap:5px;padding:5px 12px;border-radius:6px;border:1px solid rgba(240,98,146,.3);background:rgba(240,98,146,.06);color:#f06292;font-size:0.75rem;font-weight:600;cursor:pointer;white-space:nowrap;">
+                            <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="1.5,3.5 12.5,3.5"/><path d="M3 3.5V2.5a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v1"/><path d="M4 5.5l.5 6a1 1 0 0 0 1 .9h3a1 1 0 0 0 1-.9l.5-6"/></svg>
+                            Excluir
+                        </button>
                     </div>
                 </td>
             </tr>
@@ -9793,12 +9811,11 @@ const clientesDash = {
         const map = {};
         (cliente.rawData||[]).forEach(r => {
             const d    = r.dados||{};
-            const nome = String(d[cliente._colCliente]||'').trim().toUpperCase();
+            const nome = String(d[cliente._colCliente]||'').trim().toUpperCase() || '(SEM CLIENTE)';
             const data = String(d[cliente._colData]||'').trim();
             const qtd  = this._toNum(d[cliente._colQtd]);
             const val  = this._toNum(d[cliente._colValTotal]);
             const desc = String(d[cliente._colDesc]||d[cliente._colCodigo]||'').trim().toUpperCase();
-            if (!nome) return;
             if (cliSel && nome !== cliSel) return;
             const dt = this._parseDt(data);
             if (anoSel && dt && String(dt.getFullYear()) !== anoSel) return;
@@ -9839,7 +9856,18 @@ const clientesDash = {
         const totalVal = rows.reduce((s,r)=>s+r.valor, 0);
         const totalPed = rows.reduce((s,r)=>s+r.pedidos, 0);
         const totalQtd = rows.reduce((s,r)=>s+r.qtd, 0);
-        const ticket   = totalPed > 0 ? totalVal/totalPed : 0;  // média por pedido/transação
+        const ticket   = totalPed > 0 ? totalVal/totalPed : 0;
+        // Total bruto da importação (sem filtros) para validação cruzada
+        const totalImport = (cliente.rawData||[]).reduce((s,r) => s + this._toNum(r.dados?.[cliente._colValTotal]), 0);
+        const hasFiltro   = !!(this._anoSel || document.getElementById('cli-filtro-mes')?.value || document.getElementById('cli-filtro-dia')?.value || document.getElementById('cli-filtro-cliente')?.value || (document.getElementById('cli-filtro-busca')?.value||'').trim());
+        const elImport = document.getElementById('cli-total-import');
+        if (elImport) {
+            elImport.textContent = this._fmtBRL(totalImport);
+            const elWrap = document.getElementById('cli-import-wrap');
+            if (elWrap) elWrap.style.display = hasFiltro ? '' : 'none';
+        }
+        const elFatSub = document.getElementById('cli-fat-sub');
+        if (elFatSub) elFatSub.textContent = hasFiltro ? 'filtrado' : 'todos os registros da importação';
         document.getElementById('cli-total-clientes').textContent = rows.length.toLocaleString('pt-BR');
         document.getElementById('cli-faturamento').textContent    = this._fmtBRL(totalVal);
         document.getElementById('cli-ticket-medio').textContent   = this._fmtBRL(ticket);
@@ -9856,8 +9884,8 @@ const clientesDash = {
         (cliente.rawData||[]).forEach(r => {
             const [dd,mm,yy] = String(r.dados?.[cliente._colData]||'').split('/');
             if (yy) { anos.add(yy); meses.add(mm?.padStart(2,'0')); dias.add(dd?.padStart(2,'0')); }
-            const n = String(r.dados?.[cliente._colCliente]||'').trim().toUpperCase();
-            if (n) nomes.add(n);
+            const n = String(r.dados?.[cliente._colCliente]||'').trim().toUpperCase() || '(SEM CLIENTE)';
+            nomes.add(n);
         });
         // Botões de ano
         const btnWrap = document.getElementById('cli-ano-btns');
@@ -9993,7 +10021,7 @@ const clientesDash = {
         const busFiltro = (document.getElementById('cli-filtro-busca')?.value||'').toLowerCase().trim();
         (cliente.rawData||[]).forEach(r => {
             const d    = r.dados||{};
-            const nome = String(d[cliente._colCliente]||'').trim().toUpperCase();
+            const nome = String(d[cliente._colCliente]||'').trim().toUpperCase() || '(SEM CLIENTE)';
             if (selCli && nome !== selCli) return;
             if (cliFiltro && nome !== cliFiltro) return;
             if (busFiltro && !nome.toLowerCase().includes(busFiltro)) return;

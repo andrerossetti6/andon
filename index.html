@@ -1149,23 +1149,23 @@
             </header>
 
             <!-- Tabela de máquinas -->
-            <div class="vendas-table-wrap" style="margin-top:8px;">
-                <table class="vendas-table" id="proc-maq-table">
+            <div class="vendas-table-wrap" style="margin-top:8px;overflow-x:auto;">
+                <table class="vendas-table" id="proc-maq-table" style="min-width:700px;">
                     <colgroup>
                         <col style="width:18%">
-                        <col style="width:22%">
+                        <col style="width:20%">
+                        <col style="width:12%">
                         <col style="width:13%">
-                        <col style="width:16%">
-                        <col style="width:16%">
-                        <col style="width:15%">
+                        <col style="width:10%">
+                        <col style="width:27%">
                     </colgroup>
                     <thead><tr>
                         <th>ID MÁQUINA</th>
                         <th>MODELO</th>
                         <th class="td-center">OEE (%)</th>
                         <th class="td-center">STATUS</th>
-                        <th class="td-center">N° PESSOAS</th>
-                        <th class="td-center">AÇÕES</th>
+                        <th class="td-center">PESSOAS</th>
+                        <th>AÇÕES</th>
                     </tr></thead>
                     <tbody id="proc-maq-tbody"></tbody>
                 </table>
@@ -1420,7 +1420,10 @@
                 <div class="summary-card">
                     <span class="s-label">FATURAMENTO TOTAL</span>
                     <span class="s-value" id="cli-faturamento" style="color:#26a69a;font-size:1.35rem;">—</span>
-                    <span class="s-sub">soma dos pedidos</span>
+                    <span class="s-sub" id="cli-fat-sub">todos os registros da importação</span>
+                    <span id="cli-import-wrap" style="display:none;margin-top:4px;font-size:0.7rem;color:#8b949e;">
+                        total importação: <span id="cli-total-import" style="color:#26c6da;font-weight:600;"></span>
+                    </span>
                 </div>
                 <div class="summary-card">
                     <span class="s-label">TICKET MÉDIO</span>
@@ -2577,7 +2580,7 @@
             <div class="s-label">CAPACIDADE DISPONÍVEL POR PROCESSO</div>
             <span style="font-size:0.72rem;color:var(--text-dim);">máquinas / operadores × horas por dia</span>
         </div>
-        <div id="toc-cap-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;"></div>
+        <div id="toc-cap-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;"></div>
     </div>
 
     <!-- Resultado -->
