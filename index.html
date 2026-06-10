@@ -1403,19 +1403,19 @@
                 <select class="sigs-select" id="cli-filtro-dia" onchange="clientesDash.render()" style="min-width:90px;font-size:0.78rem;">
                     <option value="">Todos os dias</option>
                 </select>
-                <select class="sigs-select" id="cli-filtro-cliente" onchange="clientesDash.render()" style="min-width:180px;font-size:0.78rem;">
-                    <option value="">Todos os clientes</option>
+                <select class="sigs-select" id="cli-filtro-cliente" onchange="clientesDash.render()" style="min-width:200px;font-size:0.78rem;">
+                    <option value="">Todas as descrições</option>
                 </select>
-                <input type="text" class="sigs-input" id="cli-filtro-busca" placeholder="Buscar cliente..." oninput="clientesDash.render()" style="width:200px;font-size:0.78rem;">
+                <input type="text" class="sigs-input" id="cli-filtro-busca" placeholder="Buscar descrição..." oninput="clientesDash.render()" style="width:200px;font-size:0.78rem;">
                 <button class="btn secondary" onclick="clientesDash._limparFiltros()" style="font-size:0.74rem;padding:5px 14px;margin-left:auto;">Limpar</button>
             </div>
 
             <!-- Cards resumo -->
             <div class="vendas-summary" style="grid-template-columns:repeat(5,1fr);">
                 <div class="summary-card">
-                    <span class="s-label">TOTAL DE CLIENTES</span>
+                    <span class="s-label">TOTAL DESCRIÇÕES</span>
                     <span class="s-value" id="cli-total-clientes" style="color:var(--indigo-primary);">—</span>
-                    <span class="s-sub">clientes únicos</span>
+                    <span class="s-sub">itens únicos</span>
                 </div>
                 <div class="summary-card">
                     <span class="s-label">FATURAMENTO TOTAL</span>
@@ -1465,7 +1465,7 @@
                         </select>
                     </div>
                     <select class="sigs-select" id="cli-evolucao-cliente" onchange="clientesDash._drawEvolucao()" style="margin-bottom:10px;font-size:0.75rem;width:100%;">
-                        <option value="">Todos os clientes</option>
+                        <option value="">Todas as descrições</option>
                     </select>
                     <canvas id="cli-evolucao-canvas" height="210"></canvas>
                 </div>
@@ -2474,17 +2474,17 @@
                 <div style="font-size:.72rem;color:var(--text-dim);margin-bottom:6px;">DATA DE INÍCIO</div>
                 <input id="tl-start-date" type="date" style="padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;">
             </div>
-            <button onclick="timeline.calcular()" style="padding:10px 28px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.85rem;font-weight:700;cursor:pointer;white-space:nowrap;">CALCULAR</button>
-            <button onclick="timeline.limparOverrides()" style="padding:10px 16px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:transparent;color:var(--text-dim);font-size:.82rem;cursor:pointer;white-space:nowrap;" title="Remover todas as alocações manuais (drag &amp; drop)">LIMPAR MANUAL</button>
+            <button onclick="preactor.calcular()" style="padding:10px 28px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.85rem;font-weight:700;cursor:pointer;white-space:nowrap;">CALCULAR</button>
+            <button onclick="preactor.limparOverrides()" style="padding:10px 16px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:transparent;color:var(--text-dim);font-size:.82rem;cursor:pointer;white-space:nowrap;" title="Remover todas as alocações manuais (drag &amp; drop)">LIMPAR MANUAL</button>
         </div>
     </div>
 
     <!-- Tabs -->
     <div style="display:flex;gap:0;border-bottom:1px solid var(--border-color);margin-bottom:20px;align-items:center;">
-        <button id="tl-tab-gantt"    onclick="timeline._selecionarAba('gantt')"    style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid var(--indigo-primary);color:var(--indigo-primary);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">GANTT</button>
-        <button id="tl-tab-status"   onclick="timeline._selecionarAba('status')"   style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">STATUS ORDENS</button>
-        <button id="tl-tab-config"   onclick="timeline._selecionarAba('config')"   style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">SETUP MATRIX</button>
-        <button id="tl-tab-cenarios" onclick="timeline._selecionarAba('cenarios')" style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">CENÁRIOS</button>
+        <button id="tl-tab-gantt"    onclick="preactor._selecionarAba('gantt')"    style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid var(--indigo-primary);color:var(--indigo-primary);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">GANTT</button>
+        <button id="tl-tab-status"   onclick="preactor._selecionarAba('status')"   style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">STATUS ORDENS</button>
+        <button id="tl-tab-config"   onclick="preactor._selecionarAba('config')"   style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">SETUP MATRIX</button>
+        <button id="tl-tab-cenarios" onclick="preactor._selecionarAba('cenarios')" style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">CENÁRIOS</button>
         <span id="tl-summary" style="margin-left:auto;color:var(--indigo-primary);font-weight:600;font-size:.78rem;padding-right:4px;"></span>
     </div>
 

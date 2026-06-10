@@ -588,13 +588,18 @@ app.get('/api/setup-matrix', auth, async (_req, res) => {
 app.post('/api/setup-matrix/bulk', auth, async (req, res) => {
     const { items } = req.body;
     if (!Array.isArray(items)) return res.status(400).json({ erro: 'items obrigatório' });
+    // Backup antes do delete: se o insert falhar, restaura — evita perder a matriz inteira
+    const { data: backup } = await supabase.from('setup_matrix').select('processo,familia_de,familia_para,minutos');
     await supabase.from('setup_matrix').delete().neq('id', '00000000-0000-0000-0000-000000000000');
     const positivos = items.filter(i => (i.minutos||0) > 0);
     if (positivos.length) {
         const { error } = await supabase.from('setup_matrix').insert(
             positivos.map(i => ({ processo: i.processo, familia_de: i.familia_de, familia_para: i.familia_para, minutos: Math.round(i.minutos)||0 }))
         );
-        if (error) return res.status(500).json({ erro: error.message });
+        if (error) {
+            if (backup?.length) await supabase.from('setup_matrix').insert(backup);
+            return res.status(500).json({ erro: error.message });
+        }
     }
     res.json({ ok: true });
 });
@@ -635,6 +640,12 @@ app.post('/api/feriados/lote', auth, async (req, res) => {
     if (!Array.isArray(feriados) || !feriados.length)
         return res.status(400).json({ erro: 'Dados inválidos' });
     const rows = feriados.map(f => ({ data: f.data, nome: f.nome, tipo: f.tipo || 'Nacional' }));
+    // Remove feriados do mesmo ano antes de reinserir (evita duplicatas)
+    const ano = rows[0]?.data?.slice(0, 4);
+    if (ano) {
+        await supabase.from('feriados').delete()
+            .gte('data', `${ano}-01-01`).lte('data', `${ano}-12-31`);
+    }
     for (let i = 0; i < rows.length; i += 200) {
         const { error } = await supabase.from('feriados').insert(rows.slice(i, i + 200));
         if (error) return res.status(500).json({ erro: error.message });
@@ -655,27 +666,48 @@ app.delete('/api/feriados/:id', auth, async (req, res) => {
 });
 
 // ── DISPONIBILIDADE: TURNOS ──────────────────────────────────
+// Normaliza resposta: suporta schema antigo (dias) e novo (dias_semana + intervalo_min)
+function normalizarTurno(t) {
+    return { ...t, dias_semana: t.dias_semana || t.dias || [], intervalo_min: t.intervalo_min || 0 };
+}
+// Tenta inserir/atualizar com schema novo; se a coluna não existir, usa schema antigo (dias)
+async function salvarTurno(op, id, payload) {
+    const { processo, nome, inicio, fim, intervalo_min, dias_semana } = payload;
+    const novoSchema = { processo: processo || '', nome, inicio, fim,
+        intervalo_min: Number(intervalo_min) || 0, dias_semana: dias_semana || [] };
+    const antigoSchema = { processo: processo || '', nome, inicio, fim, dias: dias_semana || [] };
+    let result;
+    if (op === 'insert') {
+        result = await supabase.from('turnos').insert(novoSchema).select().single();
+        if (result.error?.message?.includes('dias_semana') || result.error?.message?.includes('intervalo_min')) {
+            result = await supabase.from('turnos').insert(antigoSchema).select().single();
+        }
+    } else {
+        result = await supabase.from('turnos').update(novoSchema).eq('id', id).select().single();
+        if (result.error?.message?.includes('dias_semana') || result.error?.message?.includes('intervalo_min')) {
+            result = await supabase.from('turnos').update(antigoSchema).eq('id', id).select().single();
+        }
+    }
+    return result;
+}
+
 app.get('/api/turnos', auth, async (_req, res) => {
     const { data, error } = await supabase.from('turnos').select('*').order('nome');
     if (error) return res.status(500).json({ erro: error.message });
-    res.json(data);
+    res.json((data || []).map(normalizarTurno));
 });
 app.post('/api/turnos', auth, async (req, res) => {
     const { processo, nome, inicio, fim, intervalo_min, dias_semana } = req.body;
     if (!nome || !inicio || !fim) return res.status(400).json({ erro: 'Nome, início e fim obrigatórios' });
-    const { data, error } = await supabase.from('turnos')
-        .insert({ processo: processo || '', nome, inicio, fim, intervalo_min: Number(intervalo_min) || 0, dias_semana: dias_semana || [] })
-        .select().single();
+    const { data, error } = await salvarTurno('insert', null, { processo, nome, inicio, fim, intervalo_min, dias_semana });
     if (error) return res.status(500).json({ erro: error.message });
-    res.json({ ok: true, turno: data });
+    res.json({ ok: true, turno: normalizarTurno(data) });
 });
 app.put('/api/turnos/:id', auth, async (req, res) => {
     const { processo, nome, inicio, fim, intervalo_min, dias_semana } = req.body;
-    const { data, error } = await supabase.from('turnos')
-        .update({ processo, nome, inicio, fim, intervalo_min, dias_semana })
-        .eq('id', req.params.id).select().single();
+    const { data, error } = await salvarTurno('update', req.params.id, { processo, nome, inicio, fim, intervalo_min, dias_semana });
     if (error) return res.status(500).json({ erro: error.message });
-    res.json({ ok: true, data });
+    res.json({ ok: true, data: normalizarTurno(data) });
 });
 
 app.delete('/api/turnos/:id', auth, async (req, res) => {
@@ -690,6 +722,14 @@ app.get('/api/processos-config', auth, async (_req, res) => {
     if (error) return res.status(500).json({ erro: error.message });
     res.json(data);
 });
+// Retorna o SQL de migração para corrigir a tabela turnos (schema antigo → novo)
+app.get('/api/migrar-turnos-sql', auth, async (_req, res) => {
+    res.json({
+        sql: `-- Execute no SQL Editor do Supabase (uma única vez)\nALTER TABLE turnos ADD COLUMN IF NOT EXISTS dias_semana TEXT[] DEFAULT '{}';\nALTER TABLE turnos ADD COLUMN IF NOT EXISTS intervalo_min INTEGER DEFAULT 0;\nUPDATE turnos SET dias_semana = dias WHERE dias_semana IS NULL OR dias_semana = '{}'::text[];`,
+        instrucao: 'Cole no Supabase > SQL Editor e execute.'
+    });
+});
+
 app.post('/api/processos-config', auth, async (req, res) => {
     const { nome, descricao } = req.body;
     const { data, error } = await supabase.from('processos_config').insert({ nome, descricao }).select().single();
@@ -956,7 +996,7 @@ app.get('/api/setup', async (_req, res) => {
         { nome: 'importacoes_capacidade', sql: `CREATE TABLE IF NOT EXISTS importacoes_capacidade (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome_arquivo TEXT NOT NULL, usuario_id UUID REFERENCES usuarios(id), total_linhas INTEGER DEFAULT 0, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE importacoes_capacidade DISABLE ROW LEVEL SECURITY;` },
         { nome: 'dados_capacidade',     sql: `CREATE TABLE IF NOT EXISTS dados_capacidade (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), importacao_id UUID REFERENCES importacoes_capacidade(id) ON DELETE CASCADE, dados JSONB DEFAULT '{}'); CREATE INDEX IF NOT EXISTS idx_dados_capacidade_imp ON dados_capacidade(importacao_id); ALTER TABLE dados_capacidade DISABLE ROW LEVEL SECURITY;` },
         { nome: 'feriados',             sql: `CREATE TABLE IF NOT EXISTS feriados (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), data DATE NOT NULL, nome TEXT NOT NULL, tipo TEXT DEFAULT 'nacional', criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE feriados DISABLE ROW LEVEL SECURITY;` },
-        { nome: 'turnos',               sql: `CREATE TABLE IF NOT EXISTS turnos (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome TEXT NOT NULL, inicio TIME, fim TIME, dias TEXT[] DEFAULT '{}', processo TEXT, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE turnos DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'turnos',               sql: `CREATE TABLE IF NOT EXISTS turnos (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome TEXT NOT NULL, inicio TIME, fim TIME, dias_semana TEXT[] DEFAULT '{}', intervalo_min INTEGER DEFAULT 0, processo TEXT, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE turnos DISABLE ROW LEVEL SECURITY; ALTER TABLE turnos ADD COLUMN IF NOT EXISTS dias_semana TEXT[] DEFAULT '{}'; ALTER TABLE turnos ADD COLUMN IF NOT EXISTS intervalo_min INTEGER DEFAULT 0;` },
         { nome: 'processos_config',     sql: `CREATE TABLE IF NOT EXISTS processos_config (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome TEXT NOT NULL, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE processos_config DISABLE ROW LEVEL SECURITY;` },
         { nome: 'maquinas',             sql: `CREATE TABLE IF NOT EXISTS maquinas (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), processo_id UUID REFERENCES processos_config(id) ON DELETE CASCADE, id_maquina TEXT, modelo TEXT, oee NUMERIC(5,2), status TEXT, n_pessoas INTEGER, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE maquinas DISABLE ROW LEVEL SECURITY;` },
         { nome: 'soep_acoes',           sql: `CREATE TABLE IF NOT EXISTS soep_acoes (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), descricao TEXT NOT NULL, responsavel TEXT, prazo DATE, status TEXT DEFAULT 'aberta', modulo TEXT, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE soep_acoes DISABLE ROW LEVEL SECURITY;` },

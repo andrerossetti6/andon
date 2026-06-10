@@ -279,7 +279,7 @@ function mostrarApp() {
     previsao.init();
     planoProducao.init();
     soepDash.init();
-    timeline.init();
+    preactor.init();
     estoque.init();
     op.init();
     costura.init();
@@ -670,7 +670,7 @@ const homeDash = {
             { label: 'Importação',icon: SVG.import,   ok: vendas.rawData.length > 0 && estoque.rawData.length > 0,               view: 'vendas',   sub: vendas.rawData.length   ? vendas.rawData.length + ' itens'    : 'sem dados'          },
             { label: 'S&OP',      icon: SVG.soep,     ok: !!(previsao._forecast?.length),                                        view: 'previsao', sub: previsao._forecast?.length ? previsao._forecast.length + ' SKUs prev.' : 'sem previsão' },
             { label: 'TOC',       icon: SVG.toc,      ok: !!(toc._resultProcs?.length),                                          view: 'toc',      sub: toc._resultProcs?.length  ? 'gargalo calculado'               : 'não calculado'      },
-            { label: 'Preactor',  icon: SVG.preactor, ok: !!(timeline._resultado?.ordens?.length),                               view: 'timeline', sub: timeline._resultado?.ordens?.length ? 'Gantt gerado'         : 'não sequenciado'    },
+            { label: 'Preactor',  icon: SVG.preactor, ok: !!(preactor._resultado?.ordens?.length),                               view: 'timeline', sub: preactor._resultado?.ordens?.length ? 'Gantt gerado'         : 'não sequenciado'    },
             { label: 'MES',       icon: SVG.mes,      ok: mes._wip?.length > 0 || mes._processos?.length > 0,                    view: 'mes',      sub: mes._wip?.length          ? mes._wip.length + ' no WIP'       : 'nenhum apontamento' },
         ];
         el.innerHTML = etapas.map((e, i) => {
@@ -982,6 +982,15 @@ function drawDetailChart(monthTotals) {
     });
 }
 
+// Número pt-BR: trata '1.250' (milhar) e '1.234,5' corretamente — '1.250' → 1250, não 1.25
+function toNumBR(v) {
+    let s = String(v ?? '').replace(/[^\d.,\-]/g, '');
+    if (!s) return 0;
+    if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+    else if (/^\-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+    return parseFloat(s) || 0;
+}
+
 function mostrarToast(msg, tipo = 'ok') {
     let toast = document.getElementById('sin1-toast');
     if (!toast) {
@@ -1219,7 +1228,9 @@ function navigateTo(viewName) {
         document.querySelector('[data-view="soep"]')?.classList.add('sub-active');
         setTimeout(() => soepDash.render(), 50);
     } else if (viewName === 'timeline') {
-        timeline._popularMeses();
+        preactor._popularMeses();
+        if (!banco.rawData.length) banco.carregarHistorico().catch(() => {});
+        if (!op.rawData.length)    op.carregarHistorico().catch(() => {});
     } else if (viewName === 'mes') {
         document.getElementById('nav-mes')?.classList.add('active');
         mes.init();
@@ -2795,7 +2806,7 @@ const op = {
     },
 
     _parseERPReport(rows) {
-        const toNum = v => parseFloat(String(v ?? '').replace(/[^\d,.\-]/g,'').replace(',','.')) || 0;
+        const toNum = toNumBR; // pt-BR: '1.200,0000' → 1200, não 1.2
         const parsed = [];
         let curOP = {};
         let curLote  = '';
@@ -2902,6 +2913,8 @@ const op = {
                     'Marca':    marca.toUpperCase(),
                     'Qtd':      qtd,
                     'Status':   curOP['Status']   || '',
+                    'Prev. Inicial': curOP['Prev. Inicial'] || '',
+                    'Prev. Final':   curOP['Prev. Final']   || '',
                 });
                 continue;
             }
@@ -2915,7 +2928,7 @@ const op = {
         if (ignorados > 0)
             mostrarToast(`${parsed.length} ordens importadas · ${ignorados} ignoradas (ref. fora de 5 dígitos)`);
 
-        const COLUNAS_OP = ['N. OP','Emissão','Lote','Ref','Descrição','Cor','Tam','Marca','Qtd','Status'];
+        const COLUNAS_OP = ['N. OP','Emissão','Lote','Ref','Descrição','Cor','Tam','Marca','Qtd','Status','Prev. Inicial','Prev. Final'];
         this.colunas  = COLUNAS_OP;
         this._colQtd  = 'Qtd';
         this.rawData  = parsed.map((r, i) => ({ _id: i, dados: r }));
@@ -3675,6 +3688,7 @@ function criarModuloArq(id, nomeApi) {
         _setupCombo(inputId, dropId, selKey, valsKey) {
             const input = document.getElementById(inputId);
             const drop  = document.getElementById(dropId);
+            if (!input || !drop) return; // módulo sem combos no HTML (ex: calendario) — não pode matar o bootstrap
             input.addEventListener('focus', () => { this._renderDrop(drop, input, selKey, valsKey, ''); drop.classList.add('open'); });
             input.addEventListener('input', () => { this[selKey] = ''; this._renderDrop(drop, input, selKey, valsKey, input.value); drop.classList.add('open'); this.aplicarFiltros(); });
             document.addEventListener('mousedown', e => { if (!e.target.closest(`#${dropId}`) && !e.target.closest(`#${inputId}`)) drop.classList.remove('open'); });
@@ -4383,7 +4397,7 @@ const toc = {
             const mapa = {};
             op.rawData.forEach(r => {
                 const cod = String(r.dados?.[codCol] || '').trim().toUpperCase();
-                const qty = parseFloat(String(r.dados?.[qtdCol] || '0').replace(/[^\d.,]/g,'').replace(',','.')) || 0;
+                const qty = toNumBR(r.dados?.[qtdCol]);
                 if (cod && qty) mapa[cod] = (mapa[cod] || 0) + qty;
             });
             return mapa;
@@ -4702,7 +4716,12 @@ toc._calcDiasUteisDoMes = async function(mesStr) {
     const diasNoMes  = new Date(ano, mes, 0).getDate();
     if (!this._feriadosCache) {
         const data = await api.get('/api/feriados');
-        this._feriadosCache = new Set((data||[]).map(f => f.data?.slice(0,10)));
+        if (data === null) {
+            // Falha de rede/servidor: não cachear Set vazio (feriados contariam como dias úteis a sessão toda)
+            mostrarToast('Não foi possível carregar feriados — capacidade pode estar superestimada.', 'aviso');
+        } else {
+            this._feriadosCache = new Set(data.map(f => f.data?.slice(0,10)));
+        }
     }
     let uteis = 0;
     for (let d = 1; d <= diasNoMes; d++) {
@@ -6100,7 +6119,9 @@ const soepDash = {
 };
 
 // ====== LINHA DO TEMPO DE PRODUÇÃO — GANTT SEMANAL ======
-const timeline = {
+// Nome "preactor" evita colisão com document.timeline (Web Animations API),
+// que intercepta handlers inline onclick="preactor.x()" via scope chain.
+const preactor = {
     _SEQ: ['tecelagem','costura_auto','costura_manual','soldagem','silicone','passadoria','embalagem'],
     _resultado: null,
     _turnos: null,
@@ -6114,8 +6135,10 @@ const timeline = {
     async init() {
         const hoje = new Date();
         const el = document.getElementById('tl-start-date');
-        if (el) el.value = hoje.toISOString().slice(0,10);
+        // Data local, não UTC — após 21h no Brasil toISOString viraria amanhã
+        if (el) el.value = `${hoje.getFullYear()}-${String(hoje.getMonth()+1).padStart(2,'0')}-${String(hoje.getDate()).padStart(2,'0')}`;
         try { this._manualOverrides = JSON.parse(localStorage.getItem('tl_manual') || '{}'); } catch {}
+        this._atualizarBadgeManual();
         await Promise.all([this._loadTurnos(), this._loadSetupMatrix(), this._loadDatas()]);
         this._selecionarAba('gantt');
     },
@@ -6218,11 +6241,14 @@ const timeline = {
                     if (!dias.some(dn=>diaName.includes(dn.slice(0,4)))) return;
                     const [hI,mI] = (t.inicio||'08:00').split(':').map(Number);
                     const [hF,mF] = (t.fim  ||'18:00').split(':').map(Number);
-                    minsTotal += (hF*60+mF) - (hI*60+mI);
+                    let diff = (hF*60+mF) - (hI*60+mI);
+                    if (diff < 0) diff += 24*60; // turno noturno cruza meia-noite
+                    minsTotal += Math.max(0, diff - (Number(t.intervalo_min)||0));
                 });
                 d.setDate(d.getDate() + 1);
             }
-            return minsTotal * capConfig.maquinas * oeeFactor;
+            // Turno cadastrado sem dias da semana não pode zerar a capacidade — cai no fallback
+            if (minsTotal > 0) return minsTotal * capConfig.maquinas * oeeFactor;
         }
         const diaCap = capConfig.maquinas * capConfig.horasDia * 60;
         return diaCap * this._diasUteisSemana(semana.ini, semana.fim) * oeeFactor;
@@ -6234,10 +6260,18 @@ const timeline = {
         return toc._getTempoMinutos(dados, proc.cols);
     },
 
+    // Lookup tolerante a espaços/maiúsculas: colunas do Excel vêm com espaço final (ex: "Segmento ")
+    _getCampoFamilia(dados) {
+        if (!dados) return '';
+        const ALVOS = ['segmento','família','familia'];
+        for (const k of Object.keys(dados)) {
+            if (ALVOS.includes(k.trim().toLowerCase())) return String(dados[k] ?? '').toLowerCase().trim();
+        }
+        return '';
+    },
+
     _getFamilia(dados) {
-        if (!dados) return 'geral';
-        const v = dados['Segmento'] || dados['segmento'] || dados['Família'] || dados['Familia'] || dados['familia'] || 'geral';
-        return String(v).toLowerCase().trim() || 'geral';
+        return this._getCampoFamilia(dados) || 'geral';
     },
 
     _getSetupMins(procId, familiaAnterior, familiaAtual) {
@@ -6277,18 +6311,26 @@ const timeline = {
             } else if (!op._colRef || !op._colQtd) {
                 mostrarToast('OP importada mas colunas Referência/Qtd não mapeadas — reimporte o arquivo.', 'aviso');
             } else {
+                // dd/mm/aaaa → aaaa-mm-dd (formato interno de data_entrega)
+                const parseBR = s => {
+                    const m = String(s||'').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+                    return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
+                };
+                const TERMOS_FECHADA = ['encerr','cancel','conclu','fechad','finaliz','entreg','baixad','atendid'];
                 op.rawData.forEach(r => {
                     // Exclui apenas OPs visivelmente encerradas/canceladas; aceita todo o resto
                     const st = String(r.dados?.Status || r.dados?.status || r.dados?.Situação || r.dados?.situacao || '').toLowerCase();
-                    if (st && (st.includes('encerr') || st.includes('cancela') || st.includes('concluíd') || st.includes('concluido') || st.includes('fechad'))) return;
+                    if (st && TERMOS_FECHADA.some(t => st.includes(t))) return;
                     const codigo = String(r.dados?.[op._colRef]||'').trim().toUpperCase();
-                    const qty    = parseFloat(String(r.dados?.[op._colQtd]||'0').replace(/[^\d.,]/g,'').replace(',','.'))||0;
+                    const qty    = toNumBR(r.dados?.[op._colQtd]);
                     if (!codigo || !qty) return;
                     const dados   = bancoMap[codigo];
                     const emissao = r.dados?.['Emissão'] || r.dados?.['Emissao'] || '';
                     const nop     = r.dados?.['N. OP'] || r.dados?.['NOP'] || '';
                     const dt      = this._datas[codigo];
-                    ordens.push({ codigo, qty, mes: '', dados, label: r.dados?.['Descrição']||r.dados?.['Descricao']||codigo, emissao, nop, cpv: dt?.cpv||0, data_entrega: dt?.data_entrega||null, fonte: 'op' });
+                    // Prazo: op-datas manual tem prioridade; senão usa Previsão Final do relatório ERP
+                    const prazo   = dt?.data_entrega || parseBR(r.dados?.['Prev. Final']) || null;
+                    ordens.push({ codigo, qty, mes: '', dados, label: r.dados?.['Descrição']||r.dados?.['Descricao']||codigo, emissao, nop, cpv: dt?.cpv||0, data_entrega: prazo, fonte: 'op' });
                 });
             }
         }
@@ -6311,7 +6353,34 @@ const timeline = {
     },
 
     async calcular() {
+        // Garante dados carregados do Supabase antes de checar
+        if (!banco.rawData.length) {
+            this._showEmpty('Carregando Banco de Dados...');
+            await banco.carregarHistorico().catch(() => {});
+        }
+        if (!op.rawData.length) {
+            await op.carregarHistorico().catch(() => {});
+        }
+
+        const faltando = [];
+        if (!banco.rawData.length)           faltando.push('Banco de Dados (Configuração › Banco de Dados)');
+        if (!op.rawData.length && !Object.keys(planoProducao._plano||{}).length)
+                                              faltando.push('OP ou Plano de Produção (Importação › OP)');
+        if (faltando.length) {
+            const msg = '⚠ Para calcular, importe primeiro:\n\n' + faltando.map((f,i) => `${i+1}. ${f}`).join('\n');
+            this._showEmpty(msg.replace(/\n/g,'<br>'));
+            this._selecionarAba('gantt');
+            mostrarToast('Dados necessários não importados — veja o painel abaixo.', 'erro');
+            return;
+        }
         if (!toc._feriadosCache) await toc._calcDiasUteisDoMes(new Date().toISOString().slice(0,7));
+
+        // Fonte 'plano' sem plano salvo mas com OP importada: troca automaticamente para OP
+        const fonteEl = document.getElementById('tl-fonte');
+        if (fonteEl?.value === 'plano' && !Object.keys(planoProducao._plano||{}).length && op.rawData.length) {
+            fonteEl.value = 'op';
+            mostrarToast('Sem Plano de Produção salvo — usando OP Abertas como fonte.', 'aviso');
+        }
 
         const fonte      = document.getElementById('tl-fonte')?.value || 'plano';
         const mesSel     = document.getElementById('tl-mes-sel')?.value || '';
@@ -6320,7 +6389,6 @@ const timeline = {
         const startStr   = document.getElementById('tl-start-date')?.value || new Date().toISOString().slice(0,10);
         const modo       = document.getElementById('tl-modo')?.value || 'forward';
 
-        if (!banco.rawData.length) { mostrarToast('Importe o Banco de Dados primeiro.','erro'); this._showEmpty('Banco de Dados não importado — vá em Banco de Dados e importe o arquivo.'); return; }
 
         const semanas = this._gerarSemanas(new Date(startStr+'T12:00:00'), nSemanas);
         const prioEfetiva = (modo === 'backward' && prioridade === 'fifo') ? 'edd' : prioridade;
@@ -6384,7 +6452,7 @@ const timeline = {
 
         const finishSem  = {};
         const lastFamilia = {};
-        let totalOrdens = 0, totalMinutos = 0;
+        let totalOrdens = 0, totalMinutos = 0, minutosOverflow = 0;
 
         ordens.forEach((ordem, oi) => {
             const id = `${ordem.codigo}_${oi}`;
@@ -6397,7 +6465,9 @@ const timeline = {
                 if (!tempoUn) return;
 
                 const overrideKey = `${ordem.codigo}_${pid}`;
-                const forceStart  = this._manualOverrides[overrideKey];
+                let   forceStart  = this._manualOverrides[overrideKey];
+                // Override não pode violar precedência (costura antes da tecelagem) nem cair fora do horizonte
+                if (forceStart !== undefined) forceStart = Math.min(Math.max(forceStart, anteriorFim), nSemanas - 1);
                 const familia     = this._getFamilia(ordem.dados);
                 const setupMins   = this._getSetupMins(pid, lastFamilia[pid], familia);
 
@@ -6421,6 +6491,10 @@ const timeline = {
                     }
                     if (minRestante > 0) semIdx++;
                 }
+                if (minRestante > 0) {           // não coube no horizonte
+                    ordem._overflow = true;
+                    minutosOverflow += minRestante;
+                }
                 finishSem[id][pid] = semIdx;
                 lastFamilia[pid]   = familia;
                 anteriorFim        = semIdx;
@@ -6429,9 +6503,13 @@ const timeline = {
         });
 
         const statusOrdens = this._calcStatusOrdens(ordens, finishSem, semanas);
-        this._resultado = { semanas, cap, usado, detalhe, setupUsado, ordens, finishSem, statusOrdens, totalOrdens, totalMinutos, modo };
+        this._resultado = { semanas, cap, usado, detalhe, setupUsado, ordens, finishSem, statusOrdens, totalOrdens, totalMinutos, minutosOverflow, modo };
         this._renderGantt();
         if (this._abaAtiva === 'status') this._renderStatus();
+        if (minutosOverflow > 0) {
+            const nOver = ordens.filter(o => o._overflow).length;
+            mostrarToast(`${nOver} orden${nOver>1?'s':''} (${(minutosOverflow/60).toFixed(0)}h) não couberam em ${nSemanas} semanas — aumente o horizonte.`, 'aviso');
+        }
     },
 
     _calcStatusOrdens(ordens, finishSem, semanas) {
@@ -6441,9 +6519,12 @@ const timeline = {
             const fs = finishSem[id] || {};
             const vals = Object.values(fs);
             const lastSemIdx = vals.length ? Math.max(...vals) : 0;
-            const finishDate = semanas[Math.min(lastSemIdx, semanas.length-1)]?.fim;
+            const estourou   = ordem._overflow || lastSemIdx >= semanas.length;
+            const finishDate = estourou ? null : semanas[lastSemIdx]?.fim;
             let s = 'nodate';
-            if (ordem.data_entrega && finishDate) {
+            if (estourou) {
+                s = 'overflow'; // não cabe no horizonte — sem data falsa
+            } else if (ordem.data_entrega && finishDate) {
                 const deadline = new Date(ordem.data_entrega + 'T12:00:00');
                 const diff = (deadline - finishDate) / (1000*60*60*24);
                 s = diff < 0 ? 'late' : diff < 7 ? 'risk' : 'ok';
@@ -6454,10 +6535,10 @@ const timeline = {
     },
 
     _showEmpty(msg) {
-        const wrap  = document.getElementById('tl-gantt-wrap');
-        const empty = document.getElementById('tl-empty');
-        if (wrap)  wrap.innerHTML = '';
-        if (empty) { empty.textContent = msg; empty.style.display = ''; }
+        const wrap = document.getElementById('tl-gantt-wrap');
+        if (!wrap) return;
+        // Preserva tl-empty no DOM — não limpar antes de usar a referência
+        wrap.innerHTML = `<div id="tl-empty" style="padding:32px;text-align:center;color:var(--text-dim);font-size:.85rem;line-height:1.8;">${msg}</div>`;
     },
 
     _renderGantt() {
@@ -6473,6 +6554,7 @@ const timeline = {
         const sumEl = document.getElementById('tl-summary');
         if (sumEl) {
             let txt = `${r.totalOrdens} ordens · ${(r.totalMinutos/60).toFixed(0)}h carga${r.modo==='backward'?' · EDD':''}`;
+            if (r.minutosOverflow > 0) txt += ` · <span style="color:#ff5252;font-weight:700;">${(r.minutosOverflow/60).toFixed(0)}h fora do horizonte</span>`;
             if (lateCount) txt += ` · <span style="color:#f06292;display:inline-flex;align-items:center;gap:4px;">${DOT.red} ${lateCount} atrasada${lateCount>1?'s':''}</span>`;
             if (riskCount) txt += ` · <span style="color:#ffca28;display:inline-flex;align-items:center;gap:4px;">${DOT.yellow} ${riskCount} em risco</span>`;
             sumEl.innerHTML = txt;
@@ -6522,7 +6604,7 @@ const timeline = {
                 if (!capMin || !diasU) {
                     html += `<td style="padding:8px;text-align:center;" data-proc="${proc.id}" data-sem="${si}"
                         ondragover="event.preventDefault();this.style.outline='2px dashed var(--indigo-primary)';"
-                        ondragleave="this.style.outline='';" ondrop="timeline._onDropCell(event,'${proc.id}',${si})">
+                        ondragleave="this.style.outline='';" ondrop="preactor._onDropCell(event,'${proc.id}',${si})">
                         <div style="background:repeating-linear-gradient(45deg,rgba(255,255,255,.03),rgba(255,255,255,.03) 3px,transparent 3px,transparent 9px);border-radius:6px;padding:10px 4px;border:1px solid rgba(255,255,255,.06);">
                             <div style="font-size:.65rem;color:var(--text-dim);">sem cap.</div>
                         </div></td>`;
@@ -6533,8 +6615,8 @@ const timeline = {
                 html += `<td style="padding:6px 8px;cursor:${nSkus?'pointer':'default'};"
                     data-proc="${proc.id}" data-sem="${si}"
                     ondragover="event.preventDefault();this.style.outline='2px dashed var(--indigo-primary)';"
-                    ondragleave="this.style.outline='';" ondrop="timeline._onDropCell(event,'${proc.id}',${si})"
-                    ${nSkus?`onclick="timeline._abrirDetalhe('${proc.id}',${si})"`:''}
+                    ondragleave="this.style.outline='';" ondrop="preactor._onDropCell(event,'${proc.id}',${si})"
+                    ${nSkus?`onclick="preactor._abrirDetalhe('${proc.id}',${si})"`:''}
                     title="${nSkus} SKUs · ${cargaMin.toFixed(0)}min/${capMin.toFixed(0)}min cap${setupMin?` · setup ${setupMin.toFixed(0)}min`:''}">
                     <div style="background:var(--bg-card);border-radius:6px;overflow:hidden;border:1px solid rgba(255,255,255,.07);padding:8px 10px;">
                         <div style="width:100%;height:5px;background:rgba(255,255,255,.08);border-radius:3px;margin-bottom:6px;overflow:hidden;position:relative;">
@@ -6572,19 +6654,20 @@ const timeline = {
         if (!r) { wrap.innerHTML = '<p style="color:var(--text-dim);padding:20px;">Calcule a linha do tempo primeiro.</p>'; return; }
 
         const items = Object.values(r.statusOrdens).sort((a,b) => {
-            const ord = { late:0, risk:1, ok:2, nodate:3 };
-            return (ord[a.status]||3)-(ord[b.status]||3) || (a.data_entrega||'9999').localeCompare(b.data_entrega||'9999');
+            const ord = { overflow:0, late:1, risk:2, ok:3, nodate:4 };
+            return (ord[a.status]??4)-(ord[b.status]??4) || (a.data_entrega||'9999').localeCompare(b.data_entrega||'9999');
         });
-        const icons  = { late: DOT.red, risk: DOT.yellow, ok: DOT.green, nodate: DOT.gray };
-        const labels = { late:'ATRASADO', risk:'EM RISCO', ok:'NO PRAZO', nodate:'SEM PRAZO' };
-        const colors = { late:'#f06292', risk:'#ffca28', ok:'#26a69a', nodate:'#666' };
+        const icons  = { overflow: DOT.red, late: DOT.red, risk: DOT.yellow, ok: DOT.green, nodate: DOT.gray };
+        const labels = { overflow:'> HORIZONTE', late:'ATRASADO', risk:'EM RISCO', ok:'NO PRAZO', nodate:'SEM PRAZO' };
+        const colors = { overflow:'#ff5252', late:'#f06292', risk:'#ffca28', ok:'#26a69a', nodate:'#666' };
+        const vc = items.filter(s=>s.status==='overflow').length;
         const lc = items.filter(s=>s.status==='late').length;
         const rc = items.filter(s=>s.status==='risk').length;
         const oc = items.filter(s=>s.status==='ok').length;
         const nc = items.filter(s=>s.status==='nodate').length;
 
         let html = `<div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
-            ${[['#f06292',lc,'ATRASADAS'],['#ffca28',rc,'EM RISCO'],['#26a69a',oc,'NO PRAZO'],['#666',nc,'SEM PRAZO']].map(([c,n,l])=>`
+            ${[...(vc?[['#ff5252',vc,'> HORIZONTE']]:[]),['#f06292',lc,'ATRASADAS'],['#ffca28',rc,'EM RISCO'],['#26a69a',oc,'NO PRAZO'],['#666',nc,'SEM PRAZO']].map(([c,n,l])=>`
             <div style="background:${c}18;border:1px solid ${c}44;border-radius:8px;padding:12px 20px;min-width:120px;text-align:center;">
                 <div style="font-size:1.5rem;font-weight:800;color:${c};">${n}</div>
                 <div style="font-size:.7rem;color:${c};letter-spacing:.07em;">${l}</div>
@@ -6610,8 +6693,11 @@ const timeline = {
                 <td style="padding:9px 14px;font-weight:600;color:var(--indigo-primary);">${escHTML(item.codigo)}</td>
                 <td style="padding:9px 14px;">${escHTML((item.label||'').slice(0,30))}</td>
                 <td style="padding:9px 14px;text-align:right;">${item.qty.toLocaleString('pt-BR')}</td>
-                <td style="padding:9px 14px;text-align:center;color:${cor};">${item.data_entrega?new Date(item.data_entrega+'T12:00:00').toLocaleDateString('pt-BR'):'—'}</td>
-                <td style="padding:9px 14px;text-align:center;color:${cor};">${finishStr?new Date(finishStr+'T12:00:00').toLocaleDateString('pt-BR'):'—'}</td>
+                <td style="padding:4px 14px;text-align:center;">
+                    <input type="date" value="${item.data_entrega||''}" onchange="preactor._salvarPrazo('${escHTML(item.codigo)}', this.value)"
+                        title="Definir/ajustar prazo de entrega deste código"
+                        style="padding:4px 6px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:5px;color:${item.data_entrega?cor:'var(--text-dim)'};font-size:.75rem;"></td>
+                <td style="padding:9px 14px;text-align:center;color:${cor};">${item.status==='overflow'?`> SEM ${r.semanas.length}`:finishStr?new Date(finishStr+'T12:00:00').toLocaleDateString('pt-BR'):'—'}</td>
                 <td style="padding:9px 14px;text-align:center;font-size:.7rem;color:${item.fonte==='op'?'#ffca28':'#26c6da'};">${item.fonte==='op'?'OP':'PLANO'}</td>
             </tr>`;
         });
@@ -6619,27 +6705,35 @@ const timeline = {
         wrap.innerHTML = html;
     },
 
+    // Grava prazo de entrega de um código (aba Status) e recalcula
+    async _salvarPrazo(codigo, valor) {
+        const resp = await api.post('/api/op-datas/bulk', { items: [{ codigo, data_entrega: valor || null, cpv: this._datas[codigo]?.cpv || 0 }] });
+        if (!resp?.ok) { mostrarToast('Erro ao salvar prazo — tente novamente.', 'erro'); return; }
+        this._datas[codigo] = { ...(this._datas[codigo]||{}), data_entrega: valor || null };
+        mostrarToast(`Prazo de ${codigo} ${valor ? 'salvo: ' + new Date(valor+'T12:00:00').toLocaleDateString('pt-BR') : 'removido'}.`, 'ok');
+        this.calcular();
+    },
+
     _renderSetupMatrix() {
         const wrap = document.getElementById('tl-pan-config');
         if (!wrap) return;
-        const familias = [...new Set(banco.rawData.map(r => {
-            const d = r.dados || {};
-            return String(d['Segmento']||d['segmento']||d['Família']||d['Familia']||d['familia']||'').toLowerCase().trim();
-        }).filter(Boolean))].sort();
+        const familias = [...new Set(banco.rawData.map(r => this._getCampoFamilia(r.dados)).filter(Boolean))].sort();
 
         if (!familias.length) {
-            wrap.innerHTML = `<div style="padding:20px;color:var(--text-dim);">Importe o Banco de Dados para configurar a matriz de setup.</div>`;
+            wrap.innerHTML = `<div style="padding:20px;color:var(--text-dim);">${banco.rawData.length
+                ? 'O Banco de Dados não tem coluna "Segmento" ou "Família" — adicione-a para configurar a matriz de setup.'
+                : 'Importe o Banco de Dados para configurar a matriz de setup.'}</div>`;
             return;
         }
         const procLabels = toc._PROCS.filter(p => this._SEQ.includes(p.id));
         wrap.innerHTML = `
         <div class="s-label" style="margin-bottom:12px;">MATRIZ DE SETUP / CHANGEOVER (minutos)</div>
         <p style="font-size:.78rem;color:var(--text-dim);margin-bottom:16px;">Tempo de troca ao mudar DE família (linha) PARA família (coluna) em cada processo.</p>
-        <select id="tl-setup-proc" onchange="timeline._renderSetupGrid()" style="padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;margin-bottom:16px;">
+        <select id="tl-setup-proc" onchange="preactor._renderSetupGrid()" style="padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;margin-bottom:16px;">
             ${procLabels.map(p=>`<option value="${p.id}">${p.nome}</option>`).join('')}
         </select>
         <div id="tl-setup-grid" style="overflow-x:auto;"></div>
-        <button onclick="timeline.salvarSetupMatrix()" style="margin-top:16px;padding:10px 24px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.85rem;font-weight:700;cursor:pointer;">SALVAR MATRIZ</button>`;
+        <button onclick="preactor.salvarSetupMatrix()" style="margin-top:16px;padding:10px 24px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.85rem;font-weight:700;cursor:pointer;">SALVAR MATRIZ</button>`;
         this._renderSetupGrid(familias);
     },
 
@@ -6647,7 +6741,7 @@ const timeline = {
         const gridEl = document.getElementById('tl-setup-grid');
         if (!gridEl) return;
         if (!familias) {
-            familias = [...new Set(banco.rawData.map(r=>{const d=r.dados||{};return String(d['Segmento']||d['segmento']||d['Família']||d['Familia']||d['familia']||'').toLowerCase().trim();}).filter(Boolean))].sort();
+            familias = [...new Set(banco.rawData.map(r => this._getCampoFamilia(r.dados)).filter(Boolean))].sort();
         }
         const procId = document.getElementById('tl-setup-proc')?.value || this._SEQ[0];
         let html = `<table style="border-collapse:collapse;font-size:.78rem;">
@@ -6686,11 +6780,11 @@ const timeline = {
         });
         const outros = this._setupMatrix.filter(r => r.processo !== procAtual);
         const todos  = [...outros, ...novosProc];
-        try {
-            await api.post('/api/setup-matrix/bulk', { items: todos });
-            this._setupMatrix = todos;
-            mostrarToast('Matriz de setup salva.', 'ok');
-        } catch(e) { mostrarToast('Erro: ' + e.message, 'erro'); }
+        // api.post não lança em erro HTTP — retorna null/objeto sem ok; checar a resposta
+        const resp = await api.post('/api/setup-matrix/bulk', { items: todos });
+        if (!resp?.ok) { mostrarToast('Erro ao salvar matriz: ' + (resp?.erro || 'falha de rede') + ' — nada foi alterado.', 'erro'); return; }
+        this._setupMatrix = todos;
+        mostrarToast('Matriz de setup salva.', 'ok');
     },
 
     _abrirDetalhe(procId, semIdx) {
@@ -6729,7 +6823,7 @@ const timeline = {
             const sIcon = so ? ({late:DOT.red,risk:DOT.yellow,ok:DOT.green,nodate:DOT.gray}[so.status]||'') : '';
             const moverOpts = r.semanas.map(s=>`<option value="${s.idx}"${s.idx===semIdx?' selected':''}>Sem ${s.idx+1} (${s.label})</option>`).join('');
             html += `<tr style="background:${i%2?'var(--bg-input)':'transparent'};"
-                draggable="true" ondragstart="timeline._onDragStart(event,'${escHTML(it.codigo)}','${procId}',${semIdx})">
+                draggable="true" ondragstart="preactor._onDragStart(event,'${escHTML(it.codigo)}','${procId}',${semIdx})">
                 <td style="padding:7px 12px;font-size:1rem;">${sIcon}</td>
                 <td style="padding:7px 12px;font-weight:600;color:var(--indigo-primary);">${escHTML(it.codigo)}</td>
                 <td style="padding:7px 12px;">${escHTML((it.label||'').slice(0,28))}</td>
@@ -6738,7 +6832,7 @@ const timeline = {
                 <td style="padding:7px 12px;text-align:right;font-weight:700;">${pct.toFixed(1)}%</td>
                 <td style="padding:7px 12px;text-align:center;font-size:.75rem;">${it.data_entrega?new Date(it.data_entrega+'T12:00:00').toLocaleDateString('pt-BR'):'—'}</td>
                 <td style="padding:7px 12px;text-align:center;">
-                    <select onchange="timeline._moverOrdem('${escHTML(it.codigo)}','${procId}',this.value)"
+                    <select onchange="preactor._moverOrdem('${escHTML(it.codigo)}','${procId}',this.value)"
                         style="font-size:.72rem;padding:3px 6px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:5px;color:var(--text-primary);">
                         ${moverOpts}
                     </select>
@@ -6757,13 +6851,26 @@ const timeline = {
         this._manualOverrides[key] = parseInt(novaSemIdx);
         localStorage.setItem('tl_manual', JSON.stringify(this._manualOverrides));
         document.getElementById('tl-detalhe').style.display = 'none';
+        mostrarToast(`${codigo} movido para SEM ${parseInt(novaSemIdx)+1} — plano recalculado. LIMPAR MANUAL desfaz.`, 'ok');
+        this._atualizarBadgeManual();
         this.calcular();
+    },
+
+    // Badge no botão LIMPAR MANUAL: torna visível que existem sobreposições ativas
+    _atualizarBadgeManual() {
+        const btn = document.querySelector('button[onclick="preactor.limparOverrides()"]');
+        if (!btn) return;
+        const n = Object.keys(this._manualOverrides).length;
+        btn.textContent = n ? `LIMPAR MANUAL (${n})` : 'LIMPAR MANUAL';
+        btn.style.borderColor = n ? 'var(--indigo-primary)' : 'rgba(255,255,255,.2)';
+        btn.style.color       = n ? 'var(--indigo-primary)' : 'var(--text-dim)';
     },
 
     limparOverrides() {
         this._manualOverrides = {};
         localStorage.removeItem('tl_manual');
         mostrarToast('Sobreposições manuais removidas.', 'ok');
+        this._atualizarBadgeManual();
         if (this._resultado) this.calcular();
     },
 
@@ -6789,7 +6896,7 @@ const timeline = {
         let html = `<div style="display:flex;gap:12px;align-items:center;margin-bottom:20px;">
             <input id="tl-cen-nome" placeholder="Nome do cenário (ex: Com OEE 80%, prioridade CPV)"
                 style="flex:1;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.85rem;">
-            <button onclick="timeline.salvarCenario()" style="padding:10px 20px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.82rem;font-weight:700;cursor:pointer;white-space:nowrap;">SALVAR ATUAL</button>
+            <button onclick="preactor.salvarCenario()" style="padding:10px 20px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.82rem;font-weight:700;cursor:pointer;white-space:nowrap;">SALVAR ATUAL</button>
         </div>`;
         if (!this._cenarios.length) {
             html += `<div style="color:var(--text-dim);font-size:.85rem;text-align:center;padding:20px;">Nenhum cenário salvo. Configure e calcule a linha do tempo, depois salve como cenário para comparar.</div>`;
@@ -6815,8 +6922,8 @@ const timeline = {
                     <td style="padding:10px 14px;text-align:center;font-size:.75rem;color:var(--text-dim);">${cfg.modo==='backward'?'Reversa (EDD)':'Progressiva'}</td>
                     <td style="padding:10px 14px;text-align:center;font-size:.75rem;color:var(--text-dim);">${dt}</td>
                     <td style="padding:10px 14px;text-align:center;">
-                        <button onclick="timeline._aplicarCenario('${c.id}')" style="padding:4px 10px;border-radius:5px;border:1px solid var(--indigo-primary);background:transparent;color:var(--indigo-primary);font-size:.75rem;cursor:pointer;margin-right:6px;">APLICAR</button>
-                        <button onclick="timeline._deletarCenario('${c.id}')" style="padding:4px 10px;border-radius:5px;border:1px solid rgba(240,98,146,.4);background:transparent;color:#f06292;font-size:.75rem;cursor:pointer;">EXCLUIR</button>
+                        <button onclick="preactor._aplicarCenario('${c.id}')" style="padding:4px 10px;border-radius:5px;border:1px solid var(--indigo-primary);background:transparent;color:var(--indigo-primary);font-size:.75rem;cursor:pointer;margin-right:6px;">APLICAR</button>
+                        <button onclick="preactor._deletarCenario('${c.id}')" style="padding:4px 10px;border-radius:5px;border:1px solid rgba(240,98,146,.4);background:transparent;color:#f06292;font-size:.75rem;cursor:pointer;">EXCLUIR</button>
                     </td>
                 </tr>`;
             });
@@ -9811,7 +9918,7 @@ const clientesDash = {
         const map = {};
         (cliente.rawData||[]).forEach(r => {
             const d    = r.dados||{};
-            const nome = String(d[cliente._colCliente]||'').trim().toUpperCase() || '(SEM CLIENTE)';
+            const nome = String(d[cliente._colDesc]||d[cliente._colCliente]||'').trim().toUpperCase() || '(SEM DESCRIÇÃO)';
             const data = String(d[cliente._colData]||'').trim();
             const qtd  = this._toNum(d[cliente._colQtd]);
             const val  = this._toNum(d[cliente._colValTotal]);
@@ -9884,7 +9991,7 @@ const clientesDash = {
         (cliente.rawData||[]).forEach(r => {
             const [dd,mm,yy] = String(r.dados?.[cliente._colData]||'').split('/');
             if (yy) { anos.add(yy); meses.add(mm?.padStart(2,'0')); dias.add(dd?.padStart(2,'0')); }
-            const n = String(r.dados?.[cliente._colCliente]||'').trim().toUpperCase() || '(SEM CLIENTE)';
+            const n = String(r.dados?.[cliente._colDesc]||r.dados?.[cliente._colCliente]||'').trim().toUpperCase() || '(SEM DESCRIÇÃO)';
             nomes.add(n);
         });
         // Botões de ano
@@ -9925,7 +10032,7 @@ const clientesDash = {
         const cliSel = document.getElementById('cli-filtro-cliente');
         if (cliSel) {
             const cur = cliSel.value;
-            cliSel.innerHTML = '<option value="">Todos os clientes</option>';
+            cliSel.innerHTML = '<option value="">Todas as descrições</option>';
             [...nomes].sort().forEach(n => { const o=document.createElement('option'); o.value=n; o.textContent=n; cliSel.appendChild(o); });
             if (cur && [...nomes].includes(cur)) cliSel.value = cur;
         }
@@ -10003,7 +10110,7 @@ const clientesDash = {
         if (!sel) return;
         const cur = sel.value;
         const sorted = [...rows].sort((a,b) => b.valor - a.valor);
-        sel.innerHTML = '<option value="">Todos os clientes</option>' +
+        sel.innerHTML = '<option value="">Todas as descrições</option>' +
             sorted.slice(0,50).map(r=>`<option value="${r.nome}"${r.nome===cur?' selected':''}>${r.nome}</option>`).join('');
     },
 
@@ -10021,7 +10128,7 @@ const clientesDash = {
         const busFiltro = (document.getElementById('cli-filtro-busca')?.value||'').toLowerCase().trim();
         (cliente.rawData||[]).forEach(r => {
             const d    = r.dados||{};
-            const nome = String(d[cliente._colCliente]||'').trim().toUpperCase() || '(SEM CLIENTE)';
+            const nome = String(d[cliente._colDesc]||d[cliente._colCliente]||'').trim().toUpperCase() || '(SEM DESCRIÇÃO)';
             if (selCli && nome !== selCli) return;
             if (cliFiltro && nome !== cliFiltro) return;
             if (busFiltro && !nome.toLowerCase().includes(busFiltro)) return;
