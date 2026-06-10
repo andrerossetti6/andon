@@ -3777,13 +3777,15 @@ function criarModuloArq(id, nomeApi) {
         },
 
         render() {
+            const table = document.getElementById(`${id}-table`);
+            if (!table) return; // módulo sem UI no HTML (ex: calendario)
             const total = this.rawData.length, filt = this.filtered.length;
             const qtd = this._colQtd ? this.filtered.reduce((s,r) => s+(parseFloat(String(r.dados?.[this._colQtd]??'0').replace(',','.'))||0),0) : 0;
-            document.getElementById(`${id}-total`).textContent     = total.toLocaleString('pt-BR');
-            document.getElementById(`${id}-qtd`).textContent       = this._colQtd ? qtd.toLocaleString('pt-BR') : '—';
-            document.getElementById(`${id}-filtrados`).textContent = filt.toLocaleString('pt-BR');
-            document.getElementById(`${id}-count`).textContent     = `${filt.toLocaleString('pt-BR')} registros${filt>2000?' (exibindo 2000)':''}`;
-            const table = document.getElementById(`${id}-table`);
+            const set = (eid, v) => { const e = document.getElementById(eid); if (e) e.textContent = v; };
+            set(`${id}-total`, total.toLocaleString('pt-BR'));
+            set(`${id}-qtd`, this._colQtd ? qtd.toLocaleString('pt-BR') : '—');
+            set(`${id}-filtrados`, filt.toLocaleString('pt-BR'));
+            set(`${id}-count`, `${filt.toLocaleString('pt-BR')} registros${filt>2000?' (exibindo 2000)':''}`);
             table.querySelector('thead tr').innerHTML = this.colunas.map(h=>`<th>${h.toUpperCase()}</th>`).join('');
             table.querySelector('tbody').innerHTML = this.filtered.slice(0,2000).map(r => {
                 const cells = this.colunas.map(h => { const v=r.dados?.[h]; return `<td>${v!==undefined&&v!==''?v:'<span style="opacity:.3">—</span>'}</td>`; }).join('');
@@ -3821,8 +3823,9 @@ function criarModuloArq(id, nomeApi) {
                     this.rawData = c.rawData; this.colunas = c.colunas || [];
                     this._currentId = c.importacaoId; this.filtered = [...this.rawData];
                     this._detectCombosCols();
-                    document.getElementById(`${id}-drop-zone`).style.display = 'none';
-                    document.getElementById(`${id}-data`).classList.add('visible');
+                    const dz = document.getElementById(`${id}-drop-zone`);
+                    if (dz) dz.style.display = 'none';
+                    document.getElementById(`${id}-data`)?.classList.add('visible');
                     this.render(); mostrarToast(`Dados ${id} carregados do cache local`);
                 }
             }
@@ -3838,14 +3841,16 @@ function criarModuloArq(id, nomeApi) {
             this._colQtd = this.colunas.find(h => QTD_KEYS.includes(this.normalizeKey(h))) || null;
             this.filtered = [...this.rawData];
             this._detectCombosCols();
-            document.getElementById(`${id}-drop-zone`).style.display = 'none';
-            document.getElementById(`${id}-data`).classList.add('visible');
+            const dz = document.getElementById(`${id}-drop-zone`);
+            if (dz) dz.style.display = 'none';
+            document.getElementById(`${id}-data`)?.classList.add('visible');
             this.render(); this.renderHistorico();
             lsCache.salvar(nomeApi, { importacaoId: id_imp, colunas: this.colunas, rawData: this.rawData });
         },
 
         renderHistorico() {
             const wrap=document.getElementById(`${id}-history`), list=document.getElementById(`${id}-history-list`);
+            if (!wrap || !list) return; // módulo sem UI no HTML (ex: calendario) — não pode derrubar o boot
             if (!this._importacoes?.length) { wrap.style.display='none'; return; }
             wrap.style.display='block';
             list.innerHTML = this._importacoes.map(imp => {
@@ -10825,7 +10830,7 @@ const mes = {
                                 <td style="padding:7px 10px;color:#8b949e;white-space:nowrap;">${escHTML(r.emissao||'—')}</td>
                                 <td style="padding:7px 10px;color:#8b949e;white-space:nowrap;">${escHTML(r.previsao||'—')}</td>
                                 <td style="padding:7px 10px;">
-                                    <button onclick="mes.preencherFormOP(${JSON.stringify(escHTML(r.nop||''))},${JSON.stringify(escHTML(r.cod||''))},${JSON.stringify(escHTML(r.qtd||''))})"
+                                    <button onclick="mes.preencherFormOP('${escHTML(String(r.nop||'')).replace(/'/g,"\\'")}','${escHTML(String(r.cod||'')).replace(/'/g,"\\'")}',${Number(r.qtd)||0})"
                                         style="padding:4px 12px;border-radius:6px;border:none;background:var(--indigo-btn,#5c6bc0);color:#fff;font-size:.72rem;font-weight:700;cursor:pointer;white-space:nowrap;">
                                         → Apontar
                                     </button>
@@ -10963,7 +10968,7 @@ const mes = {
                 <td style="padding:7px 10px;color:#8b949e;white-space:nowrap;">${escHTML(r.emissao||'—')}</td>
                 <td style="padding:7px 10px;color:#8b949e;white-space:nowrap;">${escHTML(r.previsao||'—')}</td>
                 <td style="padding:7px 10px;">
-                    <button onclick="mes.preencherFormOP(${JSON.stringify(escHTML(r.nop||''))},${JSON.stringify(escHTML(r.cod||''))},${JSON.stringify(escHTML(r.qtd||''))})"
+                    <button onclick="mes.preencherFormOP('${escHTML(String(r.nop||'')).replace(/'/g,"\\'")}','${escHTML(String(r.cod||'')).replace(/'/g,"\\'")}',${Number(r.qtd)||0})"
                         style="padding:4px 12px;border-radius:6px;border:none;background:var(--indigo-btn,#5c6bc0);color:#fff;font-size:.72rem;font-weight:700;cursor:pointer;">
                         → Apontar
                     </button>
