@@ -4294,10 +4294,22 @@ const toc = {
         this._renderCapacidade();
         this._popularAnos();
         document.getElementById('toc-fonte-sel')?.addEventListener('change', () => {
-            const isVxe = document.getElementById('toc-fonte-sel').value === 'vxe';
-            const wrap = document.getElementById('toc-vxe-periodo-wrap');
-            if (wrap) wrap.style.display = isVxe ? '' : 'none';
+            const fonte = document.getElementById('toc-fonte-sel').value;
+            const wVxe   = document.getElementById('toc-vxe-periodo-wrap');
+            const wPlano = document.getElementById('toc-plano-mes-wrap');
+            if (wVxe)   wVxe.style.display   = fonte === 'vxe'   ? '' : 'none';
+            if (wPlano) wPlano.style.display = fonte === 'plano' ? '' : 'none';
+            if (fonte === 'plano') this._popularMesesPlano();
         });
+    },
+
+    _popularMesesPlano() {
+        const sel = document.getElementById('toc-plano-mes');
+        if (!sel) return;
+        const meses = [...new Set(Object.keys(planoProducao._plano).map(k => k.split('_')[0]))].sort();
+        const cur = sel.value;
+        sel.innerHTML = '<option value="all">Todos os meses</option>' +
+            meses.map(m => `<option value="${m}"${m === cur ? ' selected' : ''}>${m}</option>`).join('');
     },
 
     _popularAnos() {
@@ -4377,6 +4389,24 @@ const toc = {
         const fonte = document.getElementById('toc-fonte-sel')?.value || 'vxe';
         const anoSel = document.getElementById('toc-ano-sel')?.value || 'all';
 
+        if (fonte === 'plano') {
+            // Plano de Produção (S&OP) como demanda — simula gargalos do que VAI ser produzido
+            if (!Object.keys(planoProducao._plano).length) {
+                alert('Nenhum Plano de Produção salvo.\n\nVá em S&OP › Plano de Produção, gere (AUTO-SUGERIR ou Política de Estoques), edite e clique SALVAR PLANO.');
+                return null;
+            }
+            const mesSel = document.getElementById('toc-plano-mes')?.value || 'all';
+            const mapa = {};
+            Object.entries(planoProducao._plano).forEach(([k, qty]) => {
+                const [mes, ...rest] = k.split('_');
+                const cod = rest.join('_').trim().toUpperCase();
+                if (mesSel !== 'all' && mes !== mesSel) return;
+                if (cod && qty > 0) mapa[cod] = (mapa[cod] || 0) + qty;
+            });
+            if (!Object.keys(mapa).length) { alert('Plano vazio para o mês selecionado.'); return null; }
+            return mapa;
+        }
+
         if (fonte === 'vxe') {
             // Média mensal de vendas por código
             if (!vendas.rawData.length) { alert('Importe dados de Vendas primeiro.'); return null; }
@@ -4409,8 +4439,14 @@ const toc = {
         }
     },
 
-    calcular() {
+    async calcular() {
         if (!banco.rawData.length) { alert('Importe o Banco de Dados primeiro.'); return; }
+        // Fonte plano: garante plano carregado do Supabase antes de checar
+        const fonteSel = document.getElementById('toc-fonte-sel')?.value;
+        if (fonteSel === 'plano' && !Object.keys(planoProducao._plano).length) {
+            await planoProducao._loadPlanoFromDB().catch(() => {});
+            this._popularMesesPlano();
+        }
         const cap = this._saveCap();
         const demanda = this._getDemanda();
         if (!demanda) return;
@@ -4465,6 +4501,104 @@ const toc = {
 
         this._demandaAtual = demanda;
         this._renderResultado(gargalo, ordenados);
+        // Detalhamento da tecelagem por modelo Stoll (usa cadastro de máquinas do Supabase)
+        this._renderStoll(demanda, bancoMap, dias, cap).catch(e => console.error('Stoll:', e));
+    },
+
+    // ── TECELAGEM POR MODELO STOLL ───────────────────────────────
+    // Capacidade por modelo = máquinas cadastradas (Configuração › Processos) × horas/dia × OEE da máquina.
+    // Demanda por modelo = tempo de tecelagem × qty dos códigos aptos (coluna "Stoll" do Banco de Dados).
+    _maquinasTec: null,
+
+    async _loadMaquinasTecelagem() {
+        if (this._maquinasTec !== null) return this._maquinasTec;
+        const [procs, maqs] = await Promise.all([api.get('/api/processos-config'), api.get('/api/maquinas')]);
+        const tec = (procs || []).find(p => /tecel/i.test(p.nome || ''));
+        if (!tec) { this._maquinasTec = []; return []; }
+        this._maquinasTec = (maqs || []).filter(m => m.processo_id === tec.id && String(m.status || 'Ativo').toLowerCase() !== 'inativo');
+        return this._maquinasTec;
+    },
+
+    _getModeloStoll(dados) {
+        if (!dados) return '';
+        for (const k of Object.keys(dados)) {
+            if (k.trim().toLowerCase() === 'stoll') return String(dados[k] ?? '').trim();
+        }
+        return '';
+    },
+
+    async _renderStoll(demanda, bancoMap, dias, cap) {
+        const card = document.getElementById('toc-stoll-card');
+        const barras = document.getElementById('toc-stoll-barras');
+        if (!card || !barras) return;
+
+        const maquinas = await this._loadMaquinasTecelagem();
+        if (!maquinas.length) { card.style.display = 'none'; return; }
+
+        const tecProc  = this._PROCS.find(p => p.id === 'tecelagem');
+        const horasDia = (cap?.tecelagem?.horasDia) || 8;
+
+        // Capacidade por modelo: soma máquina a máquina com OEE individual
+        const capModelo = {}; // modelo → { mins, n }
+        maquinas.forEach(m => {
+            const modelo = String(m.modelo || '').trim() || '(sem modelo)';
+            const oee = Math.min(Number(m.oee) || 100, 100) / 100;
+            if (!capModelo[modelo]) capModelo[modelo] = { mins: 0, n: 0 };
+            capModelo[modelo].mins += horasDia * 60 * dias * oee;
+            capModelo[modelo].n++;
+        });
+
+        // Demanda por modelo (modelo apto do código, coluna Stoll do banco)
+        const cargaModelo = {}; // modelo → { mins, skus }
+        let semTempoOuBanco = 0;
+        Object.entries(demanda).forEach(([cod, qty]) => {
+            const dados = bancoMap[cod];
+            if (!dados) { semTempoOuBanco++; return; }
+            const tempoUn = this._getTempoMinutos(dados, tecProc.cols);
+            if (!tempoUn) return; // código sem tecelagem
+            const modelo = this._getModeloStoll(dados) || '(sem modelo)';
+            if (!cargaModelo[modelo]) cargaModelo[modelo] = { mins: 0, skus: 0 };
+            cargaModelo[modelo].mins += tempoUn * qty;
+            cargaModelo[modelo].skus++;
+        });
+
+        const modelos = [...new Set([...Object.keys(capModelo), ...Object.keys(cargaModelo)])]
+            .map(modelo => {
+                const c = capModelo[modelo] || { mins: 0, n: 0 };
+                const d = cargaModelo[modelo] || { mins: 0, skus: 0 };
+                return { modelo, capMin: c.mins, n: c.n, cargaMin: d.mins, skus: d.skus,
+                         util: c.mins > 0 ? d.mins / c.mins : (d.mins > 0 ? Infinity : 0) };
+            })
+            .filter(m => m.cargaMin > 0 || m.n > 0)
+            .sort((a, b) => (b.util === Infinity ? 1e9 : b.util) - (a.util === Infinity ? 1e9 : a.util));
+
+        if (!modelos.length) { card.style.display = 'none'; return; }
+        card.style.display = '';
+        document.getElementById('toc-stoll-sub').textContent =
+            `${maquinas.length} máquinas cadastradas · ${horasDia}h/dia × ${dias} dias`;
+
+        barras.innerHTML = modelos.map(m => {
+            if (m.util === Infinity) {
+                return `<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border-color);">
+                    <div style="width:160px;font-size:0.82rem;font-weight:700;color:#ff5252;">Stoll ${escHTML(m.modelo)}</div>
+                    <div style="flex:1;font-size:0.75rem;color:#ff5252;">⚠ ${(m.cargaMin/60).toFixed(0)}h de demanda (${m.skus} SKUs) e NENHUMA máquina deste modelo cadastrada</div>
+                </div>`;
+            }
+            const pct  = (m.util || 0) * 100;
+            const cor  = m.util >= 1 ? '#f06292' : m.util >= 0.8 ? '#ffca28' : '#26a69a';
+            const lbl  = m.util >= 1 ? 'GARGALO' : m.util >= 0.8 ? 'ATENÇÃO' : 'OK';
+            const barW = Math.min(pct / 1.5, 100);
+            return `<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border-color);">
+                <div style="width:160px;font-size:0.82rem;font-weight:600;color:var(--text-primary);">Stoll ${escHTML(m.modelo)}
+                    <span style="font-size:0.68rem;color:var(--text-dim);font-weight:400;">· ${m.n} máq</span></div>
+                <div style="flex:1;height:10px;background:var(--bg-input);border-radius:5px;overflow:hidden;">
+                    <div style="width:${barW}%;height:100%;background:${cor};border-radius:5px;transition:width .5s;"></div>
+                </div>
+                <div style="width:60px;text-align:right;font-size:0.82rem;font-weight:700;color:${cor};">${pct.toFixed(0)}%</div>
+                <div style="width:70px;text-align:right;font-size:0.7rem;color:${cor};font-weight:700;">${lbl}</div>
+                <div style="width:110px;text-align:right;font-size:0.72rem;color:var(--text-dim);">${(m.cargaMin/60).toFixed(0)}h / ${(m.capMin/60).toFixed(0)}h · ${m.skus} SKUs</div>
+            </div>`;
+        }).join('');
     },
 
     _renderResultado(gargalo, procs) {
@@ -5188,10 +5322,56 @@ const planoProducao = {
     _estMin:   {},  // `${cod}` → qty mínima — salvo no banco
     _dirty:    new Set(),
     _dirtyMin: new Set(),
+    _versoes:  [],
+    _versaoSel: '',
+    _versaoPlano: {},  // `${mes}_${cod}` → qty da versão congelada selecionada
 
     async init() {
         document.getElementById('plano-search')?.addEventListener('input', () => this._renderTabela());
         await Promise.all([this._loadPlanoFromDB(), this._loadEstMinFromDB()]);
+        this._loadVersoes().catch(() => {});
+    },
+
+    // ── Versões congeladas (comparação) ──────────────────────
+    async congelar() {
+        await this.salvar(); // congela o que está salvo — garante consistência
+        if (!Object.values(this._plano).some(q => q > 0)) { mostrarToast('Plano vazio — preencha e salve antes de congelar.', 'erro'); return; }
+        const label = prompt('Nome da versão (ex: "Plano Junho aprovado"):', `Plano ${new Date().toLocaleDateString('pt-BR')}`);
+        if (label === null) return;
+        const resp = await api.post('/api/plano-versao/congelar', { label: label.trim() });
+        if (!resp?.ok) {
+            const erro = resp?.erro || 'falha de rede';
+            mostrarToast(/plano_versao|PGRST|schema/i.test(erro)
+                ? 'Tabela de versões não existe ainda — abra localhost:3000/setup, copie o SQL e rode no Supabase.'
+                : 'Erro ao congelar: ' + erro, 'erro');
+            return;
+        }
+        mostrarToast(`❄ Versão congelada: ${resp.total} itens.`, 'ok');
+        await this._loadVersoes();
+    },
+
+    async _loadVersoes() {
+        const lista = await api.get('/api/plano-versao/lista');
+        this._versoes = lista || [];
+        const sel = document.getElementById('plano-versao-sel');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">Comparar com versão...</option>' +
+            this._versoes.map(v => {
+                const d = new Date(v.criado_em).toLocaleDateString('pt-BR', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' });
+                return `<option value="${v.versao}"${v.versao === this._versaoSel ? ' selected' : ''}>${escHTML(v.label || 'Versão')} — ${d}</option>`;
+            }).join('');
+    },
+
+    async carregarVersao(versao) {
+        this._versaoSel = versao || '';
+        this._versaoPlano = {};
+        if (versao) {
+            const rows = await api.get(`/api/plano-versao?versao=${encodeURIComponent(versao)}`);
+            (rows || []).forEach(r => { this._versaoPlano[`${r.mes}_${r.codigo}`] = r.quantidade; });
+        }
+        const th = document.getElementById('plano-th-congelado');
+        if (th) th.style.display = versao ? '' : 'none';
+        this._renderTabela();
     },
 
     async _loadPlanoFromDB() {
@@ -5343,6 +5523,14 @@ const planoProducao = {
                         onchange="planoProducao.setEstMin('${r.codigo}',parseInt(this.value)||0)">
                 </td>
                 <td style="padding:6px 10px;text-align:right;color:var(--indigo-primary);font-weight:600;">${r.sugerido.toLocaleString('pt-BR')}</td>
+                ${this._versaoSel ? (() => {
+                    const cong = this._versaoPlano[`${this._mesSel}_${r.codigo}`];
+                    const atual = Number(r.planejado) || 0;
+                    if (cong === undefined) return `<td style="padding:6px 10px;text-align:right;color:var(--text-dim);">—</td>`;
+                    const diff = atual - cong;
+                    const dTxt = diff === 0 ? '' : ` <span style="font-size:.68rem;color:${diff > 0 ? '#26a69a' : '#f06292'};">(${diff > 0 ? '+' : ''}${diff.toLocaleString('pt-BR')})</span>`;
+                    return `<td style="padding:6px 10px;text-align:right;color:#26c6da;font-weight:600;">${cong.toLocaleString('pt-BR')}${dTxt}</td>`;
+                })() : ''}
                 <td style="padding:6px 10px;text-align:right;">
                     <input type="number" min="0" value="${r.planejado}" placeholder="${r.sugerido}"
                         style="width:80px;padding:4px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:${planCor};font-size:.82rem;font-weight:600;text-align:right;"

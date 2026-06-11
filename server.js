@@ -539,6 +539,43 @@ app.delete('/api/soep-plano/:mes', auth, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── S&OP — VERSÕES CONGELADAS DO PLANO ───────────────────────
+// Congela uma cópia do plano salvo (soep_plano) para comparação futura
+app.post('/api/plano-versao/congelar', auth, async (req, res) => {
+    const { label } = req.body || {};
+    const { data: plano, error: e1 } = await supabase.from('soep_plano').select('mes,codigo,quantidade');
+    if (e1) return res.status(500).json({ erro: e1.message });
+    const comQtd = (plano || []).filter(p => (p.quantidade || 0) > 0);
+    if (!comQtd.length) return res.status(400).json({ erro: 'Plano vazio — salve o plano antes de congelar.' });
+    const versao = new Date().toISOString();
+    const rows = comQtd.map(p => ({ versao, label: label || null, mes: p.mes, codigo: p.codigo, quantidade: p.quantidade, usuario_id: req.usuario.id }));
+    const { error } = await supabase.from('plano_versao').insert(rows);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, versao, total: rows.length });
+});
+app.get('/api/plano-versao/lista', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('plano_versao').select('versao,label,criado_em').order('criado_em', { ascending: false });
+    if (error) return res.status(500).json({ erro: error.message });
+    const vistos = new Map();
+    (data || []).forEach(r => {
+        if (!vistos.has(r.versao)) vistos.set(r.versao, { versao: r.versao, label: r.label, criado_em: r.criado_em, total: 0 });
+        vistos.get(r.versao).total++;
+    });
+    res.json([...vistos.values()]);
+});
+app.get('/api/plano-versao', auth, async (req, res) => {
+    const { versao } = req.query;
+    if (!versao) return res.status(400).json({ erro: 'versao obrigatória' });
+    const { data, error } = await supabase.from('plano_versao').select('mes,codigo,quantidade').eq('versao', versao);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.delete('/api/plano-versao/:versao', auth, adminOnly, async (req, res) => {
+    const { error } = await supabase.from('plano_versao').delete().eq('versao', req.params.versao);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
 // ── S&OP — ESTOQUE MÍNIMO POR SKU ────────────────────────────
 app.get('/api/estoque-minimo', auth, async (_req, res) => {
     const { data, error } = await supabase.from('estoque_minimo').select('codigo,quantidade');
@@ -1003,6 +1040,7 @@ app.get('/api/setup', async (_req, res) => {
         { nome: 'soep_plano',           sql: `CREATE TABLE IF NOT EXISTS soep_plano (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), mes TEXT NOT NULL, codigo TEXT NOT NULL, quantidade INTEGER DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), atualizado_em TIMESTAMPTZ DEFAULT NOW(), UNIQUE(mes,codigo)); ALTER TABLE soep_plano DISABLE ROW LEVEL SECURITY;` },
         { nome: 'estoque_minimo',       sql: `CREATE TABLE IF NOT EXISTS estoque_minimo (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), codigo TEXT NOT NULL UNIQUE, quantidade INTEGER DEFAULT 0, atualizado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE estoque_minimo DISABLE ROW LEVEL SECURITY;` },
         { nome: 'soep_snapshot',        sql: `CREATE TABLE IF NOT EXISTS soep_snapshot (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), mes TEXT NOT NULL, codigo TEXT NOT NULL, qty_prevista INTEGER DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), criado_em TIMESTAMPTZ DEFAULT NOW()); CREATE INDEX IF NOT EXISTS idx_soep_snap_mes ON soep_snapshot(mes,codigo); ALTER TABLE soep_snapshot DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'plano_versao',         sql: `CREATE TABLE IF NOT EXISTS plano_versao (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), versao TEXT NOT NULL, label TEXT, mes TEXT NOT NULL, codigo TEXT NOT NULL, quantidade INTEGER DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), criado_em TIMESTAMPTZ DEFAULT NOW()); CREATE INDEX IF NOT EXISTS idx_plano_versao ON plano_versao(versao); ALTER TABLE plano_versao DISABLE ROW LEVEL SECURITY;` },
         { nome: 'op_datas',             sql: `CREATE TABLE IF NOT EXISTS op_datas (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nop TEXT, codigo TEXT NOT NULL, data_entrega DATE, cpv NUMERIC(14,2) DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), atualizado_em TIMESTAMPTZ DEFAULT NOW(), UNIQUE(codigo)); ALTER TABLE op_datas DISABLE ROW LEVEL SECURITY;` },
         { nome: 'setup_matrix',         sql: `CREATE TABLE IF NOT EXISTS setup_matrix (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), processo TEXT NOT NULL, familia_de TEXT NOT NULL, familia_para TEXT NOT NULL, minutos INTEGER DEFAULT 0); ALTER TABLE setup_matrix DISABLE ROW LEVEL SECURITY;` },
         { nome: 'timeline_cenario',     sql: `CREATE TABLE IF NOT EXISTS timeline_cenario (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome TEXT NOT NULL, config JSONB DEFAULT '{}', resultado JSONB DEFAULT '{}', usuario_id UUID REFERENCES usuarios(id), criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE timeline_cenario DISABLE ROW LEVEL SECURITY;` },
