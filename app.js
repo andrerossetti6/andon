@@ -4292,6 +4292,7 @@ const toc = {
 
     init() {
         this._renderCapacidade();
+        this._loadCapConfig().catch(() => {}); // re-renderiza a capacidade quando o servidor responder
         this._popularAnos();
         document.getElementById('toc-fonte-sel')?.addEventListener('change', () => {
             const fonte = document.getElementById('toc-fonte-sel').value;
@@ -4321,22 +4322,85 @@ const toc = {
             anos.map(a => `<option value="${a}"${a === cur ? ' selected' : ''}>${a}</option>`).join('');
     },
 
+    // Fonte única de capacidade: servidor (capacidade_config) > derivado do cadastro de máquinas > localStorage > default.
+    // localStorage é apenas cache offline — cada navegador via valores diferentes antes disso.
+    _capCache:  null,
+    _capOrigem: {},
+
+    async _loadCapConfig() {
+        const [config, procs, maqs] = await Promise.all([
+            api.get('/api/capacidade-config'),
+            api.get('/api/processos-config'),
+            api.get('/api/maquinas'),
+        ]);
+        const serverCfg = {};
+        (config || []).forEach(r => { serverCfg[r.processo] = { maquinas: Number(r.maquinas)||1, horasDia: Number(r.horas_dia)||8, oee: Number(r.oee)||100 }; });
+
+        // Derivação do cadastro: postos = Σ(n_pessoas||1) das máquinas ativas; OEE = média das máquinas
+        const porPid = {};
+        if (procs?.length && maqs?.length) {
+            const pidDe = {};
+            procs.forEach(p => { const pid = preactor._procTextoParaId(p.nome); if (pid) pidDe[p.id] = pid; });
+            maqs.filter(m => String(m.status||'Ativo').toLowerCase() !== 'inativo').forEach(m => {
+                const pid = pidDe[m.processo_id];
+                if (!pid) return;
+                if (!porPid[pid]) porPid[pid] = { postos: 0, oees: [] };
+                porPid[pid].postos += Math.max(Number(m.n_pessoas) || 1, 1);
+                if (m.oee != null) porPid[pid].oees.push(Number(m.oee));
+            });
+        }
+
+        let lsCap = {};
+        try { lsCap = JSON.parse(localStorage.getItem('toc-cap') || '{}'); } catch {}
+
+        const cache = {}, origem = {};
+        this._PROCS.forEach(p => {
+            if (serverCfg[p.id]) { cache[p.id] = serverCfg[p.id]; origem[p.id] = 'servidor'; return; }
+            const d = porPid[p.id];
+            if (d) {
+                const oeeMed = d.oees.length ? d.oees.reduce((s,o)=>s+o,0)/d.oees.length : 100;
+                cache[p.id] = { maquinas: d.postos, horasDia: lsCap[p.id]?.horasDia || 8, oee: Math.round(oeeMed) };
+                origem[p.id] = 'cadastro';
+                return;
+            }
+            if (lsCap[p.id]) { cache[p.id] = lsCap[p.id]; origem[p.id] = 'local'; return; }
+            cache[p.id] = { maquinas: 1, horasDia: 8, oee: 100 };
+            origem[p.id] = 'padrão';
+        });
+        this._capCache  = cache;
+        this._capOrigem = origem;
+        this._renderCapacidade();
+        return cache;
+    },
+
     _getCap() {
+        if (this._capCache) return this._capCache;
         try { return JSON.parse(localStorage.getItem('toc-cap') || '{}'); } catch { return {}; }
     },
+
     _saveCap() {
         const obj = {};
         this._PROCS.forEach(p => {
             const mEl = document.getElementById(`toc-maq-${p.id}`);
             const hEl = document.getElementById(`toc-hdia-${p.id}`);
             const oEl = document.getElementById(`toc-oee-${p.id}`);
+            const atual = (this._capCache || {})[p.id] || { maquinas: 1, horasDia: 8, oee: 100 };
+            const mN = parseFloat(mEl?.value), hN = parseFloat(hEl?.value), oN = parseFloat(oEl?.value);
             obj[p.id] = {
-                maquinas: parseFloat(mEl?.value) || 1,
-                horasDia: parseFloat(hEl?.value) || 8,
-                oee: parseFloat(oEl?.value) || 100,
+                maquinas: Number.isFinite(mN) ? mN : atual.maquinas, // aceita 0 = processo desativado
+                horasDia: Number.isFinite(hN) && hN > 0 ? hN : atual.horasDia,
+                oee:      Number.isFinite(oN) && oN > 0 ? oN : atual.oee,
             };
         });
+        this._capCache = obj;
+        this._PROCS.forEach(p => { this._capOrigem[p.id] = 'servidor'; });
         localStorage.setItem('toc-cap', JSON.stringify(obj));
+        // Persiste no servidor — fonte única para todos os navegadores/usuários
+        api.post('/api/capacidade-config/bulk', {
+            items: this._PROCS.map(p => ({ processo: p.id, maquinas: obj[p.id].maquinas, horas_dia: obj[p.id].horasDia, oee: obj[p.id].oee })),
+        }).then(r => {
+            if (!r?.ok) mostrarToast('Capacidade salva só neste navegador — tabela capacidade_config não existe (rode o /setup).', 'aviso');
+        }).catch(() => {});
         return obj;
     },
 
@@ -4344,10 +4408,14 @@ const toc = {
         const grid = document.getElementById('toc-cap-grid');
         if (!grid) return;
         const cap = this._getCap();
+        const CORES_ORIGEM = { servidor: '#26a69a', cadastro: '#26c6da', local: '#ffca28', 'padrão': '#f06292' };
         grid.innerHTML = this._PROCS.map(p => {
             const c = cap[p.id] || { maquinas: 1, horasDia: 8, oee: 100 };
+            const org = this._capOrigem[p.id];
+            const badge = org ? `<span title="Origem do valor: ${org === 'cadastro' ? 'derivado do cadastro de máquinas (Configuração › Processos)' : org === 'servidor' ? 'configuração salva no servidor' : org === 'local' ? 'apenas deste navegador — clique CALCULAR para salvar no servidor' : 'valor padrão — configure e calcule para salvar'}"
+                style="font-size:.58rem;font-weight:700;letter-spacing:.05em;color:${CORES_ORIGEM[org]};border:1px solid ${CORES_ORIGEM[org]}55;border-radius:4px;padding:1px 5px;">${org.toUpperCase()}</span>` : '';
             return `<div style="display:flex;flex-direction:column;gap:8px;padding:10px 14px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-color);">
-                <span style="font-size:0.82rem;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${p.nome}">${p.nome}</span>
+                <span style="display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:0.82rem;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${p.nome}">${p.nome} ${badge}</span>
                 <div style="display:flex;align-items:center;gap:6px;">
                     <input id="toc-maq-${p.id}" type="number" value="${c.maquinas}" min="0" step="0.5"
                         style="width:48px;padding:4px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.8rem;text-align:center;"
@@ -4441,6 +4509,7 @@ const toc = {
 
     async calcular() {
         if (!banco.rawData.length) { alert('Importe o Banco de Dados primeiro.'); return; }
+        if (!this._capCache) await this._loadCapConfig().catch(() => {});
         // Fonte plano: garante plano carregado do Supabase antes de checar
         const fonteSel = document.getElementById('toc-fonte-sel')?.value;
         if (fonteSel === 'plano' && !Object.keys(planoProducao._plano).length) {
@@ -4462,8 +4531,8 @@ const toc = {
 
         // Calcula carga por processo
         const resultados = this._PROCS.map(p => {
-            const capP = cap[p.id] || { maquinas: 1, horasDia: 8 };
-            const capMin = capP.maquinas * capP.horasDia * 60 * dias;
+            const capP = cap[p.id] || { maquinas: 1, horasDia: 8, oee: 100 };
+            const capMin = capP.maquinas * capP.horasDia * 60 * dias * (Math.min(capP.oee || 100, 100) / 100);
             let cargaMin = 0;
             const topPecas = [];
 
@@ -4677,8 +4746,8 @@ const toc = {
         });
 
         const resultados = this._PROCS.map(p => {
-            const capP   = cap[p.id] || { maquinas: 1, horasDia: 8 };
-            const capMin = capP.maquinas * capP.horasDia * 60 * dias;
+            const capP   = cap[p.id] || { maquinas: 1, horasDia: 8, oee: 100 };
+            const capMin = capP.maquinas * capP.horasDia * 60 * dias * (Math.min(capP.oee || 100, 100) / 100);
             let cargaMin = 0;
             Object.entries(this._demandaAtual).forEach(([cod, qty]) => {
                 const dados = bancoMap[String(cod).toUpperCase()];
@@ -4884,8 +4953,8 @@ toc.calcularComDemanda = function(demandaMap, diasUteis) {
         if (cod) bancoMap[cod] = r.dados;
     });
     return this._PROCS.map(p => {
-        const capP   = cap[p.id] || { maquinas: 1, horasDia: 8 };
-        const capMin = capP.maquinas * capP.horasDia * 60 * dias;
+        const capP   = cap[p.id] || { maquinas: 1, horasDia: 8, oee: 100 };
+        const capMin = capP.maquinas * capP.horasDia * 60 * dias * (Math.min(capP.oee || 100, 100) / 100);
         let cargaMin = 0;
         Object.entries(demandaMap).forEach(([cod, qty]) => {
             const dados = bancoMap[String(cod).toUpperCase()];
@@ -6567,6 +6636,7 @@ const preactor = {
             return;
         }
         if (!toc._feriadosCache) await toc._calcDiasUteisDoMes(new Date().toISOString().slice(0,7));
+        if (!toc._capCache) await toc._loadCapConfig().catch(() => {}); // capacidade central (servidor/cadastro)
 
         // Fonte 'plano' sem plano salvo mas com OP importada: troca automaticamente para OP
         const fonteEl = document.getElementById('tl-fonte');
@@ -6643,6 +6713,22 @@ const preactor = {
             });
         }
 
+        // Desconto da produção apontada no MES (por OP+processo; apontamentos sem OP descontam por código)
+        const descMes = document.getElementById('tl-desc-mes')?.checked ?? true;
+        let apontadoOp = {}, apontadoCod = {}, minutosProduzidos = 0;
+        if (descMes) {
+            const aps = await this._loadApontamentos();
+            aps.forEach(a => {
+                const pid = this._procTextoParaId(a.processo);
+                const qtd = Number(a.qtd_produzida) || 0;
+                if (!pid || qtd <= 0) return;
+                const cod = String(a.cod || '').trim().toUpperCase();
+                const nop = String(a.op_numero || '').trim();
+                if (nop) apontadoOp[`${nop}|${pid}`] = (apontadoOp[`${nop}|${pid}`] || 0) + qtd;
+                else if (cod) apontadoCod[`${cod}|${pid}`] = (apontadoCod[`${cod}|${pid}`] || 0) + qtd;
+            });
+        }
+
         const finishSem  = {};
         const lastFamilia = {};
         let totalOrdens = 0, totalMinutos = 0, minutosOverflow = 0;
@@ -6657,6 +6743,28 @@ const preactor = {
                 const tempoUn = this._getTempoProc(ordem.dados, pid);
                 if (!tempoUn) return;
 
+                // Quantidade restante = planejada − já produzida neste processo (MES)
+                let qtyRest = ordem.qty;
+                if (descMes) {
+                    const nop = String(ordem.nop || '').trim();
+                    if (nop && apontadoOp[`${nop}|${pid}`] > 0) {
+                        const usa = Math.min(qtyRest, apontadoOp[`${nop}|${pid}`]);
+                        qtyRest -= usa;
+                    }
+                    const ck = `${ordem.codigo}|${pid}`;
+                    if (qtyRest > 0 && apontadoCod[ck] > 0) {
+                        const usa = Math.min(qtyRest, apontadoCod[ck]);
+                        qtyRest -= usa;
+                        apontadoCod[ck] -= usa; // pool por código é consumido entre ordens
+                    }
+                    minutosProduzidos += tempoUn * (ordem.qty - qtyRest);
+                }
+                if (qtyRest <= 0) {
+                    // Processo já concluído no chão de fábrica — não ocupa capacidade nem atrasa a cadeia
+                    finishSem[id][pid] = anteriorFim;
+                    return;
+                }
+
                 const overrideKey = `${ordem.codigo}_${pid}`;
                 let   forceStart  = this._manualOverrides[overrideKey];
                 // Override não pode violar precedência (costura antes da tecelagem) nem cair fora do horizonte
@@ -6664,7 +6772,7 @@ const preactor = {
                 const familia     = this._getFamilia(ordem.dados);
                 const setupMins   = this._getSetupMins(pid, lastFamilia[pid], familia);
 
-                let minRestante = tempoUn * ordem.qty;
+                let minRestante = tempoUn * qtyRest;
                 totalMinutos   += minRestante;
                 let semIdx = forceStart !== undefined ? forceStart : Math.max(anteriorFim, firstAvailSem[id] || 0);
 
@@ -6679,7 +6787,7 @@ const preactor = {
                     if (disp > 0) {
                         const alocado = Math.min(minRestante, disp);
                         usado[pid][semIdx] += alocado;
-                        detalhe[pid][semIdx].push({ codigo: ordem.codigo, label: ordem.label, qty: ordem.qty, mins: alocado, fonte: ordem.fonte, data_entrega: ordem.data_entrega, cpv: ordem.cpv });
+                        detalhe[pid][semIdx].push({ codigo: ordem.codigo, label: ordem.label, qty: qtyRest, nop: ordem.nop || '', mins: alocado, fonte: ordem.fonte, data_entrega: ordem.data_entrega, cpv: ordem.cpv });
                         minRestante -= alocado;
                     }
                     if (minRestante > 0) semIdx++;
@@ -6696,13 +6804,31 @@ const preactor = {
         });
 
         const statusOrdens = this._calcStatusOrdens(ordens, finishSem, semanas);
-        this._resultado = { semanas, cap, usado, detalhe, setupUsado, ordens, finishSem, statusOrdens, totalOrdens, totalMinutos, minutosOverflow, modo };
+        this._resultado = { semanas, cap, usado, detalhe, setupUsado, ordens, finishSem, statusOrdens, totalOrdens, totalMinutos, minutosOverflow, minutosProduzidos, modo };
         this._renderGantt();
         if (this._abaAtiva === 'status') this._renderStatus();
         if (minutosOverflow > 0) {
             const nOver = ordens.filter(o => o._overflow).length;
             mostrarToast(`${nOver} orden${nOver>1?'s':''} (${(minutosOverflow/60).toFixed(0)}h) não couberam em ${nSemanas} semanas — aumente o horizonte.`, 'aviso');
         }
+    },
+
+    // ── MES → desconto de produção apontada ──────────────────────
+    async _loadApontamentos() {
+        const data = await api.get('/api/mes/apontamentos');
+        return data || [];
+    },
+
+    // Mapeia o nome livre do processo do MES (cadastro) para o id fixo da sequência
+    _procTextoParaId(txt) {
+        const n = String(txt || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+        if (n.includes('tecel'))    return 'tecelagem';
+        if (n.includes('costura'))  return n.includes('autom') ? 'costura_auto' : 'costura_manual';
+        if (n.includes('solda'))    return 'soldagem';
+        if (n.includes('silicone')) return 'silicone';
+        if (n.includes('passad'))   return 'passadoria';
+        if (n.includes('embal'))    return 'embalagem';
+        return null;
     },
 
     _calcStatusOrdens(ordens, finishSem, semanas) {
@@ -6747,6 +6873,7 @@ const preactor = {
         const sumEl = document.getElementById('tl-summary');
         if (sumEl) {
             let txt = `${r.totalOrdens} ordens · ${(r.totalMinutos/60).toFixed(0)}h carga${r.modo==='backward'?' · EDD':''}`;
+            if (r.minutosProduzidos > 0) txt += ` · <span style="color:#26a69a;">−${(r.minutosProduzidos/60).toFixed(0)}h já produzidas (MES)</span>`;
             if (r.minutosOverflow > 0) txt += ` · <span style="color:#ff5252;font-weight:700;">${(r.minutosOverflow/60).toFixed(0)}h fora do horizonte</span>`;
             if (lateCount) txt += ` · <span style="color:#f06292;display:inline-flex;align-items:center;gap:4px;">${DOT.red} ${lateCount} atrasada${lateCount>1?'s':''}</span>`;
             if (riskCount) txt += ` · <span style="color:#ffca28;display:inline-flex;align-items:center;gap:4px;">${DOT.yellow} ${riskCount} em risco</span>`;
@@ -6980,9 +7107,61 @@ const preactor = {
         mostrarToast('Matriz de setup salva.', 'ok');
     },
 
+    // Imprime a lista sequenciada da célula aberta (processo × semana) — vai para o quadro do setor
+    imprimirSemana() {
+        const r = this._resultado;
+        const det = this._detalheAtual;
+        if (!r || !det) { mostrarToast('Abra o detalhe de uma célula do Gantt primeiro.', 'aviso'); return; }
+        const { procId, semIdx } = det;
+        const proc   = toc._PROCS.find(p => p.id === procId);
+        const semana = r.semanas[semIdx];
+        const items  = r.detalhe[procId]?.[semIdx] || [];
+        if (!items.length) { mostrarToast('Sem itens nesta célula.', 'aviso'); return; }
+
+        const fmt = d => d ? new Date(String(d).slice(0,10)+'T12:00:00').toLocaleDateString('pt-BR') : '—';
+        const linhas = items.map((it, i) => `<tr>
+            <td>${i+1}</td>
+            <td>${it.nop ? escHTML(it.nop) : '—'}</td>
+            <td><b>${escHTML(it.codigo)}</b></td>
+            <td>${escHTML((it.label||'').slice(0,40))}</td>
+            <td style="text-align:right;">${(it.qty||0).toLocaleString('pt-BR')}</td>
+            <td style="text-align:right;">${(it.mins/60).toFixed(1)}h</td>
+            <td>${fmt(it.data_entrega)}</td>
+            <td style="width:90px;"></td>
+        </tr>`).join('');
+
+        const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<title>Programação — ${proc?.nome||procId} — Semana ${semIdx+1}</title>
+<style>
+    body{font-family:Arial,Helvetica,sans-serif;color:#111;margin:28px;}
+    h1{font-size:18px;margin:0 0 2px;} h2{font-size:14px;font-weight:400;color:#444;margin:0 0 16px;}
+    table{width:100%;border-collapse:collapse;font-size:12px;}
+    th,td{border:1px solid #999;padding:6px 8px;text-align:left;}
+    th{background:#eee;font-size:10px;letter-spacing:.05em;}
+    tfoot td{font-weight:bold;background:#f6f6f6;}
+    .meta{font-size:10px;color:#666;margin-top:14px;}
+    @media print{ body{margin:10mm;} }
+</style></head><body>
+<h1>SIGS — Programação Semanal · ${escHTML(proc?.nome||procId)}</h1>
+<h2>Semana ${semIdx+1} (${escHTML(semana.label)}) · ${items.length} itens · ${( (r.usado[procId]?.[semIdx]||0) /60).toFixed(1)}h de ${((r.cap[procId]?.[semIdx]||0)/60).toFixed(1)}h disponíveis</h2>
+<table>
+<thead><tr><th>#</th><th>OP</th><th>CÓDIGO</th><th>DESCRIÇÃO</th><th>QTD</th><th>CARGA</th><th>PRAZO</th><th>PRODUZIDO ✍</th></tr></thead>
+<tbody>${linhas}</tbody>
+</table>
+<div class="meta">Gerado em ${new Date().toLocaleString('pt-BR')} · sequência conforme prioridade do cálculo · coluna PRODUZIDO para anotação manual do líder</div>
+<script>window.onload = () => window.print();</` + `script>
+</body></html>`;
+
+        const win = window.open('', '_blank');
+        if (!win) { mostrarToast('Pop-up bloqueado — permita pop-ups para imprimir.', 'erro'); return; }
+        win.document.write(html);
+        win.document.close();
+    },
+
     _abrirDetalhe(procId, semIdx) {
         const r = this._resultado;
         if (!r) return;
+        this._detalheAtual = { procId, semIdx };
         const proc    = toc._PROCS.find(p=>p.id===procId);
         const semana  = r.semanas[semIdx];
         const items   = r.detalhe[procId]?.[semIdx] || [];

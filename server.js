@@ -576,6 +576,25 @@ app.delete('/api/plano-versao/:versao', auth, adminOnly, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── CAPACIDADE POR PROCESSO — fonte única (substitui localStorage por navegador) ──
+app.get('/api/capacidade-config', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('capacidade_config').select('processo,maquinas,horas_dia,oee');
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.post('/api/capacidade-config/bulk', auth, async (req, res) => {
+    const { items } = req.body;
+    if (!Array.isArray(items) || !items.length) return res.json({ ok: true });
+    const rows = items.map(i => ({
+        processo: String(i.processo), maquinas: Number(i.maquinas) || 1,
+        horas_dia: Number(i.horas_dia) || 8, oee: Number(i.oee) || 100,
+        atualizado_em: new Date().toISOString(),
+    }));
+    const { error } = await supabase.from('capacidade_config').upsert(rows, { onConflict: 'processo' });
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
 // ── S&OP — ESTOQUE MÍNIMO POR SKU ────────────────────────────
 app.get('/api/estoque-minimo', auth, async (_req, res) => {
     const { data, error } = await supabase.from('estoque_minimo').select('codigo,quantidade');
@@ -1041,6 +1060,7 @@ app.get('/api/setup', async (_req, res) => {
         { nome: 'estoque_minimo',       sql: `CREATE TABLE IF NOT EXISTS estoque_minimo (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), codigo TEXT NOT NULL UNIQUE, quantidade INTEGER DEFAULT 0, atualizado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE estoque_minimo DISABLE ROW LEVEL SECURITY;` },
         { nome: 'soep_snapshot',        sql: `CREATE TABLE IF NOT EXISTS soep_snapshot (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), mes TEXT NOT NULL, codigo TEXT NOT NULL, qty_prevista INTEGER DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), criado_em TIMESTAMPTZ DEFAULT NOW()); CREATE INDEX IF NOT EXISTS idx_soep_snap_mes ON soep_snapshot(mes,codigo); ALTER TABLE soep_snapshot DISABLE ROW LEVEL SECURITY;` },
         { nome: 'plano_versao',         sql: `CREATE TABLE IF NOT EXISTS plano_versao (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), versao TEXT NOT NULL, label TEXT, mes TEXT NOT NULL, codigo TEXT NOT NULL, quantidade INTEGER DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), criado_em TIMESTAMPTZ DEFAULT NOW()); CREATE INDEX IF NOT EXISTS idx_plano_versao ON plano_versao(versao); ALTER TABLE plano_versao DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'capacidade_config',    sql: `CREATE TABLE IF NOT EXISTS capacidade_config (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), processo TEXT NOT NULL UNIQUE, maquinas NUMERIC(8,2) DEFAULT 1, horas_dia NUMERIC(5,2) DEFAULT 8, oee NUMERIC(5,2) DEFAULT 100, atualizado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE capacidade_config DISABLE ROW LEVEL SECURITY;` },
         { nome: 'op_datas',             sql: `CREATE TABLE IF NOT EXISTS op_datas (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nop TEXT, codigo TEXT NOT NULL, data_entrega DATE, cpv NUMERIC(14,2) DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), atualizado_em TIMESTAMPTZ DEFAULT NOW(), UNIQUE(codigo)); ALTER TABLE op_datas DISABLE ROW LEVEL SECURITY;` },
         { nome: 'setup_matrix',         sql: `CREATE TABLE IF NOT EXISTS setup_matrix (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), processo TEXT NOT NULL, familia_de TEXT NOT NULL, familia_para TEXT NOT NULL, minutos INTEGER DEFAULT 0); ALTER TABLE setup_matrix DISABLE ROW LEVEL SECURITY;` },
         { nome: 'timeline_cenario',     sql: `CREATE TABLE IF NOT EXISTS timeline_cenario (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome TEXT NOT NULL, config JSONB DEFAULT '{}', resultado JSONB DEFAULT '{}', usuario_id UUID REFERENCES usuarios(id), criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE timeline_cenario DISABLE ROW LEVEL SECURITY;` },
