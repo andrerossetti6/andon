@@ -56,12 +56,21 @@
                 </div>
             </div>
 
+            <nav class="nav-section" id="nav-section-painel">
+                <h3 class="nav-section-header" data-key="mf-painel" onclick="toggleNavSection(this)">
+                    VISÃO GERAL <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-painel" class="active" data-mftab="painel" onclick="mf.tab('painel')"><div class="item-content">Painel</div></li>
+                </ul>
+            </nav>
+
             <nav class="nav-section" id="nav-section-exec">
                 <h3 class="nav-section-header" data-key="mf-exec" onclick="toggleNavSection(this)">
                     EXECUÇÃO <span class="nav-toggle">▾</span>
                 </h3>
                 <ul class="nav-section-body">
-                    <li id="nav-apont" class="active" data-mftab="apont" onclick="mf.tab('apont')">
+                    <li id="nav-apont" data-mftab="apont" onclick="mf.tab('apont')">
                         <div class="item-content">Apontamento</div>
                     </li>
                     <li id="nav-ncs" data-mftab="ncs" onclick="mf.tab('ncs')">
@@ -150,7 +159,8 @@
             </div>
         </header>
 
-        <div id="mf-pan-apont"></div>
+        <div id="mf-pan-painel" style="display:none;"></div>
+        <div id="mf-pan-apont"  style="display:none;"></div>
         <div id="mf-pan-ncs"    style="display:none;"></div>
         <div id="mf-pan-rnc"    style="display:none;"></div>
         <div id="mf-pan-ind"    style="display:none;"></div>

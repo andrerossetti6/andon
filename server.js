@@ -1910,6 +1910,78 @@ app.get('/api/mf/cep', auth, async (req, res) => {
     res.json({ capabilidade: cap.data || [], pontos, produtos: prods.data || [] });
 });
 
+// ── Metas + Alertas + Painel executivo — Onda 4 ───────────────
+app.get('/api/mf/metas', auth, async (_q, res) => {
+    const { data, error } = await supabase.from('config_meta').select('*').order('chave');
+    if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'Metas ainda não criadas. Rode mes_metas.sql.' });
+    res.json(data || []);
+});
+app.put('/api/mf/metas/:chave', auth, mfEscrita, async (req, res) => {
+    const v = Number(req.body?.valor);
+    if (!Number.isFinite(v)) return res.status(400).json({ erro: 'valor inválido' });
+    const { error } = await supabase.from('config_meta').update({ valor: v, atualizado_em: new Date().toISOString() }).eq('chave', req.params.chave);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
+async function mfMetas() {
+    const { data } = await supabase.from('config_meta').select('chave,valor');
+    return Object.fromEntries((data || []).map(m => [m.chave, Number(m.valor)]));
+}
+
+// Alertas consolidados: gatilho → notificação. O que exige ação AGORA.
+app.get('/api/mf/alertas', auth, async (_q, res) => {
+    const metas = await mfMetas();
+    const alertas = [];
+    const add = (sev, modulo, msg, aba) => alertas.push({ sev, modulo, msg, aba });
+    // OEE abaixo da meta
+    const oee = await supabase.from('vw_oee').select('maquina_codigo,oee');
+    (oee.data || []).forEach(m => { if (m.oee != null && metas.oee_meta && m.oee < metas.oee_meta) add('media', 'OEE', `${m.maquina_codigo}: OEE ${m.oee}% abaixo da meta (${metas.oee_meta}%)`, 'ind'); });
+    // RNC atrasadas
+    const rnc = await supabase.from('vw_rnc_resumo').select('atrasadas,abertas').single();
+    if (rnc.data?.atrasadas > 0) add('alta', 'RNC', `${rnc.data.atrasadas} RNC(s) atrasada(s)`, 'rnc');
+    // etiquetas de anomalia abertas há mais de N dias
+    const limite = new Date(Date.now() - (metas.etiqueta_alerta_dias || 3) * 864e5).toISOString();
+    const etq = await supabase.from('etiqueta_anomalia').select('id,maquina:maquina_id(codigo),gravidade').neq('status', 'resolvida').lt('aberta_em', limite);
+    (etq.data || []).forEach(e => add(e.gravidade === 'alta' ? 'alta' : 'media', 'TPM', `Etiqueta aberta há +${metas.etiqueta_alerta_dias||3}d em ${e.maquina?.codigo||'?'}`, 'etiq'));
+    // peças abaixo do mínimo
+    const pc = await supabase.from('peca').select('codigo,estoque_atual,estoque_minimo').eq('ativo', true);
+    (pc.data || []).filter(p => Number(p.estoque_atual) <= Number(p.estoque_minimo)).forEach(p => add('media', 'TPM', `Peça ${p.codigo} no/abaixo do mínimo (${p.estoque_atual})`, 'cad'));
+    // Cpk abaixo do mínimo
+    const cep = await supabase.from('vw_cep_capabilidade').select('produto_codigo,tipo,cpk');
+    (cep.data || []).forEach(c => { if (c.cpk != null && metas.cpk_min && c.cpk < metas.cpk_min) add('alta', 'CEP', `${c.produto_codigo}/${c.tipo}: Cpk ${c.cpk} < ${metas.cpk_min} (processo incapaz)`, 'cep'); });
+    // CNQ acima do limite
+    const cnq = await supabase.from('vw_cnq_resumo').select('custo_total').single();
+    if (cnq.data?.custo_total > (metas.cnq_limite_mensal || Infinity)) add('alta', 'CNQ', `CNQ R$ ${Number(cnq.data.custo_total).toLocaleString('pt-BR')} acima do limite (R$ ${metas.cnq_limite_mensal})`, 'cnq');
+    const ordem = { alta: 0, media: 1, baixa: 2 };
+    alertas.sort((a, b) => ordem[a.sev] - ordem[b.sev]);
+    res.json({ alertas, total: alertas.length });
+});
+
+// Painel: KPIs consolidados de todos os módulos
+app.get('/api/mf/painel', auth, async (_q, res) => {
+    const [oee, cnq, qual, rnc, etq, ord, lotes] = await Promise.all([
+        supabase.from('vw_oee').select('oee'),
+        supabase.from('vw_cnq_resumo').select('custo_total').single(),
+        supabase.from('vw_qualidade_resumo').select('total_ncs,rncs_geradas').single(),
+        supabase.from('vw_rnc_resumo').select('abertas,atrasadas').single(),
+        supabase.from('etiqueta_anomalia').select('id', { count: 'exact', head: true }).neq('status', 'resolvida'),
+        supabase.from('ordem_manutencao').select('id', { count: 'exact', head: true }).not('status', 'in', '(concluida,cancelada)'),
+        supabase.from('apontamento').select('id', { count: 'exact', head: true }).is('datahora_fim', null),
+    ]);
+    const oeeVals = (oee.data || []).map(o => o.oee).filter(v => v != null);
+    res.json({
+        oee_medio: oeeVals.length ? Math.round(oeeVals.reduce((s, v) => s + v, 0) / oeeVals.length) : null,
+        cnq_total: cnq.data?.custo_total || 0,
+        ncs: qual.data?.total_ncs || 0,
+        rncs_abertas: rnc.data?.abertas || 0,
+        rncs_atrasadas: rnc.data?.atrasadas || 0,
+        etiquetas_abertas: etq.count || 0,
+        oms_abertas: ord.count || 0,
+        sessoes_abertas: lotes.count || 0,
+    });
+});
+
 // ── Fallback para SPA ─────────────────────────────────────────
 app.get('/{*path}', (_req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));

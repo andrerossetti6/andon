@@ -173,7 +173,7 @@ const mf = {
         try { const n = JSON.parse(localStorage.getItem('sin1_usuario'))?.nome || '';
             $('mf-user').textContent = n; const sn = $('mf-user-nome'); if (sn) sn.textContent = n || '—'; } catch {}
         this._atualizarBadge();
-        this.tab('apont');
+        this.tab('painel');
     },
 
     sair() { localStorage.removeItem(TOKEN_KEY); location.reload(); },
@@ -193,7 +193,8 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['apont','ncs','rnc','ind','cnq','etiq','oms','tpm','cil','cad','fio','gene','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','fio','gene','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        if (name === 'painel') this.renderPainel();
         if (name === 'apont')  this.renderApont();
         if (name === 'ncs')    this.renderNcs();
         if (name === 'rnc')    this.renderRnc();
@@ -760,6 +761,52 @@ const mf = {
                 <td style="padding:7px 10px;text-align:right;">${Number(r.qtd_consumida_kg).toLocaleString('pt-BR')}</td>
                 <td style="padding:7px 10px;text-align:right;color:${r.ncs_na_sessao?'#f06292':'var(--text-dim)'};font-weight:${r.ncs_na_sessao?'700':'400'};">${r.ncs_na_sessao}</td>
             </tr>`).join('')}</tbody></table></div>`;
+    },
+
+    // ═══ PAINEL EXECUTIVO (cockpit) ════════════════════════════════════════════
+    async renderPainel() {
+        const pan = $('mf-pan-painel');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando painel...</div>`;
+        const [kpi, al, metas] = await Promise.all([api.get('/api/mf/painel'), api.get('/api/mf/alertas'), api.get('/api/mf/metas')]);
+        if (!kpi) { pan.innerHTML = `<div class="summary-card" style="padding:24px;color:#f06292;">Painel indisponível — rode os SQLs pendentes (mes_metas.sql).</div>`; return; }
+        const brl = n => 'R$ ' + Number(n||0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const card = (cor, val, lbl, aba) => `<div onclick="${aba?`mf.tab('${aba}')`:''}" style="background:${cor}14;border:1px solid ${cor}3a;border-radius:12px;padding:16px 20px;text-align:center;flex:1;min-width:130px;${aba?'cursor:pointer;':''}">
+            <div style="font-size:1.7rem;font-weight:800;color:${cor};">${val}</div><div style="font-size:.66rem;color:${cor};letter-spacing:.05em;">${lbl}</div></div>`;
+        const k = kpi;
+        const kpis = [
+            card('#26c6da', k.oee_medio != null ? k.oee_medio + '%' : '—', 'OEE MÉDIO', 'ind'),
+            card('#f06292', brl(k.cnq_total), 'CUSTO DA QUALIDADE', 'cnq'),
+            card('#7c4dff', k.ncs, 'NÃO CONFORMIDADES', 'ncs'),
+            card(k.rncs_atrasadas ? '#ff5252' : '#ffca28', k.rncs_abertas + (k.rncs_atrasadas?` (${k.rncs_atrasadas}⚠)`:''), 'RNCs ABERTAS', 'rnc'),
+            card('#ef6c00', k.etiquetas_abertas, 'ETIQUETAS ABERTAS', 'etiq'),
+            card('#26a69a', k.sessoes_abertas, 'SESSÕES ATIVAS', 'apont'),
+        ].join('');
+        const corSev = { alta:'#f06292', media:'#ffca28', baixa:'#8b949e' };
+        const alertas = (al?.alertas || []);
+        const alertasHtml = alertas.length ? alertas.map(a => `<div onclick="mf.tab('${a.aba}')" style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;background:${corSev[a.sev]}12;border-left:3px solid ${corSev[a.sev]};margin-bottom:6px;cursor:pointer;">
+            <span style="font-size:.62rem;font-weight:700;color:${corSev[a.sev]};border:1px solid ${corSev[a.sev]}55;border-radius:4px;padding:1px 6px;">${a.modulo}</span>
+            <span style="font-size:.82rem;">${esc(a.msg)}</span></div>`).join('')
+            : `<div style="text-align:center;padding:20px;color:#26a69a;">✓ Nenhum alerta — tudo dentro das metas.</div>`;
+        const metasHtml = (metas || []).map(m => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);">
+            <span style="font-size:.8rem;">${esc(m.descricao||m.chave)}</span>
+            <input type="number" step="0.01" value="${m.valor}" id="mf-meta-${m.chave}" onchange="mf.salvarMeta('${m.chave}')"
+                style="width:90px;padding:4px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.8rem;text-align:right;"></div>`).join('');
+        pan.innerHTML = `
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;">${kpis}</div>
+            <div class="summary-card" style="margin-bottom:18px;">
+                <div class="s-label" style="margin-bottom:12px;">⚠ ALERTAS — O QUE EXIGE AÇÃO ${alertas.length?`(${alertas.length})`:''}</div>
+                ${alertasHtml}
+            </div>
+            <div class="summary-card">
+                <div class="s-label" style="margin-bottom:8px;">🎯 METAS</div>
+                ${metasHtml || '<div style="color:var(--text-dim);">Rode mes_metas.sql para configurar metas.</div>'}
+            </div>`;
+    },
+    async salvarMeta(chave) {
+        const v = parseFloat($('mf-meta-' + chave).value);
+        const r = await api.put('/api/mf/metas/' + chave, { valor: v });
+        toast(r?.ok ? 'Meta salva.' : 'Erro ao salvar meta.', r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderPainel();
     },
 
     // ═══ CEP — CONTROLE ESTATÍSTICO DE PROCESSO ════════════════════════════════
