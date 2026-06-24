@@ -1305,12 +1305,25 @@ app.post('/api/mf/ncs', auth, async (req, res) => {
     res.json({ ok: true, nc: data, gera_rnc: gera });
 });
 
-// ── Foto da NC (v1: data URL comprimida no campo url; produção → Storage) ──
+// ── Foto da NC: sobe a imagem para o Supabase Storage (bucket mf-fotos) ──
+const MF_BUCKET = 'mf-fotos';
 app.post('/api/mf/fotos', auth, async (req, res) => {
     const b = req.body || {};
     if (!b.nc_id || !b.url) return res.status(400).json({ erro: 'nc_id e url obrigatórios' });
-    const row = { nc_id: b.nc_id, url: b.url, nome_arquivo: b.nome_arquivo || null,
-        tamanho_bytes: b.tamanho_bytes || null, largura_px: b.largura_px || null, altura_px: b.altura_px || null,
+    let urlFinal = b.url, tamanho = b.tamanho_bytes || null;
+    // se vier um data URL (base64), faz upload ao Storage e guarda só a URL pública
+    const m = /^data:(image\/\w+);base64,(.+)$/s.exec(b.url || '');
+    if (m) {
+        const mime = m[1], buffer = Buffer.from(m[2], 'base64');
+        const ext = mime.split('/')[1].replace('jpeg', 'jpg');
+        const caminho = `nc/${b.nc_id}/${Date.now()}.${ext}`;
+        const { error: upErr } = await supabase.storage.from(MF_BUCKET).upload(caminho, buffer, { contentType: mime, upsert: false });
+        if (upErr) return res.status(500).json({ erro: 'Falha no upload da foto: ' + upErr.message });
+        urlFinal = supabase.storage.from(MF_BUCKET).getPublicUrl(caminho).data.publicUrl;
+        tamanho = buffer.length;
+    }
+    const row = { nc_id: b.nc_id, url: urlFinal, nome_arquivo: b.nome_arquivo || null,
+        tamanho_bytes: tamanho, largura_px: b.largura_px || null, altura_px: b.altura_px || null,
         capturada_em: b.capturada_em || new Date().toISOString(), metadados: b.metadados || null };
     const { data, error } = await supabase.from('foto').insert(row).select().single();
     if (error) return res.status(500).json({ erro: error.message });
