@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MES | Gestão Stoll</title>
+    <meta name="description" content="MES — Execução de Produção · Gestão Stoll">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="sin1-layout">
+
+    <!-- ── Tela de Login (mesmo markup do index — oculta por padrão) ── -->
+    <div id="view-login" class="login-screen" style="display:none;">
+        <div class="login-card">
+            <div class="login-logo">
+                <div class="logo-icon"></div>
+                <div>
+                    <span class="brand">SIN<sub>1</sub></span>
+                    <span class="subtext">Gestão Stoll</span>
+                </div>
+            </div>
+            <h2 class="login-title">Entrar na plataforma</h2>
+            <div id="login-status" style="color:#8b949e;font-size:0.85rem;margin-bottom:12px;text-align:center;">Conectando ao servidor...</div>
+            <div id="login-erro" class="login-erro" style="display:none;"></div>
+            <div id="login-form-wrap" style="display:none;">
+            <form id="login-form" autocomplete="on">
+                <div class="input-group">
+                    <label>Email</label>
+                    <input type="email" id="login-email" placeholder="seu@email.com.br" required autocomplete="email">
+                </div>
+                <div class="input-group">
+                    <label>Senha</label>
+                    <input type="password" id="login-senha" placeholder="••••••••" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn primary login-btn" id="login-submit">Entrar</button>
+            </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Sidebar (mesmo layout do index) ───────────────────── -->
+    <aside class="sidebar" id="app-sidebar">
+        <div class="sidebar-top">
+            <div class="logo">
+                <div class="logo-icon"></div>
+                <div class="logo-text">
+                    <span class="brand">SIN<sub>1</sub></span>
+                    <span class="subtext">Gestão Stoll</span>
+                </div>
+            </div>
+
+            <!-- ① CONFIGURAÇÃO -->
+            <nav class="nav-section" id="nav-section-config">
+                <h3 class="nav-section-header" data-key="config" onclick="toggleNavSection(this)">
+                    CONFIGURAÇÃO <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li class="has-sub" id="nav-config">
+                        <div class="item-content" onclick="toggleNavGroup(this.closest('.has-sub'))">
+                            <span>Base de Dados</span>
+                            <span class="nav-toggle">▾</span>
+                        </div>
+                        <ul class="sub-menu">
+                            <li data-view="banco"     onclick="navigateTo('banco')">Banco de Dados</li>
+                            <li data-view="processos" onclick="navigateTo('processos')">Processos</li>
+                            <li data-view="capacidade" onclick="navigateTo('capacidade')">Matriz de Set Up</li>
+                            <li data-view="calendario" onclick="navigateTo('calendario')">Calendário</li>
+                        </ul>
+                    </li>
+                </ul>
+            </nav>
+
+            <!-- ② IMPORTAÇÃO -->
+            <nav class="nav-section" id="nav-section-import">
+                <h3 class="nav-section-header" data-key="import" onclick="toggleNavSection(this)">
+                    IMPORTAÇÃO <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li class="has-sub" id="nav-import">
+                        <div class="item-content" onclick="toggleNavGroup(this.closest('.has-sub'))">
+                            <span>Dados Operacionais</span>
+                            <span class="nav-toggle">▾</span>
+                        </div>
+                        <ul class="sub-menu">
+                            <li data-view="vendas"  onclick="navigateTo('vendas')">Vendas</li>
+                            <li data-view="estoque" onclick="navigateTo('estoque')">Estoque</li>
+                            <li data-view="op"      onclick="navigateTo('op')">Ordens de Produção</li>
+                            <li data-view="cliente" onclick="navigateTo('cliente')">Cliente</li>
+                            <li data-view="costura" onclick="navigateTo('costura')">Costura</li>
+                        </ul>
+                    </li>
+                </ul>
+            </nav>
+
+            <!-- ③ S&OP -->
+            <nav class="nav-section" id="nav-section-soep">
+                <h3 class="nav-section-header" data-key="soep" onclick="toggleNavSection(this)">
+                    S&amp;OP <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li class="has-sub" id="nav-soep-grp">
+                        <div class="item-content" onclick="toggleNavGroup(this.closest('.has-sub'))">
+                            <span>Planejamento</span>
+                            <span class="nav-toggle">▾</span>
+                        </div>
+                        <ul class="sub-menu">
+                            <li data-view="previsao"   onclick="navigateTo('previsao')">Previsão de Demanda</li>
+                            <li data-view="politica"   onclick="navigateTo('politica')">Política de Estoques</li>
+                            <li data-view="plano-prod" onclick="navigateTo('plano-prod')">Plano de Produção</li>
+                            <li data-view="soep"       onclick="navigateTo('soep')">Dashboard S&amp;OP</li>
+                        </ul>
+                    </li>
+                </ul>
+            </nav>
+
+            <!-- ④ TOC -->
+            <nav class="nav-section" id="nav-section-toc">
+                <h3 class="nav-section-header" data-key="toc" onclick="toggleNavSection(this)">
+                    TOC <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-toc" onclick="navigateTo('toc')">
+                        <div class="item-content">Gargalo (TOC)</div>
+                    </li>
+                </ul>
+            </nav>
+
+            <!-- ⑤ PREACTOR -->
+            <nav class="nav-section" id="nav-section-preactor">
+                <h3 class="nav-section-header" data-key="preactor" onclick="toggleNavSection(this)">
+                    PREACTOR <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-preactor" onclick="navigateTo('timeline')">
+                        <div class="item-content">Linha do Tempo</div>
+                    </li>
+                </ul>
+            </nav>
+
+            <!-- ⑥ MES -->
+            <nav class="nav-section" id="nav-section-mes">
+                <h3 class="nav-section-header" data-key="mes" onclick="toggleNavSection(this)">
+                    MES <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-mes" class="active" onclick="navigateTo('mes')">
+                        <div class="item-content">Chão de Fábrica</div>
+                    </li>
+                </ul>
+            </nav>
+
+            <!-- ⑦ DASHBOARDS -->
+            <nav class="nav-section" id="nav-section-dashboards">
+                <h3 class="nav-section-header" data-key="dashboards" onclick="toggleNavSection(this)">
+                    DASHBOARDS <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-pesquisa" onclick="navigateTo('pesquisa')">
+                        <div class="item-content">Pesquisa por Código</div>
+                    </li>
+                    <li id="nav-vxe" onclick="navigateTo('vxe')">
+                        <div class="item-content">Vendas × Estoque</div>
+                    </li>
+                    <li id="nav-op-dash" onclick="navigateTo('op-dash')">
+                        <div class="item-content">Ordem de Produção</div>
+                    </li>
+                    <li id="nav-pedidos" onclick="navigateTo('pedidos')">
+                        <div class="item-content">Pedidos</div>
+                    </li>
+                    <li id="nav-comparador" onclick="navigateTo('comparador')">
+                        <div class="item-content">Comparador</div>
+                    </li>
+                    <li id="nav-clientes-dash" onclick="navigateTo('clientes-dash')">
+                        <div class="item-content">Clientes</div>
+                    </li>
+                    <li class="has-sub" id="nav-abc-cruzada">
+                        <div class="item-content" onclick="toggleNavGroup(this.closest('.has-sub'))">
+                            <span>Curva ABC</span>
+                            <span class="nav-toggle">▾</span>
+                        </div>
+                        <ul class="sub-menu">
+                            <li data-view="abc"         onclick="navigateTo('abc')">ABC Vendas</li>
+                            <li data-view="abc-micro"   onclick="navigateTo('abc-micro')">ABC Vendas Micro</li>
+                            <li data-view="abc-estoque" onclick="navigateTo('abc-estoque')">ABC Estoque</li>
+                        </ul>
+                    </li>
+                </ul>
+            </nav>
+
+        </div>
+
+        <div class="sidebar-bottom">
+            <div class="user-profile">
+                <div class="avatar">AR</div>
+                <div class="user-info">
+                    <span class="name">andre rossetti</span>
+                    <span class="role">Administrador</span>
+                </div>
+                <span class="chevron">⌄</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ── Conteúdo MES (em branco — pronto para construir) ──── -->
+    <main class="content" id="view-mes" style="display:flex;flex-direction:column;gap:20px;padding:28px 32px;overflow-y:auto;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">MES — <span>Execução de Produção</span></h1>
+                <p class="page-subtitle">Apontamento de chão de fábrica · WIP em tempo real · OEE</p>
+            </div>
+            <div class="page-header-actions">
+                <!-- botões da página entram aqui -->
+            </div>
+        </header>
+
+        <!-- ÁREA DE CONSTRUÇÃO — adicione os cards/abas do novo MES aqui -->
+        <div id="mes-content" class="summary-card" style="text-align:center;padding:48px 32px;color:var(--text-dim);">
+            Página MES em branco — mesmo layout do sistema, pronta para construir a nova ferramenta.
+        </div>
+    </main>
+
+<!-- Bibliotecas (disponíveis para uso futuro: import CSV/XLS) -->
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+<!-- Script próprio do shell MES (independente do app.js) -->
+<script>
+    // Colapso de seções e grupos do menu — mesmo comportamento do index, persistido em localStorage
+    function toggleNavSection(h3) {
+        const section = h3.closest('.nav-section');
+        if (!section) return;
+        section.classList.toggle('nav-section-collapsed');
+        const key = h3.dataset.key || 'sec';
+        localStorage.setItem('nav-sec-' + key, section.classList.contains('nav-section-collapsed') ? '1' : '0');
+    }
+    function toggleNavGroup(li) {
+        if (!li) return;
+        li.classList.toggle('nav-collapsed');
+        if (li.id) localStorage.setItem('nav-grp-' + li.id, li.classList.contains('nav-collapsed') ? '1' : '0');
+    }
+    // Stub de navegação: nesta página standalone, links do sistema principal voltam ao index
+    function navigateTo(view) {
+        if (view === 'mes') return; // já estamos no MES
+        window.location.href = 'index.html';
+    }
+    // Restaura estados colapsados salvos (igual ao bootstrap do app.js)
+    document.querySelectorAll('.has-sub[id]').forEach(li => {
+        if (localStorage.getItem('nav-grp-' + li.id) === '1') li.classList.add('nav-collapsed');
+    });
+    document.querySelectorAll('.nav-section-header[data-key]').forEach(h3 => {
+        if (localStorage.getItem('nav-sec-' + h3.dataset.key) === '1') {
+            h3.closest('.nav-section')?.classList.add('nav-section-collapsed');
+        }
+    });
+</script>
+
+</body>
+</html>
