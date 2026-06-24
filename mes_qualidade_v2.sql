@@ -1,11 +1,14 @@
 -- ============================================================================
 -- MES MALHA FORTE — Qualidade v2: CNQ por etapa + Scorecard de Fornecedor
--- (Onda 1 das melhorias). Substitui vw_cnq e adiciona vw_fornecedor. Idempotente.
+-- (Onda 1). vw_cnq muda a ordem de colunas (insere etapa/fator_etapa), então
+-- não dá p/ CREATE OR REPLACE — derruba com CASCADE e recria as 4 views. Idempotente.
 -- ============================================================================
+
+DROP VIEW IF EXISTS vw_cnq CASCADE;  -- derruba também vw_cnq_resumo, vw_cnq_defeito, vw_fornecedor
 
 -- CNQ por ETAPA: defeito gerado/pego mais adiante na cadeia acumulou mais custo.
 -- fator_etapa: malharia 1.0 · tinturaria 1.5 · acabamento 2.0 · revisao 2.5
-CREATE OR REPLACE VIEW vw_cnq AS
+CREATE VIEW vw_cnq AS
 SELECT nc.id AS nc_id, nc.defeito_id, nc.disposicao, nc.qtd_afetada, nc.datahora,
        d.etapa, p.id AS produto_id, p.custo_unitario,
        (CASE nc.disposicao WHEN 'refugar' THEN 1.0 WHEN 'segregar' THEN 0.5
@@ -23,9 +26,27 @@ JOIN apontamento      a  ON a.id  = nc.apontamento_id
 JOIN ordem_producao   op ON op.id = a.op_id
 JOIN produto          p  ON p.id  = op.produto_id;
 
+-- recria os dependentes (iguais ao mes_cnq.sql, agora herdam o custo por etapa)
+CREATE VIEW vw_cnq_resumo AS
+SELECT COALESCE(SUM(custo), 0)                                          AS custo_total,
+       COALESCE(SUM(custo) FILTER (WHERE disposicao = 'refugar'), 0)    AS custo_refugo,
+       COALESCE(SUM(custo) FILTER (WHERE disposicao = 'retrabalhar'), 0) AS custo_retrabalho,
+       COALESCE(SUM(custo) FILTER (WHERE disposicao = 'segregar'), 0)   AS custo_segregado,
+       COALESCE(SUM(custo) FILTER (WHERE disposicao = 'reclassificar'), 0) AS custo_reclassificado,
+       COUNT(*) FILTER (WHERE custo > 0)                                AS ncs_com_custo,
+       COUNT(*) FILTER (WHERE custo = 0 AND custo_unitario = 0)         AS ncs_sem_custo_produto
+FROM vw_cnq;
+
+CREATE VIEW vw_cnq_defeito AS
+SELECT c.defeito_id, d.codigo, d.descricao, d.categoria,
+       ROUND(SUM(c.custo)::numeric, 2) AS custo, COUNT(*) AS ocorrencias
+FROM vw_cnq c JOIN catalogo_defeito d ON d.id = c.defeito_id
+GROUP BY c.defeito_id, d.codigo, d.descricao, d.categoria
+HAVING SUM(c.custo) > 0
+ORDER BY custo DESC;
+
 -- Scorecard de fornecedor: cruza lote de fio → sessões → NCs e custo CNQ.
--- Responde: "qual fornecedor de fio gera mais defeito e custo?"
-CREATE OR REPLACE VIEW vw_fornecedor AS
+CREATE VIEW vw_fornecedor AS
 WITH ap_forn AS (
     SELECT DISTINCT lf.fornecedor, cf.apontamento_id
     FROM consumo_fio cf JOIN lote_fio lf ON lf.id = cf.lote_fio_id
@@ -48,6 +69,5 @@ GROUP BY af.fornecedor
 ORDER BY ncs DESC, custo_cnq DESC;
 
 -- ============================================================================
--- FIM — vw_cnq agora multiplica por etapa; vw_fornecedor é o scorecard.
--- vw_cnq_resumo e vw_cnq_defeito herdam o novo custo automaticamente.
+-- FIM — DROP CASCADE + recriação das 4 views (vw_cnq com etapa + dependentes).
 -- ============================================================================
