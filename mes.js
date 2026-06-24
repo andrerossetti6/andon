@@ -102,8 +102,13 @@ const mf = {
 
     async init() {
         // login por link: ?token=... grava o token e limpa a URL (abrir sem digitar senha)
-        const urlTok = new URLSearchParams(location.search).get('token');
-        if (urlTok) { localStorage.setItem(TOKEN_KEY, urlTok); try { history.replaceState({}, document.title, location.pathname); } catch {} }
+        const qs = new URLSearchParams(location.search);
+        const urlTok = qs.get('token');
+        if (urlTok) { localStorage.setItem(TOKEN_KEY, urlTok); }
+        // modo quiosque: ?maquina=CIRC-01 fixa a máquina deste tablet
+        const km = qs.get('maquina');
+        if (km !== null) { if (km) localStorage.setItem('mf_kiosk_maq', km); else localStorage.removeItem('mf_kiosk_maq'); }
+        if (urlTok || km !== null) { try { history.replaceState({}, document.title, location.pathname); } catch {} }
 
         // restaura estados de menu colapsado
         document.querySelectorAll('.has-sub[id]').forEach(li => { if (localStorage.getItem('nav-grp-' + li.id) === '1') li.classList.add('nav-collapsed'); });
@@ -228,6 +233,14 @@ const mf = {
             <button class="btn primary" style="margin-top:14px;" onclick="mf.iniciarSessao()">▶ Iniciar Sessão</button>
         </div>`;
         $('mf-pan-apont').innerHTML = novaSessao + `<div id="mf-sessoes"></div>`;
+        // modo quiosque: fixa a máquina deste tablet
+        const kiosk = localStorage.getItem('mf_kiosk_maq');
+        if (kiosk) {
+            const m = c.maquinas.find(x => x.codigo === kiosk || x.id === kiosk);
+            const sel = $('mf-maq');
+            if (m && sel) { sel.value = m.id; sel.disabled = true;
+                sel.insertAdjacentHTML('afterend', `<div style="font-size:.68rem;color:#26c6da;margin-top:4px;">🖥 quiosque: ${esc(m.codigo)} <span style="color:var(--text-dim);cursor:pointer;text-decoration:underline;" onclick="localStorage.removeItem('mf_kiosk_maq');mf.renderApont()">sair</span></div>`); }
+        }
         if (navigator.onLine) await this._reconciliar();
         this.renderSessoes();
     },
@@ -349,7 +362,14 @@ const mf = {
     _syncDisp() {
         const sel = $('mf-nc-def'); if (!sel) return;
         const opt = sel.options[sel.selectedIndex];
-        if (opt && $('mf-nc-disp')) $('mf-nc-disp').value = opt.dataset.disp || 'segregar';
+        const disp = $('mf-nc-disp'); if (!opt || !disp) return;
+        // trava de qualidade: defeito crítico (sev 4) não pode ser liberado
+        const sev = Number(opt.dataset.sev) || 0;
+        const optLib = [...disp.options].find(o => o.value === 'liberar');
+        if (optLib) { optLib.disabled = sev >= 4; optLib.textContent = sev >= 4 ? 'liberar (bloqueado p/ crítico)' : 'liberar'; }
+        let sugestao = opt.dataset.disp || 'segregar';
+        if (sev >= 4 && sugestao === 'liberar') sugestao = 'segregar';
+        disp.value = sugestao;
     },
     _previewFoto(ev) {
         const f = ev.target.files?.[0]; if (!f) return;

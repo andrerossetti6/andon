@@ -1291,6 +1291,8 @@ app.get('/api/mf/ncs', auth, async (req, res) => {
     if (req.query.apontamento_id) q = q.eq('apontamento_id', req.query.apontamento_id);
     const { data, error } = await q.limit(300);
     if (error) return res.status(500).json({ erro: error.message });
+    // assina as URLs das fotos (bucket privado)
+    for (const nc of (data || [])) for (const f of (nc.foto || [])) f.url = await mfFotoUrl(f.url);
     res.json(data || []);
 });
 
@@ -1299,11 +1301,16 @@ app.post('/api/mf/ncs', auth, mfEscrita, async (req, res) => {
     if (!b.apontamento_id || !b.defeito_id || !b.qtd_afetada) return res.status(400).json({ erro: 'apontamento_id, defeito_id e qtd_afetada obrigatórios' });
     const { data: defeito, error: eDef } = await supabase.from('catalogo_defeito').select('*').eq('id', b.defeito_id).single();
     if (eDef || !defeito) return res.status(400).json({ erro: 'Defeito não encontrado no catálogo' });
+    const sevAplicada = b.severidade_aplicada || defeito.severidade;
+    const dispFinal   = b.disposicao || defeito.disposicao_padrao || 'segregar';
+    // TRAVA DE QUALIDADE: defeito crítico (severidade 4) não pode ser liberado
+    if (sevAplicada >= 4 && dispFinal === 'liberar')
+        return res.status(422).json({ erro: 'Defeito crítico (severidade 4) não pode ser LIBERADO — escolha refugar, segregar ou retrabalhar.' });
     const nc = {
         apontamento_id: b.apontamento_id, defeito_id: b.defeito_id,
         qtd_afetada: b.qtd_afetada, unidade: b.unidade || 'kg',
-        disposicao: b.disposicao || defeito.disposicao_padrao || 'segregar',
-        severidade_aplicada: b.severidade_aplicada || defeito.severidade,  // congelada
+        disposicao: dispFinal,
+        severidade_aplicada: sevAplicada,  // congelada
         posicao: b.posicao || null, causa_preliminar: b.causa_preliminar || null,
         origem_legado: b.origem_legado || null, datahora: b.datahora || new Date().toISOString(),
     };
@@ -1366,21 +1373,26 @@ app.put('/api/mf/rncs/:id', auth, mfEscrita, async (req, res) => {
 
 // ── Foto da NC: sobe a imagem para o Supabase Storage (bucket mf-fotos) ──
 const MF_BUCKET = 'mf-fotos';
+// Bucket privado: guardamos o CAMINHO no Storage; a URL é assinada na leitura (expira em 1h)
+async function mfFotoUrl(armazenado) {
+    if (!armazenado || /^https?:|^data:/.test(armazenado)) return armazenado;  // legado/dataURL → como está
+    const { data } = await supabase.storage.from(MF_BUCKET).createSignedUrl(armazenado, 3600);
+    return data?.signedUrl || armazenado;
+}
 app.post('/api/mf/fotos', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.nc_id || !b.url) return res.status(400).json({ erro: 'nc_id e url obrigatórios' });
     let urlFinal = b.url, tamanho = b.tamanho_bytes || null;
-    // se vier um data URL (base64), faz upload ao Storage e guarda só a URL pública
+    // data URL (base64) → upload ao Storage privado; guarda só o CAMINHO
     const m = /^data:(image\/\w+);base64,(.+)$/s.exec(b.url || '');
     if (m) {
         const mime = m[1], buffer = Buffer.from(m[2], 'base64');
         const ext = mime.split('/')[1].replace('jpeg', 'jpg');
-        // caminho determinístico pelo id da foto (cliente) → re-sync sobrescreve, sem duplicar
         const nomeBase = b.id || Date.now();
         const caminho = `nc/${b.nc_id}/${nomeBase}.${ext}`;
         const { error: upErr } = await supabase.storage.from(MF_BUCKET).upload(caminho, buffer, { contentType: mime, upsert: true });
         if (upErr) return res.status(500).json({ erro: 'Falha no upload da foto: ' + upErr.message });
-        urlFinal = supabase.storage.from(MF_BUCKET).getPublicUrl(caminho).data.publicUrl;
+        urlFinal = caminho;  // caminho, não URL pública
         tamanho = buffer.length;
     }
     const row = { nc_id: b.nc_id, url: urlFinal, nome_arquivo: b.nome_arquivo || null,
@@ -1628,7 +1640,7 @@ async function mfSubirImagem(dataUrl, caminho) {
     const mime = m[1], buffer = Buffer.from(m[2], 'base64');
     const { error } = await supabase.storage.from(MF_BUCKET).upload(caminho, buffer, { contentType: mime, upsert: true });
     if (error) throw new Error('upload: ' + error.message);
-    return { url: supabase.storage.from(MF_BUCKET).getPublicUrl(caminho).data.publicUrl, bytes: buffer.length };
+    return { url: caminho, bytes: buffer.length };  // caminho (bucket privado)
 }
 
 app.get('/api/mf/componentes', auth, async (req, res) => {
@@ -1649,6 +1661,7 @@ app.get('/api/mf/etiquetas', auth, async (req, res) => {
     else q = q.neq('status', 'resolvida');
     const { data, error } = await q.limit(200);
     if (error) return res.status(500).json({ erro: error.message });
+    for (const e of (data || [])) e.foto_url = await mfFotoUrl(e.foto_url);  // assina (bucket privado)
     res.json(data || []);
 });
 app.post('/api/mf/etiquetas', auth, mfEscrita, async (req, res) => {
