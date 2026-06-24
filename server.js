@@ -63,6 +63,12 @@ function adminOnly(req, res, next) {
     next();
 }
 
+// Escrita no MES: bloqueia perfil somente-leitura (viewer). Operador/admin podem.
+function mfEscrita(req, res, next) {
+    if (req.usuario?.perfil === 'viewer') return res.status(403).json({ erro: 'Seu perfil é somente leitura.' });
+    next();
+}
+
 // ── GET /api/ping — wake-up sem auth ─────────────────────────
 app.get('/api/ping', (_req, res) => res.json({ ok: true, ts: Date.now() }));
 
@@ -1175,7 +1181,7 @@ app.get('/api/mf/ops', auth, async (req, res) => {
 
 // ── Cadastros (escrita genérica, admin) ───────────────────────
 const MF_CADASTROS = { produto:'codigo', maquina:'codigo', operador:'matricula', turno:'codigo', motivo_parada:'codigo', catalogo_defeito:'codigo' };
-app.post('/api/mf/cadastro/:tabela', auth, async (req, res) => {
+app.post('/api/mf/cadastro/:tabela', auth, mfEscrita, async (req, res) => {
     const t = req.params.tabela;
     if (!MF_CADASTROS[t]) return res.status(400).json({ erro: 'Tabela inválida' });
     const { data, error } = await supabase.from(t).upsert(req.body, { onConflict: MF_CADASTROS[t] }).select().single();
@@ -1184,7 +1190,7 @@ app.post('/api/mf/cadastro/:tabela', auth, async (req, res) => {
 });
 
 // ── Ordem de produção ─────────────────────────────────────────
-app.post('/api/mf/ops', auth, async (req, res) => {
+app.post('/api/mf/ops', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.numero || !b.produto_id || !b.qtd_planejada) return res.status(400).json({ erro: 'numero, produto_id e qtd_planejada obrigatórios' });
     const row = { numero: b.numero, produto_id: b.produto_id, qtd_planejada: b.qtd_planejada, unidade: b.unidade || 'kg',
@@ -1206,7 +1212,7 @@ app.get('/api/mf/apontamentos', auth, async (req, res) => {
     res.json(data || []);
 });
 
-app.post('/api/mf/apontamentos', auth, async (req, res) => {
+app.post('/api/mf/apontamentos', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     for (const f of ['op_id','maquina_id','operador_id','turno_id']) if (!b[f]) return res.status(400).json({ erro: `${f} obrigatório` });
     const row = { op_id: b.op_id, maquina_id: b.maquina_id, operador_id: b.operador_id, turno_id: b.turno_id,
@@ -1221,7 +1227,7 @@ app.post('/api/mf/apontamentos', auth, async (req, res) => {
     res.json({ ok: true, apontamento: data });
 });
 
-app.put('/api/mf/apontamentos/:id', auth, async (req, res) => {
+app.put('/api/mf/apontamentos/:id', auth, mfEscrita, async (req, res) => {
     const updates = {};
     ['qtd_boa','qtd_refugo','qtd_retrabalho','datahora_fim','sincronizado_em'].forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
     if (req.body.fechar && !updates.datahora_fim) updates.datahora_fim = new Date().toISOString();
@@ -1231,7 +1237,7 @@ app.put('/api/mf/apontamentos/:id', auth, async (req, res) => {
 });
 
 // ── Parada ────────────────────────────────────────────────────
-app.post('/api/mf/paradas', auth, async (req, res) => {
+app.post('/api/mf/paradas', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.apontamento_id || !b.motivo_id) return res.status(400).json({ erro: 'apontamento_id e motivo_id obrigatórios' });
     const row = { apontamento_id: b.apontamento_id, motivo_id: b.motivo_id,
@@ -1241,7 +1247,7 @@ app.post('/api/mf/paradas', auth, async (req, res) => {
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, parada: data });
 });
-app.put('/api/mf/paradas/:id', auth, async (req, res) => {
+app.put('/api/mf/paradas/:id', auth, mfEscrita, async (req, res) => {
     const updates = {};
     ['datahora_fim','observacao'].forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
     if (req.body.fechar && !updates.datahora_fim) updates.datahora_fim = new Date().toISOString();
@@ -1288,7 +1294,7 @@ app.get('/api/mf/ncs', auth, async (req, res) => {
     res.json(data || []);
 });
 
-app.post('/api/mf/ncs', auth, async (req, res) => {
+app.post('/api/mf/ncs', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.apontamento_id || !b.defeito_id || !b.qtd_afetada) return res.status(400).json({ erro: 'apontamento_id, defeito_id e qtd_afetada obrigatórios' });
     const { data: defeito, error: eDef } = await supabase.from('catalogo_defeito').select('*').eq('id', b.defeito_id).single();
@@ -1311,7 +1317,7 @@ app.post('/api/mf/ncs', auth, async (req, res) => {
 
 // ── Foto da NC: sobe a imagem para o Supabase Storage (bucket mf-fotos) ──
 const MF_BUCKET = 'mf-fotos';
-app.post('/api/mf/fotos', auth, async (req, res) => {
+app.post('/api/mf/fotos', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.nc_id || !b.url) return res.status(400).json({ erro: 'nc_id e url obrigatórios' });
     let urlFinal = b.url, tamanho = b.tamanho_bytes || null;
@@ -1362,7 +1368,7 @@ function mfParseData(s) {
 }
 
 // ETAPA 1-3: ingestão + validação + normalização (exato → fuzzy; resto fica 'novo' p/ agente)
-app.post('/api/mf/importar', auth, async (req, res) => {
+app.post('/api/mf/importar', auth, mfEscrita, async (req, res) => {
     const { linhas, mapa } = req.body || {};
     if (!Array.isArray(linhas) || !linhas.length) return res.status(400).json({ erro: 'linhas[] obrigatório' });
     if (!mapa || !mapa.defeito_texto) return res.status(400).json({ erro: 'mapa.defeito_texto obrigatório (coluna do defeito)' });
@@ -1434,7 +1440,7 @@ app.post('/api/mf/importar', auth, async (req, res) => {
 });
 
 // ETAPA 3 (camada 3): subagente classificador — termos 'novo' → catálogo via Claude
-app.post('/api/mf/classificar', auth, async (req, res) => {
+app.post('/api/mf/classificar', auth, mfEscrita, async (req, res) => {
     const { lote_id } = req.body || {};
     if (!lote_id) return res.status(400).json({ erro: 'lote_id obrigatório' });
     const { data: pend } = await supabase.from('stg_importacao').select('id,linha_bruta').eq('lote_id', lote_id).eq('status', 'novo');
@@ -1496,7 +1502,7 @@ async function mfAcharOuCriar(tabela, filtro, criar) {
 }
 
 // ETAPA 5: carga — move linhas 'valido' do staging para produção (apontamento + NC)
-app.post('/api/mf/importar/:lote_id/carga', auth, async (req, res) => {
+app.post('/api/mf/importar/:lote_id/carga', auth, mfEscrita, async (req, res) => {
     const lote_id = req.params.lote_id;
     const { data: validos } = await supabase.from('stg_importacao').select('*').eq('lote_id', lote_id).eq('status', 'valido');
     if (!validos?.length) return res.json({ ok: true, carregados: 0, msg: 'Nenhuma linha válida para carregar.' });
@@ -1596,7 +1602,7 @@ app.get('/api/mf/etiquetas', auth, async (req, res) => {
     if (error) return res.status(500).json({ erro: error.message });
     res.json(data || []);
 });
-app.post('/api/mf/etiquetas', auth, async (req, res) => {
+app.post('/api/mf/etiquetas', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.maquina_id || !b.operador_id || !b.tipo || !b.descricao) return res.status(400).json({ erro: 'maquina_id, operador_id, tipo e descricao obrigatórios' });
     const id = b.id || require('crypto').randomUUID();
@@ -1608,7 +1614,7 @@ app.post('/api/mf/etiquetas', auth, async (req, res) => {
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, etiqueta: data });
 });
-app.put('/api/mf/etiquetas/:id', auth, async (req, res) => {
+app.put('/api/mf/etiquetas/:id', auth, mfEscrita, async (req, res) => {
     const upd = {};
     ['status','ordem_manutencao_id'].forEach(f => { if (req.body[f] !== undefined) upd[f] = req.body[f]; });
     if (req.body.status === 'resolvida') upd.resolvida_em = new Date().toISOString();
@@ -1627,7 +1633,7 @@ app.get('/api/mf/oms', auth, async (req, res) => {
     if (error) return res.status(500).json({ erro: error.message });
     res.json(data || []);
 });
-app.post('/api/mf/oms', auth, async (req, res) => {
+app.post('/api/mf/oms', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.maquina_id || !b.tipo || !b.descricao) return res.status(400).json({ erro: 'maquina_id, tipo e descricao obrigatórios' });
     const row = { maquina_id: b.maquina_id, componente_id: b.componente_id || null, plano_id: b.plano_id || null, parada_id: b.parada_id || null,
@@ -1638,7 +1644,7 @@ app.post('/api/mf/oms', auth, async (req, res) => {
     if (b.etiqueta_id) await supabase.from('etiqueta_anomalia').update({ status: 'em_tratativa', ordem_manutencao_id: data.id }).eq('id', b.etiqueta_id);
     res.json({ ok: true, om: data });
 });
-app.put('/api/mf/oms/:id', auth, async (req, res) => {
+app.put('/api/mf/oms/:id', auth, mfEscrita, async (req, res) => {
     const b = req.body || {}, upd = {};
     ['status','prioridade','executor_id','causa','acao_realizada','componente_id'].forEach(f => { if (b[f] !== undefined) upd[f] = b[f]; });
     if (b.iniciar)  upd.iniciada_em  = b.iniciada_em  || new Date().toISOString(), upd.status = 'em_execucao';
@@ -1648,7 +1654,7 @@ app.put('/api/mf/oms/:id', auth, async (req, res) => {
     res.json({ ok: true, om: data });
 });
 // consumo de peça numa OM (baixa estoque)
-app.post('/api/mf/oms/:id/peca', auth, async (req, res) => {
+app.post('/api/mf/oms/:id/peca', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.peca_id || !(Number(b.quantidade) > 0)) return res.status(400).json({ erro: 'peca_id e quantidade>0 obrigatórios' });
     const { error: e1 } = await supabase.from('consumo_peca').insert({ ordem_manutencao_id: req.params.id, peca_id: b.peca_id, quantidade: b.quantidade });
@@ -1659,7 +1665,7 @@ app.post('/api/mf/oms/:id/peca', auth, async (req, res) => {
 });
 
 // ── Cadastros TPM: componente, peça, plano ────────────────────
-app.post('/api/mf/componentes', auth, async (req, res) => {
+app.post('/api/mf/componentes', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.maquina_id || !b.codigo || !b.nome || !b.tipo) return res.status(400).json({ erro: 'maquina_id, codigo, nome e tipo obrigatórios' });
     const row = { maquina_id: b.maquina_id, codigo: b.codigo, nome: b.nome, tipo: b.tipo,
@@ -1668,7 +1674,7 @@ app.post('/api/mf/componentes', auth, async (req, res) => {
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, componente: data });
 });
-app.post('/api/mf/pecas', auth, async (req, res) => {
+app.post('/api/mf/pecas', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.codigo || !b.nome || !b.unidade) return res.status(400).json({ erro: 'codigo, nome e unidade obrigatórios' });
     const row = { codigo: b.codigo, nome: b.nome, categoria: b.categoria || null, unidade: b.unidade,
@@ -1682,7 +1688,7 @@ app.get('/api/mf/planos', auth, async (_q, res) => {
     if (error) return res.status(500).json({ erro: error.message });
     res.json(data || []);
 });
-app.post('/api/mf/planos', auth, async (req, res) => {
+app.post('/api/mf/planos', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.maquina_id || !b.nome || !b.tipo || !b.gatilho || !b.intervalo_valor || !b.intervalo_unidade) return res.status(400).json({ erro: 'campos obrigatórios faltando' });
     const row = { maquina_id: b.maquina_id, componente_id: b.componente_id || null, nome: b.nome, tipo: b.tipo, gatilho: b.gatilho,
@@ -1699,7 +1705,7 @@ app.get('/api/mf/checklists', auth, async (_q, res) => {
     (data || []).forEach(c => (c.checklist_item || []).sort((a, b) => a.ordem - b.ordem));
     res.json(data || []);
 });
-app.post('/api/mf/checklists', auth, async (req, res) => {
+app.post('/api/mf/checklists', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.nome || !b.frequencia || !Array.isArray(b.itens) || !b.itens.length) return res.status(400).json({ erro: 'nome, frequencia e itens[] obrigatórios' });
     const { data: cl, error } = await supabase.from('checklist_autonoma').insert({ maquina_id: b.maquina_id || null, tipo_maquina: b.tipo_maquina || null, nome: b.nome, frequencia: b.frequencia }).select().single();
@@ -1710,7 +1716,7 @@ app.post('/api/mf/checklists', auth, async (req, res) => {
     res.json({ ok: true, checklist: cl });
 });
 // operador executa o checklist → alimenta vw_cil_cumprimento
-app.post('/api/mf/checklist-execucao', auth, async (req, res) => {
+app.post('/api/mf/checklist-execucao', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.checklist_id || !b.maquina_id || !b.operador_id || !b.turno_id || !Array.isArray(b.resultados)) return res.status(400).json({ erro: 'campos obrigatórios faltando' });
     const completo = b.resultados.every(r => r.resultado && r.resultado !== '');
@@ -1763,10 +1769,11 @@ app.get('/api/mf/cnq', auth, async (_req, res) => {
     ]);
     if (resumo.error && /schema cache|does not exist|column/i.test(resumo.error.message || ''))
         return res.status(503).json({ erro: 'CNQ ainda não criado. Rode mes_cnq.sql no SQL Editor.' });
-    res.json({ resumo: resumo.data || {}, porDefeito: defeito.data || [], produtos: prods.data || [] });
+    const forn = await supabase.from('vw_fornecedor').select('*');
+    res.json({ resumo: resumo.data || {}, porDefeito: defeito.data || [], produtos: prods.data || [], fornecedores: forn.data || [] });
 });
 // define custo unitário de um produto (R$/unidade)
-app.put('/api/mf/produtos/:id/custo', auth, async (req, res) => {
+app.put('/api/mf/produtos/:id/custo', auth, mfEscrita, async (req, res) => {
     const v = Number(req.body?.custo_unitario);
     if (!(v >= 0)) return res.status(400).json({ erro: 'custo_unitario inválido' });
     const { error } = await supabase.from('produto').update({ custo_unitario: v }).eq('id', req.params.id);
@@ -1774,7 +1781,7 @@ app.put('/api/mf/produtos/:id/custo', auth, async (req, res) => {
     res.json({ ok: true });
 });
 // congela o custo na NC (preenche custo_estimado a partir do custo atual)
-app.post('/api/mf/cnq/recalcular', auth, async (_req, res) => {
+app.post('/api/mf/cnq/recalcular', auth, mfEscrita, async (_req, res) => {
     const { data: linhas, error } = await supabase.from('vw_cnq').select('nc_id,custo');
     if (error) return res.status(503).json({ erro: 'CNQ ainda não criado. Rode mes_cnq.sql.' });
     let n = 0;
@@ -1789,7 +1796,7 @@ app.get('/api/mf/lotes-fio', auth, async (_req, res) => {
     if (error) return res.status(500).json({ erro: error.message });
     res.json(data || []);
 });
-app.post('/api/mf/lotes-fio', auth, async (req, res) => {
+app.post('/api/mf/lotes-fio', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.codigo) return res.status(400).json({ erro: 'codigo obrigatório' });
     const q = Number(b.qtd_recebida_kg) || 0;
@@ -1800,7 +1807,7 @@ app.post('/api/mf/lotes-fio', auth, async (req, res) => {
     res.json({ ok: true, lote: data });
 });
 // registra consumo de um lote de fio numa sessão (baixa o disponível)
-app.post('/api/mf/consumo-fio', auth, async (req, res) => {
+app.post('/api/mf/consumo-fio', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.apontamento_id || !b.lote_fio_id || !(Number(b.qtd_consumida_kg) > 0)) return res.status(400).json({ erro: 'apontamento_id, lote_fio_id e qtd_consumida_kg>0 obrigatórios' });
     const { error: e1 } = await supabase.from('consumo_fio').insert({ apontamento_id: b.apontamento_id, lote_fio_id: b.lote_fio_id, qtd_consumida_kg: b.qtd_consumida_kg });

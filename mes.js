@@ -101,6 +101,10 @@ const mf = {
     _abaImport: null,
 
     async init() {
+        // login por link: ?token=... grava o token e limpa a URL (abrir sem digitar senha)
+        const urlTok = new URLSearchParams(location.search).get('token');
+        if (urlTok) { localStorage.setItem(TOKEN_KEY, urlTok); try { history.replaceState({}, document.title, location.pathname); } catch {} }
+
         // restaura estados de menu colapsado
         document.querySelectorAll('.has-sub[id]').forEach(li => { if (localStorage.getItem('nav-grp-' + li.id) === '1') li.classList.add('nav-collapsed'); });
         document.querySelectorAll('.nav-section-header[data-key]').forEach(h3 => { if (localStorage.getItem('nav-sec-' + h3.dataset.key) === '1') h3.closest('.nav-section')?.classList.add('nav-section-collapsed'); });
@@ -710,6 +714,19 @@ const mf = {
                     <th style="padding:8px 10px;text-align:left;">CUSTO</th><th style="padding:8px 10px;text-align:right;">R$</th><th style="padding:8px 10px;text-align:right;">OCORR.</th>
                 </tr></thead><tbody>${paretoCusto}</tbody></table>
             </div>
+            ${(d.fornecedores && d.fornecedores.length) ? `<div class="summary-card" style="padding:0;overflow:hidden;margin-bottom:18px;">
+                <div class="s-label" style="padding:14px 16px 10px;">SCORECARD DE FORNECEDOR — qual fio gera mais defeito/custo</div>
+                <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                <thead><tr style="border-bottom:2px solid var(--border-color);color:var(--text-dim);font-size:.66rem;">
+                    <th style="padding:8px 10px;text-align:left;">FORNECEDOR</th><th style="padding:8px 10px;text-align:right;">SESSÕES</th>
+                    <th style="padding:8px 10px;text-align:right;">KG CONSUMIDO</th><th style="padding:8px 10px;text-align:right;">NCs</th><th style="padding:8px 10px;text-align:right;">CUSTO CNQ</th>
+                </tr></thead><tbody>${d.fornecedores.map(f => `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+                    <td style="padding:7px 10px;font-weight:600;">${esc(f.fornecedor)}</td>
+                    <td style="padding:7px 10px;text-align:right;">${f.sessoes}</td>
+                    <td style="padding:7px 10px;text-align:right;">${Number(f.kg_consumido||0).toLocaleString('pt-BR')}</td>
+                    <td style="padding:7px 10px;text-align:right;color:${f.ncs?'#f06292':'var(--text-dim)'};font-weight:${f.ncs?'700':'400'};">${f.ncs}</td>
+                    <td style="padding:7px 10px;text-align:right;color:#f06292;font-weight:700;">${brl(f.custo_cnq)}</td>
+                </tr>`).join('')}</tbody></table></div>` : ''}
             <div class="summary-card" style="padding:0;overflow:hidden;">
                 <div class="s-label" style="padding:14px 16px 10px;">CUSTO UNITÁRIO DOS PRODUTOS (R$ / unidade) — base do CNQ</div>
                 <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
