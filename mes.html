@@ -95,6 +95,16 @@
                 </ul>
             </nav>
 
+            <nav class="nav-section" id="nav-section-rastr">
+                <h3 class="nav-section-header" data-key="mf-rastr" onclick="toggleNavSection(this)">
+                    RASTREABILIDADE <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-fio"  data-mftab="fio"  onclick="mf.tab('fio')"><div class="item-content">Lotes de Fio</div></li>
+                    <li id="nav-gene" data-mftab="gene" onclick="mf.tab('gene')"><div class="item-content">Genealogia (Recall)</div></li>
+                </ul>
+            </nav>
+
             <nav class="nav-section" id="nav-section-dados">
                 <h3 class="nav-section-header" data-key="mf-dados" onclick="toggleNavSection(this)">
                     DADOS <span class="nav-toggle">▾</span>
@@ -139,6 +149,8 @@
         <div id="mf-pan-etiq"   style="display:none;"></div>
         <div id="mf-pan-oms"    style="display:none;"></div>
         <div id="mf-pan-tpm"    style="display:none;"></div>
+        <div id="mf-pan-fio"    style="display:none;"></div>
+        <div id="mf-pan-gene"   style="display:none;"></div>
         <div id="mf-pan-import" style="display:none;"></div>
     </main>
 

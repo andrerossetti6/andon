@@ -189,11 +189,13 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['apont','ncs','ind','cnq','etiq','oms','tpm','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['apont','ncs','ind','cnq','etiq','oms','tpm','fio','gene','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'apont')  this.renderApont();
         if (name === 'ncs')    this.renderNcs();
         if (name === 'ind')    this.renderInd();
         if (name === 'cnq')    this.renderCnq();
+        if (name === 'fio')    this.renderFio();
+        if (name === 'gene')   this.renderGenealogia();
         if (name === 'etiq')   this.renderEtiquetas();
         if (name === 'oms')    this.renderOms();
         if (name === 'tpm')    this.renderTpm();
@@ -405,6 +407,112 @@ const mf = {
     },
 
     // ═══ IMPORTAR LEGADO ═══════════════════════════════════════════════════════
+    // ═══ RASTREABILIDADE (fase 4) ══════════════════════════════════════════════
+    async renderFio() {
+        const pan = $('mf-pan-fio');
+        const abertas = await api.get('/api/mf/apontamentos?abertas=1') || [];
+        const lotes = await api.get('/api/mf/lotes-fio');
+        if (lotes === null) { pan.innerHTML = `<div class="summary-card" style="padding:24px;color:#f06292;">Rastreabilidade indisponível — rode <b>mes_rastreabilidade.sql</b>.</div>`; return; }
+        const aptOpt = abertas.map(a => `<option value="${a.id}">${esc(a.op?.numero||'OP')} · ${esc(a.maquina?.codigo||'')}</option>`).join('') || '<option value="">(nenhuma sessão aberta)</option>';
+        const loteOpt = lotes.map(l => `<option value="${l.id}">${esc(l.codigo)} (${Number(l.qtd_disponivel_kg).toLocaleString('pt-BR')} kg disp.)</option>`).join('');
+        const lista = lotes.length ? lotes.map(l => `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+            <td style="padding:7px 10px;font-weight:600;color:var(--indigo-primary);">${esc(l.codigo)}</td>
+            <td style="padding:7px 10px;">${esc(l.fornecedor||'—')}</td>
+            <td style="padding:7px 10px;color:var(--text-dim);">${esc(l.composicao||'')} ${esc(l.titulo_fio||'')} ${esc(l.cor||'')}</td>
+            <td style="padding:7px 10px;text-align:right;">${Number(l.qtd_recebida_kg).toLocaleString('pt-BR')}</td>
+            <td style="padding:7px 10px;text-align:right;color:${l.qtd_disponivel_kg<l.qtd_recebida_kg*0.1?'#ffca28':'var(--text-primary)'};">${Number(l.qtd_disponivel_kg).toLocaleString('pt-BR')}</td></tr>`).join('')
+            : `<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text-dim);">Nenhum lote de fio recebido.</td></tr>`;
+        pan.innerHTML = `
+        <div class="summary-card" style="margin-bottom:16px;">
+            <div class="s-label" style="margin-bottom:12px;">🧵 RECEBER LOTE DE FIO</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:10px;">
+                <div><span class="mf-label">CÓDIGO DO LOTE *</span><input id="mf-lf-cod" class="mf-input" placeholder="ex: FIO-2026-014"></div>
+                <div><span class="mf-label">FORNECEDOR</span><input id="mf-lf-forn" class="mf-input"></div>
+                <div><span class="mf-label">COMPOSIÇÃO</span><input id="mf-lf-comp" class="mf-input" placeholder="PV 67/33"></div>
+                <div><span class="mf-label">TÍTULO</span><input id="mf-lf-tit" class="mf-input" placeholder="30/1"></div>
+                <div><span class="mf-label">COR</span><input id="mf-lf-cor" class="mf-input"></div>
+                <div><span class="mf-label">QTD (kg)</span><input id="mf-lf-qtd" type="number" min="0" step="0.001" class="mf-input" value="0"></div>
+            </div>
+            <button class="btn primary" onclick="mf.receberLote()">Receber lote</button>
+        </div>
+        <div class="summary-card" style="margin-bottom:16px;">
+            <div class="s-label" style="margin-bottom:12px;">🔗 VINCULAR FIO A UMA SESSÃO ABERTA</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;">
+                <div><span class="mf-label">SESSÃO (OP)</span><select id="mf-cf-apt" class="mf-input">${aptOpt}</select></div>
+                <div><span class="mf-label">LOTE DE FIO</span><select id="mf-cf-lote" class="mf-input">${loteOpt}</select></div>
+                <div><span class="mf-label">QTD (kg)</span><input id="mf-cf-qtd" type="number" min="0" step="0.001" class="mf-input" style="width:110px;" value="0"></div>
+            </div>
+            <button class="btn secondary" style="margin-top:10px;" onclick="mf.vincularFio()">Registrar consumo</button>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;">
+            <div class="s-label" style="padding:14px 16px 10px;">LOTES DE FIO</div>
+            <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+            <thead><tr style="border-bottom:2px solid var(--border-color);color:var(--text-dim);font-size:.66rem;">
+                <th style="padding:8px 10px;text-align:left;">LOTE</th><th style="padding:8px 10px;text-align:left;">FORNECEDOR</th><th style="padding:8px 10px;text-align:left;">FIO</th>
+                <th style="padding:8px 10px;text-align:right;">RECEBIDO (kg)</th><th style="padding:8px 10px;text-align:right;">DISPONÍVEL (kg)</th>
+            </tr></thead><tbody>${lista}</tbody></table>
+        </div>`;
+    },
+    async receberLote() {
+        const cod = $('mf-lf-cod').value.trim();
+        if (!cod) return toast('Informe o código do lote.', 'erro');
+        const r = await api.post('/api/mf/lotes-fio', { codigo: cod, fornecedor: $('mf-lf-forn').value || null, composicao: $('mf-lf-comp').value || null,
+            titulo_fio: $('mf-lf-tit').value || null, cor: $('mf-lf-cor').value || null, qtd_recebida_kg: parseFloat($('mf-lf-qtd').value) || 0 });
+        if (!r?.ok) return toast('Erro: ' + (r?.erro || ''), 'erro');
+        toast('Lote recebido.'); this.renderFio();
+    },
+    async vincularFio() {
+        const apt = $('mf-cf-apt').value, lote = $('mf-cf-lote').value, qtd = parseFloat($('mf-cf-qtd').value);
+        if (!apt || !lote || !(qtd > 0)) return toast('Selecione sessão, lote e quantidade.', 'erro');
+        const r = await api.post('/api/mf/consumo-fio', { apontamento_id: apt, lote_fio_id: lote, qtd_consumida_kg: qtd });
+        if (!r?.ok) return toast('Erro: ' + (r?.erro || ''), 'erro');
+        toast('Consumo de fio registrado.'); this.renderFio();
+    },
+
+    async renderGenealogia() {
+        const pan = $('mf-pan-gene');
+        const lotes = await api.get('/api/mf/lotes-fio');
+        if (lotes === null) { pan.innerHTML = `<div class="summary-card" style="padding:24px;color:#f06292;">Rastreabilidade indisponível — rode <b>mes_rastreabilidade.sql</b>.</div>`; return; }
+        const opt = lotes.map(l => `<option value="${l.id}">${esc(l.codigo)} — ${esc(l.fornecedor||'')}</option>`).join('') || '<option value="">(receba lotes primeiro)</option>';
+        pan.innerHTML = `
+        <div class="summary-card" style="margin-bottom:16px;">
+            <div class="s-label" style="margin-bottom:8px;">🔎 RECALL — ONDE ESTE LOTE DE FIO FOI USADO</div>
+            <p style="font-size:.78rem;color:var(--text-dim);margin-bottom:12px;">Se um lote de fio veio com problema, selecione-o para ver TODA a produção e os defeitos que ele gerou — do fio à peça.</p>
+            <div style="display:flex;gap:10px;align-items:end;">
+                <div style="flex:1;max-width:360px;"><span class="mf-label">LOTE DE FIO</span><select id="mf-gene-lote" class="mf-input">${opt}</select></div>
+                <button class="btn primary" onclick="mf.rastrear()">Rastrear</button>
+            </div>
+        </div>
+        <div id="mf-gene-result"></div>`;
+    },
+    async rastrear() {
+        const lote = $('mf-gene-lote').value; if (!lote) return;
+        const rows = await api.get('/api/mf/genealogia?lote_fio_id=' + lote) || [];
+        const wrap = $('mf-gene-result');
+        if (!rows.length) { wrap.innerHTML = `<div class="summary-card" style="text-align:center;padding:24px;color:var(--text-dim);">Este lote ainda não foi consumido em nenhuma sessão.</div>`; return; }
+        const totalNc = rows.reduce((s, r) => s + (r.ncs_na_sessao || 0), 0);
+        const totalKg = rows.reduce((s, r) => s + Number(r.qtd_consumida_kg || 0), 0);
+        wrap.innerHTML = `
+            <div style="display:flex;gap:12px;margin-bottom:14px;flex-wrap:wrap;">
+                <div style="background:rgba(38,198,218,.12);border:1px solid rgba(38,198,218,.4);border-radius:8px;padding:12px 20px;text-align:center;"><div style="font-size:1.4rem;font-weight:800;color:#26c6da;">${rows.length}</div><div style="font-size:.66rem;color:#26c6da;">SESSÕES / OPs</div></div>
+                <div style="background:rgba(124,77,255,.12);border:1px solid rgba(124,77,255,.4);border-radius:8px;padding:12px 20px;text-align:center;"><div style="font-size:1.4rem;font-weight:800;color:#7c4dff;">${totalKg.toLocaleString('pt-BR')}</div><div style="font-size:.66rem;color:#7c4dff;">KG CONSUMIDOS</div></div>
+                <div style="background:rgba(240,98,146,.12);border:1px solid rgba(240,98,146,.4);border-radius:8px;padding:12px 20px;text-align:center;"><div style="font-size:1.4rem;font-weight:800;color:#f06292;">${totalNc}</div><div style="font-size:.66rem;color:#f06292;">NCs GERADAS</div></div>
+            </div>
+            <div class="summary-card" style="padding:0;overflow:hidden;">
+            <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+            <thead><tr style="border-bottom:2px solid var(--border-color);color:var(--text-dim);font-size:.66rem;">
+                <th style="padding:8px 10px;text-align:left;">OP</th><th style="padding:8px 10px;text-align:left;">PRODUTO</th><th style="padding:8px 10px;text-align:left;">MÁQUINA</th>
+                <th style="padding:8px 10px;text-align:left;">DATA</th><th style="padding:8px 10px;text-align:right;">FIO (kg)</th><th style="padding:8px 10px;text-align:right;">NCs</th>
+            </tr></thead><tbody>${rows.map(r => `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+                <td style="padding:7px 10px;font-weight:600;color:var(--indigo-primary);">${esc(r.op_numero)}</td>
+                <td style="padding:7px 10px;">${esc(r.produto_codigo)} · ${esc((r.produto_descricao||'').slice(0,24))}</td>
+                <td style="padding:7px 10px;">${esc(r.maquina_codigo)}</td>
+                <td style="padding:7px 10px;color:var(--text-dim);">${new Date(r.datahora_inicio).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</td>
+                <td style="padding:7px 10px;text-align:right;">${Number(r.qtd_consumida_kg).toLocaleString('pt-BR')}</td>
+                <td style="padding:7px 10px;text-align:right;color:${r.ncs_na_sessao?'#f06292':'var(--text-dim)'};font-weight:${r.ncs_na_sessao?'700':'400'};">${r.ncs_na_sessao}</td>
+            </tr>`).join('')}</tbody></table></div>`;
+    },
+
     // ═══ CNQ — CUSTO DA NÃO QUALIDADE ══════════════════════════════════════════
     async renderCnq() {
         const pan = $('mf-pan-cnq');

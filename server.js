@@ -1719,6 +1719,45 @@ app.post('/api/mf/cnq/recalcular', auth, async (_req, res) => {
     res.json({ ok: true, atualizadas: n });
 });
 
+// ── Rastreabilidade (fase 4): lotes de fio + genealogia ───────
+app.get('/api/mf/lotes-fio', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('lote_fio').select('*').eq('ativo', true).order('data_recebimento', { ascending: false });
+    if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'Rastreabilidade ainda não criada. Rode mes_rastreabilidade.sql.' });
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.post('/api/mf/lotes-fio', auth, async (req, res) => {
+    const b = req.body || {};
+    if (!b.codigo) return res.status(400).json({ erro: 'codigo obrigatório' });
+    const q = Number(b.qtd_recebida_kg) || 0;
+    const row = { codigo: b.codigo, fornecedor: b.fornecedor || null, composicao: b.composicao || null, titulo_fio: b.titulo_fio || null,
+        cor: b.cor || null, qtd_recebida_kg: q, qtd_disponivel_kg: q, data_recebimento: b.data_recebimento || new Date().toISOString() };
+    const { data, error } = await supabase.from('lote_fio').upsert(row, { onConflict: 'codigo' }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, lote: data });
+});
+// registra consumo de um lote de fio numa sessão (baixa o disponível)
+app.post('/api/mf/consumo-fio', auth, async (req, res) => {
+    const b = req.body || {};
+    if (!b.apontamento_id || !b.lote_fio_id || !(Number(b.qtd_consumida_kg) > 0)) return res.status(400).json({ erro: 'apontamento_id, lote_fio_id e qtd_consumida_kg>0 obrigatórios' });
+    const { error: e1 } = await supabase.from('consumo_fio').insert({ apontamento_id: b.apontamento_id, lote_fio_id: b.lote_fio_id, qtd_consumida_kg: b.qtd_consumida_kg });
+    if (e1) return res.status(500).json({ erro: e1.message });
+    const { data: lf } = await supabase.from('lote_fio').select('qtd_disponivel_kg').eq('id', b.lote_fio_id).single();
+    if (lf) await supabase.from('lote_fio').update({ qtd_disponivel_kg: Math.max(0, Number(lf.qtd_disponivel_kg) - Number(b.qtd_consumida_kg)) }).eq('id', b.lote_fio_id);
+    res.json({ ok: true });
+});
+// genealogia: forward (lote_fio_id → tudo que produziu) ou backward (op_id → lotes de fio)
+app.get('/api/mf/genealogia', auth, async (req, res) => {
+    let q = supabase.from('vw_genealogia').select('*');
+    if (req.query.lote_fio_id) q = q.eq('lote_fio_id', req.query.lote_fio_id);   // recall
+    else if (req.query.op_id)  q = q.eq('op_id', req.query.op_id);               // origem
+    else if (req.query.apontamento_id) q = q.eq('apontamento_id', req.query.apontamento_id);
+    const { data, error } = await q.order('datahora_inicio', { ascending: false });
+    if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'Rastreabilidade ainda não criada. Rode mes_rastreabilidade.sql.' });
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+
 // ── Fallback para SPA ─────────────────────────────────────────
 app.get('/{*path}', (_req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
