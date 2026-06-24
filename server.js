@@ -1995,6 +1995,46 @@ app.get('/api/mf/painel', auth, async (_q, res) => {
     });
 });
 
+// ── Rastreabilidade multi-etapa (Onda 6) ──────────────────────
+app.get('/api/mf/lotes-producao', auth, async (_q, res) => {
+    const { data, error } = await supabase.from('lote_producao').select('*, produto:produto_id(codigo)').order('criado_em', { ascending: false }).limit(300);
+    if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'Multi-etapa ainda não criada. Rode mes_escala.sql.' });
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.post('/api/mf/lotes-producao', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {};
+    if (!b.codigo || !b.etapa) return res.status(400).json({ erro: 'codigo e etapa obrigatórios' });
+    const q = Number(b.qtd_kg) || 0;
+    const row = { codigo: b.codigo, apontamento_id: b.apontamento_id || null, produto_id: b.produto_id || null, etapa: b.etapa, qtd_kg: q, qtd_disponivel_kg: q };
+    const { data, error } = await supabase.from('lote_producao').upsert(row, { onConflict: 'codigo' }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, lote: data });
+});
+app.post('/api/mf/consumo-lote', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {};
+    if (!b.apontamento_id || !b.lote_producao_id || !(Number(b.qtd_consumida_kg) > 0)) return res.status(400).json({ erro: 'apontamento_id, lote_producao_id e qtd>0 obrigatórios' });
+    const { error } = await supabase.from('consumo_lote').insert({ apontamento_id: b.apontamento_id, lote_producao_id: b.lote_producao_id, qtd_consumida_kg: b.qtd_consumida_kg });
+    if (error) return res.status(500).json({ erro: error.message });
+    const { data: lp } = await supabase.from('lote_producao').select('qtd_disponivel_kg').eq('id', b.lote_producao_id).single();
+    if (lp) await supabase.from('lote_producao').update({ qtd_disponivel_kg: Math.max(0, Number(lp.qtd_disponivel_kg) - Number(b.qtd_consumida_kg)) }).eq('id', b.lote_producao_id);
+    res.json({ ok: true });
+});
+// genealogia recursiva: cadeia de etapas de um lote final
+app.get('/api/mf/genealogia-etapas/:lote_id', auth, async (req, res) => {
+    const { data, error } = await supabase.from('vw_genealogia_etapas').select('*').eq('lote_raiz', req.params.lote_id).order('nivel');
+    if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'Multi-etapa ainda não criada. Rode mes_escala.sql.' });
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+// refresh da view materializada de OEE (escala)
+app.post('/api/mf/refresh', auth, mfEscrita, async (_req, res) => {
+    const { error } = await supabase.rpc('refresh_mv_oee').catch(() => ({ error: { message: 'rpc ausente' } }));
+    // fallback: a maioria dos projetos não tem a RPC; informa o comando manual
+    if (error) return res.json({ ok: false, info: 'Para atualizar a matview rode no SQL: REFRESH MATERIALIZED VIEW mv_oee;' });
+    res.json({ ok: true });
+});
+
 // ── Fallback para SPA ─────────────────────────────────────────
 app.get('/{*path}', (_req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
