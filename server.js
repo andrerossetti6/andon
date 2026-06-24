@@ -1658,6 +1658,69 @@ app.post('/api/mf/oms/:id/peca', auth, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── Cadastros TPM: componente, peça, plano ────────────────────
+app.post('/api/mf/componentes', auth, async (req, res) => {
+    const b = req.body || {};
+    if (!b.maquina_id || !b.codigo || !b.nome || !b.tipo) return res.status(400).json({ erro: 'maquina_id, codigo, nome e tipo obrigatórios' });
+    const row = { maquina_id: b.maquina_id, codigo: b.codigo, nome: b.nome, tipo: b.tipo,
+        vida_util_valor: b.vida_util_valor || null, vida_util_unidade: b.vida_util_unidade || null };
+    const { data, error } = await supabase.from('componente').upsert(row, { onConflict: 'codigo' }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, componente: data });
+});
+app.post('/api/mf/pecas', auth, async (req, res) => {
+    const b = req.body || {};
+    if (!b.codigo || !b.nome || !b.unidade) return res.status(400).json({ erro: 'codigo, nome e unidade obrigatórios' });
+    const row = { codigo: b.codigo, nome: b.nome, categoria: b.categoria || null, unidade: b.unidade,
+        estoque_atual: Number(b.estoque_atual) || 0, estoque_minimo: Number(b.estoque_minimo) || 0 };
+    const { data, error } = await supabase.from('peca').upsert(row, { onConflict: 'codigo' }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, peca: data });
+});
+app.get('/api/mf/planos', auth, async (_q, res) => {
+    const { data, error } = await supabase.from('plano_manutencao').select('*, maquina:maquina_id(codigo), componente:componente_id(nome)').eq('ativo', true).order('nome');
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.post('/api/mf/planos', auth, async (req, res) => {
+    const b = req.body || {};
+    if (!b.maquina_id || !b.nome || !b.tipo || !b.gatilho || !b.intervalo_valor || !b.intervalo_unidade) return res.status(400).json({ erro: 'campos obrigatórios faltando' });
+    const row = { maquina_id: b.maquina_id, componente_id: b.componente_id || null, nome: b.nome, tipo: b.tipo, gatilho: b.gatilho,
+        intervalo_valor: b.intervalo_valor, intervalo_unidade: b.intervalo_unidade, instrucoes: b.instrucoes || null, duracao_estimada_min: b.duracao_estimada_min || null };
+    const { data, error } = await supabase.from('plano_manutencao').insert(row).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, plano: data });
+});
+
+// ── Checklist CIL (Limpeza, Inspeção, Lubrificação) ───────────
+app.get('/api/mf/checklists', auth, async (_q, res) => {
+    const { data, error } = await supabase.from('checklist_autonoma').select('*, checklist_item(*)').eq('ativo', true).order('nome');
+    if (error) return res.status(500).json({ erro: error.message });
+    (data || []).forEach(c => (c.checklist_item || []).sort((a, b) => a.ordem - b.ordem));
+    res.json(data || []);
+});
+app.post('/api/mf/checklists', auth, async (req, res) => {
+    const b = req.body || {};
+    if (!b.nome || !b.frequencia || !Array.isArray(b.itens) || !b.itens.length) return res.status(400).json({ erro: 'nome, frequencia e itens[] obrigatórios' });
+    const { data: cl, error } = await supabase.from('checklist_autonoma').insert({ maquina_id: b.maquina_id || null, tipo_maquina: b.tipo_maquina || null, nome: b.nome, frequencia: b.frequencia }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    const itens = b.itens.map((it, i) => ({ checklist_id: cl.id, ordem: i + 1, descricao: it.descricao, tipo: it.tipo || 'inspecao', referencia: it.referencia || null }));
+    const { error: e2 } = await supabase.from('checklist_item').insert(itens);
+    if (e2) return res.status(500).json({ erro: e2.message });
+    res.json({ ok: true, checklist: cl });
+});
+// operador executa o checklist → alimenta vw_cil_cumprimento
+app.post('/api/mf/checklist-execucao', auth, async (req, res) => {
+    const b = req.body || {};
+    if (!b.checklist_id || !b.maquina_id || !b.operador_id || !b.turno_id || !Array.isArray(b.resultados)) return res.status(400).json({ erro: 'campos obrigatórios faltando' });
+    const completo = b.resultados.every(r => r.resultado && r.resultado !== '');
+    const { data: ex, error } = await supabase.from('checklist_execucao').insert({ checklist_id: b.checklist_id, maquina_id: b.maquina_id, operador_id: b.operador_id, turno_id: b.turno_id, status: completo ? 'completo' : 'parcial' }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    const itens = b.resultados.filter(r => r.item_id && r.resultado).map(r => ({ execucao_id: ex.id, item_id: r.item_id, resultado: r.resultado, observacao: r.observacao || null }));
+    if (itens.length) { const { error: e2 } = await supabase.from('checklist_execucao_item').insert(itens); if (e2) return res.status(500).json({ erro: e2.message }); }
+    res.json({ ok: true, execucao: ex, status: ex.status });
+});
+
 // ── Indicadores TPM (lê as VIEWS) ─────────────────────────────
 app.get('/api/mf/tpm', auth, async (_req, res) => {
     const [mttr, mtbf, cil, etiq] = await Promise.all([

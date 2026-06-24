@@ -189,11 +189,13 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['apont','ncs','ind','cnq','etiq','oms','tpm','fio','gene','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['apont','ncs','ind','cnq','etiq','oms','tpm','cil','cad','fio','gene','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'apont')  this.renderApont();
         if (name === 'ncs')    this.renderNcs();
         if (name === 'ind')    this.renderInd();
         if (name === 'cnq')    this.renderCnq();
+        if (name === 'cil')    this.renderCil();
+        if (name === 'cad')    this.renderCadTpm();
         if (name === 'fio')    this.renderFio();
         if (name === 'gene')   this.renderGenealogia();
         if (name === 'etiq')   this.renderEtiquetas();
@@ -407,6 +409,152 @@ const mf = {
     },
 
     // ═══ IMPORTAR LEGADO ═══════════════════════════════════════════════════════
+    // ═══ CADASTROS TPM (peças, componentes, planos) ════════════════════════════
+    async renderCadTpm() {
+        const pan = $('mf-pan-cad');
+        const [pecas, comps, planos] = await Promise.all([api.get('/api/mf/pecas'), api.get('/api/mf/componentes'), api.get('/api/mf/planos')]);
+        const maqOpt = this._cad.maquinas.map(m => `<option value="${m.id}">${esc(m.codigo)}</option>`).join('');
+        const lin = (arr, cols) => (arr && arr.length) ? arr.map(r => `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">${cols(r)}</tr>`).join('') : `<tr><td colspan="4" style="padding:12px;text-align:center;color:var(--text-dim);">vazio</td></tr>`;
+        pan.innerHTML = `
+        <div class="summary-card" style="margin-bottom:16px;">
+            <div class="s-label" style="margin-bottom:10px;">🔩 PEÇA / SOBRESSALENTE</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:10px;">
+                <div><span class="mf-label">CÓDIGO *</span><input id="mf-pc-cod" class="mf-input"></div>
+                <div><span class="mf-label">NOME *</span><input id="mf-pc-nome" class="mf-input"></div>
+                <div><span class="mf-label">CATEGORIA</span><input id="mf-pc-cat" class="mf-input" placeholder="agulha, correia"></div>
+                <div><span class="mf-label">UNIDADE *</span><select id="mf-pc-un" class="mf-input"><option>un</option><option>kg</option><option>m</option><option>jogo</option></select></div>
+                <div><span class="mf-label">ESTOQUE</span><input id="mf-pc-est" type="number" min="0" class="mf-input" value="0"></div>
+                <div><span class="mf-label">MÍNIMO</span><input id="mf-pc-min" type="number" min="0" class="mf-input" value="0"></div>
+            </div>
+            <button class="btn primary" onclick="mf.salvarPeca()">Salvar peça</button>
+            <div style="overflow-x:auto;margin-top:12px;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">
+            <thead><tr style="color:var(--text-dim);font-size:.64rem;border-bottom:1px solid var(--border-color);"><th style="padding:6px 8px;text-align:left;">CÓD</th><th style="padding:6px 8px;text-align:left;">NOME</th><th style="padding:6px 8px;text-align:right;">ESTOQUE</th><th style="padding:6px 8px;text-align:right;">MÍN</th></tr></thead>
+            <tbody>${lin(pecas, p => `<td style="padding:6px 8px;font-weight:600;color:var(--indigo-primary);">${esc(p.codigo)}</td><td style="padding:6px 8px;">${esc(p.nome)}</td><td style="padding:6px 8px;text-align:right;color:${p.estoque_atual<=p.estoque_minimo?'#f06292':'inherit'};">${Number(p.estoque_atual).toLocaleString('pt-BR')} ${esc(p.unidade)}</td><td style="padding:6px 8px;text-align:right;color:var(--text-dim);">${Number(p.estoque_minimo).toLocaleString('pt-BR')}</td>`)}</tbody></table></div>
+        </div>
+        <div class="summary-card" style="margin-bottom:16px;">
+            <div class="s-label" style="margin-bottom:10px;">⚙ COMPONENTE DA MÁQUINA</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:10px;">
+                <div><span class="mf-label">MÁQUINA *</span><select id="mf-cp-maq" class="mf-input">${maqOpt}</select></div>
+                <div><span class="mf-label">CÓDIGO *</span><input id="mf-cp-cod" class="mf-input" placeholder="CIRC12-CIL"></div>
+                <div><span class="mf-label">NOME *</span><input id="mf-cp-nome" class="mf-input" placeholder="Cilindro de agulhas"></div>
+                <div><span class="mf-label">TIPO *</span><select id="mf-cp-tipo" class="mf-input"><option>desgaste</option><option>mecanico</option><option>eletrico</option><option>pneumatico</option><option>outro</option></select></div>
+                <div><span class="mf-label">VIDA ÚTIL</span><input id="mf-cp-vida" type="number" min="0" class="mf-input"></div>
+                <div><span class="mf-label">UNID. VIDA</span><select id="mf-cp-vun" class="mf-input"><option value="">—</option><option>horas</option><option>kg</option><option>ciclos</option><option>dias</option></select></div>
+            </div>
+            <button class="btn primary" onclick="mf.salvarComponente()">Salvar componente</button>
+            <div style="overflow-x:auto;margin-top:12px;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">
+            <thead><tr style="color:var(--text-dim);font-size:.64rem;border-bottom:1px solid var(--border-color);"><th style="padding:6px 8px;text-align:left;">CÓD</th><th style="padding:6px 8px;text-align:left;">NOME</th><th style="padding:6px 8px;text-align:left;">MÁQUINA</th><th style="padding:6px 8px;text-align:left;">TIPO</th></tr></thead>
+            <tbody>${lin(comps, c => `<td style="padding:6px 8px;font-weight:600;color:var(--indigo-primary);">${esc(c.codigo)}</td><td style="padding:6px 8px;">${esc(c.nome)}</td><td style="padding:6px 8px;">${esc(c.maquina?.codigo||'')}</td><td style="padding:6px 8px;color:var(--text-dim);">${esc(c.tipo)}</td>`)}</tbody></table></div>
+        </div>
+        <div class="summary-card">
+            <div class="s-label" style="margin-bottom:10px;">📅 PLANO DE MANUTENÇÃO</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:10px;">
+                <div><span class="mf-label">MÁQUINA *</span><select id="mf-pl-maq" class="mf-input">${maqOpt}</select></div>
+                <div><span class="mf-label">NOME *</span><input id="mf-pl-nome" class="mf-input" placeholder="Troca de agulhas"></div>
+                <div><span class="mf-label">TIPO *</span><select id="mf-pl-tipo" class="mf-input"><option>preventiva</option><option>preditiva</option><option>lubrificacao</option><option>inspecao</option></select></div>
+                <div><span class="mf-label">GATILHO *</span><select id="mf-pl-gat" class="mf-input"><option value="contador">contador (produção)</option><option value="calendario">calendário</option></select></div>
+                <div><span class="mf-label">A CADA *</span><input id="mf-pl-int" type="number" min="0" class="mf-input" placeholder="5000"></div>
+                <div><span class="mf-label">UNIDADE *</span><select id="mf-pl-un" class="mf-input"><option>kg</option><option>dias</option><option>horas</option><option>ciclos</option></select></div>
+            </div>
+            <button class="btn primary" onclick="mf.salvarPlano()">Salvar plano</button>
+            <div style="overflow-x:auto;margin-top:12px;"><table style="width:100%;border-collapse:collapse;font-size:.8rem;">
+            <thead><tr style="color:var(--text-dim);font-size:.64rem;border-bottom:1px solid var(--border-color);"><th style="padding:6px 8px;text-align:left;">NOME</th><th style="padding:6px 8px;text-align:left;">MÁQUINA</th><th style="padding:6px 8px;text-align:left;">TIPO</th><th style="padding:6px 8px;text-align:right;">INTERVALO</th></tr></thead>
+            <tbody>${lin(planos, p => `<td style="padding:6px 8px;">${esc(p.nome)}</td><td style="padding:6px 8px;color:var(--indigo-primary);">${esc(p.maquina?.codigo||'')}</td><td style="padding:6px 8px;color:var(--text-dim);">${esc(p.tipo)}</td><td style="padding:6px 8px;text-align:right;">${Number(p.intervalo_valor).toLocaleString('pt-BR')} ${esc(p.intervalo_unidade)}</td>`)}</tbody></table></div>
+        </div>`;
+    },
+    async salvarPeca() {
+        const r = await api.post('/api/mf/pecas', { codigo: $('mf-pc-cod').value.trim(), nome: $('mf-pc-nome').value.trim(), categoria: $('mf-pc-cat').value || null,
+            unidade: $('mf-pc-un').value, estoque_atual: parseFloat($('mf-pc-est').value)||0, estoque_minimo: parseFloat($('mf-pc-min').value)||0 });
+        toast(r?.ok ? 'Peça salva.' : 'Erro: ' + (r?.erro||''), r?.ok?'ok':'erro'); if (r?.ok) this.renderCadTpm();
+    },
+    async salvarComponente() {
+        const r = await api.post('/api/mf/componentes', { maquina_id: $('mf-cp-maq').value, codigo: $('mf-cp-cod').value.trim(), nome: $('mf-cp-nome').value.trim(),
+            tipo: $('mf-cp-tipo').value, vida_util_valor: parseFloat($('mf-cp-vida').value)||null, vida_util_unidade: $('mf-cp-vun').value || null });
+        toast(r?.ok ? 'Componente salvo.' : 'Erro: ' + (r?.erro||''), r?.ok?'ok':'erro'); if (r?.ok) this.renderCadTpm();
+    },
+    async salvarPlano() {
+        const r = await api.post('/api/mf/planos', { maquina_id: $('mf-pl-maq').value, nome: $('mf-pl-nome').value.trim(), tipo: $('mf-pl-tipo').value,
+            gatilho: $('mf-pl-gat').value, intervalo_valor: parseFloat($('mf-pl-int').value)||0, intervalo_unidade: $('mf-pl-un').value });
+        toast(r?.ok ? 'Plano salvo.' : 'Erro: ' + (r?.erro||''), r?.ok?'ok':'erro'); if (r?.ok) this.renderCadTpm();
+    },
+
+    // ═══ CHECKLIST CIL (Limpeza, Inspeção, Lubrificação) ═══════════════════════
+    _cilItens: [],
+    async renderCil() {
+        const pan = $('mf-pan-cil');
+        const cls = await api.get('/api/mf/checklists') || [];
+        this._checklists = cls;
+        const maqOpt = this._cad.maquinas.map(m => `<option value="${m.id}">${esc(m.codigo)}</option>`).join('');
+        pan.innerHTML = `
+        <div class="summary-card" style="margin-bottom:16px;">
+            <div class="s-label" style="margin-bottom:10px;">✅ NOVO CHECKLIST CIL</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:10px;">
+                <div><span class="mf-label">NOME *</span><input id="mf-cl-nome" class="mf-input" placeholder="CIL início de turno"></div>
+                <div><span class="mf-label">FREQUÊNCIA *</span><select id="mf-cl-freq" class="mf-input"><option>turno</option><option>diaria</option><option>semanal</option></select></div>
+                <div><span class="mf-label">MÁQUINA (opc.)</span><select id="mf-cl-maq" class="mf-input"><option value="">todas</option>${maqOpt}</select></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:8px;">
+                <input id="mf-cl-itxt" class="mf-input" placeholder="descrição do item (ex: limpar fiapos do cilindro)" style="flex:1;">
+                <select id="mf-cl-itipo" class="mf-input" style="width:130px;"><option>limpeza</option><option>inspecao</option><option>lubrificacao</option></select>
+                <button class="btn secondary" onclick="mf._addCilItem()">+ item</button>
+            </div>
+            <div id="mf-cl-itens" style="margin-bottom:10px;"></div>
+            <button class="btn primary" onclick="mf.salvarChecklist()">Criar checklist</button>
+        </div>
+        <div id="mf-cl-lista">${cls.length ? `<div class="s-label" style="margin:6px 0 12px;">CHECKLISTS (${cls.length})</div>` + cls.map(c => `
+            <div class="summary-card" style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+                <div><span style="font-weight:600;">${esc(c.nome)}</span> <span style="font-size:.72rem;color:var(--text-dim);">· ${c.frequencia} · ${(c.checklist_item||[]).length} itens</span></div>
+                <button class="btn primary" style="font-size:.76rem;" onclick="mf.executarCil('${c.id}')">▶ Executar</button>
+            </div>`).join('') : `<div class="summary-card" style="text-align:center;padding:24px;color:var(--text-dim);">Nenhum checklist criado.</div>`}</div>`;
+        this._cilItens = []; this._renderCilItens();
+    },
+    _addCilItem() {
+        const txt = $('mf-cl-itxt').value.trim(); if (!txt) return;
+        this._cilItens.push({ descricao: txt, tipo: $('mf-cl-itipo').value });
+        $('mf-cl-itxt').value = ''; this._renderCilItens();
+    },
+    _renderCilItens() {
+        const w = $('mf-cl-itens'); if (!w) return;
+        w.innerHTML = this._cilItens.map((it, i) => `<div style="display:flex;justify-content:space-between;padding:5px 10px;background:var(--bg-input);border-radius:6px;margin-bottom:4px;font-size:.8rem;">
+            <span>${i+1}. ${esc(it.descricao)} <span style="color:var(--text-dim);">· ${it.tipo}</span></span>
+            <span style="cursor:pointer;color:#f06292;" onclick="mf._cilItens.splice(${i},1);mf._renderCilItens()">✕</span></div>`).join('');
+    },
+    async salvarChecklist() {
+        const nome = $('mf-cl-nome').value.trim();
+        if (!nome || !this._cilItens.length) return toast('Informe nome e ao menos 1 item.', 'erro');
+        const r = await api.post('/api/mf/checklists', { nome, frequencia: $('mf-cl-freq').value, maquina_id: $('mf-cl-maq').value || null, itens: this._cilItens });
+        if (!r?.ok) return toast('Erro: ' + (r?.erro||''), 'erro');
+        toast('Checklist criado.'); this.renderCil();
+    },
+    executarCil(clId) {
+        const cl = (this._checklists || []).find(c => c.id === clId); if (!cl) return;
+        const maqOpt = this._cad.maquinas.map(m => `<option value="${m.id}">${esc(m.codigo)}</option>`).join('');
+        const operOpt = this._cad.operadores.map(o => `<option value="${o.id}">${esc(o.nome)}</option>`).join('');
+        const turnoOpt = this._cad.turnos.map(t => `<option value="${t.id}">${esc(t.codigo)}</option>`).join('');
+        const itens = (cl.checklist_item || []).map(it => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);">
+            <span style="font-size:.82rem;">${esc(it.descricao)} <span style="color:var(--text-dim);font-size:.7rem;">${it.tipo}</span></span>
+            <select class="mf-input mf-cil-res" data-item="${it.id}" style="width:120px;"><option value="">—</option><option value="ok">OK</option><option value="nao_ok">NÃO OK</option><option value="nao_aplicavel">N/A</option></select>
+        </div>`).join('');
+        this._modal(`
+            <div class="s-label" style="margin-bottom:12px;">✅ EXECUTAR — ${esc(cl.nome)}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;">
+                <div><span class="mf-label">MÁQUINA</span><select id="mf-ce-maq" class="mf-input">${maqOpt}</select></div>
+                <div><span class="mf-label">OPERADOR</span><select id="mf-ce-oper" class="mf-input">${operOpt}</select></div>
+                <div><span class="mf-label">TURNO</span><select id="mf-ce-turno" class="mf-input">${turnoOpt}</select></div>
+            </div>
+            <div style="max-height:40vh;overflow-y:auto;margin-bottom:14px;">${itens}</div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button class="btn secondary" onclick="mf._fecharModal()">Cancelar</button>
+                <button class="btn primary" onclick="mf.salvarExecCil('${cl.id}')">Salvar execução</button>
+            </div>`);
+    },
+    async salvarExecCil(clId) {
+        const resultados = [...document.querySelectorAll('.mf-cil-res')].map(s => ({ item_id: s.dataset.item, resultado: s.value }));
+        const r = await api.post('/api/mf/checklist-execucao', { checklist_id: clId, maquina_id: $('mf-ce-maq').value, operador_id: $('mf-ce-oper').value, turno_id: $('mf-ce-turno').value, resultados });
+        if (!r?.ok) return toast('Erro: ' + (r?.erro||''), 'erro');
+        this._fecharModal(); toast(`Execução salva (${r.status}).`);
+    },
+
     // ═══ RASTREABILIDADE (fase 4) ══════════════════════════════════════════════
     async renderFio() {
         const pan = $('mf-pan-fio');
