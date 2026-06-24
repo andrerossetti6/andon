@@ -77,7 +77,8 @@ const mf = {
         $('view-login').style.display = 'none';
         $('app-sidebar').style.display = 'flex';
         $('view-mes').style.display = 'flex';
-        try { $('mf-user').textContent = JSON.parse(localStorage.getItem('sin1_usuario'))?.nome || ''; } catch {}
+        try { const n = JSON.parse(localStorage.getItem('sin1_usuario'))?.nome || '';
+            $('mf-user').textContent = n; const sn = $('mf-user-nome'); if (sn) sn.textContent = n || '—'; } catch {}
         this.tab('apont');
     },
 
@@ -95,7 +96,8 @@ const mf = {
     },
 
     tab(name) {
-        document.querySelectorAll('.mf-tab').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+        // destaca o item correspondente na sidebar
+        document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
         ['apont','ncs','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'apont')  this.renderApont();
         if (name === 'ncs')    this.renderNcs();
