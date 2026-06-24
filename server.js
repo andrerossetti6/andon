@@ -1691,6 +1691,34 @@ app.get('/api/mf/indicadores', auth, async (_req, res) => {
     });
 });
 
+// ── CNQ (Custo da Não Qualidade) — fase 3 ─────────────────────
+app.get('/api/mf/cnq', auth, async (_req, res) => {
+    const [resumo, defeito, prods] = await Promise.all([
+        supabase.from('vw_cnq_resumo').select('*').single(),
+        supabase.from('vw_cnq_defeito').select('*'),
+        supabase.from('produto').select('id,codigo,descricao,unidade_medida,custo_unitario').order('codigo'),
+    ]);
+    if (resumo.error && /schema cache|does not exist|column/i.test(resumo.error.message || ''))
+        return res.status(503).json({ erro: 'CNQ ainda não criado. Rode mes_cnq.sql no SQL Editor.' });
+    res.json({ resumo: resumo.data || {}, porDefeito: defeito.data || [], produtos: prods.data || [] });
+});
+// define custo unitário de um produto (R$/unidade)
+app.put('/api/mf/produtos/:id/custo', auth, async (req, res) => {
+    const v = Number(req.body?.custo_unitario);
+    if (!(v >= 0)) return res.status(400).json({ erro: 'custo_unitario inválido' });
+    const { error } = await supabase.from('produto').update({ custo_unitario: v }).eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+// congela o custo na NC (preenche custo_estimado a partir do custo atual)
+app.post('/api/mf/cnq/recalcular', auth, async (_req, res) => {
+    const { data: linhas, error } = await supabase.from('vw_cnq').select('nc_id,custo');
+    if (error) return res.status(503).json({ erro: 'CNQ ainda não criado. Rode mes_cnq.sql.' });
+    let n = 0;
+    for (const l of (linhas || [])) { await supabase.from('nao_conformidade').update({ custo_estimado: l.custo }).eq('id', l.nc_id); n++; }
+    res.json({ ok: true, atualizadas: n });
+});
+
 // ── Fallback para SPA ─────────────────────────────────────────
 app.get('/{*path}', (_req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));

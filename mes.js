@@ -189,10 +189,11 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['apont','ncs','ind','etiq','oms','tpm','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['apont','ncs','ind','cnq','etiq','oms','tpm','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'apont')  this.renderApont();
         if (name === 'ncs')    this.renderNcs();
         if (name === 'ind')    this.renderInd();
+        if (name === 'cnq')    this.renderCnq();
         if (name === 'etiq')   this.renderEtiquetas();
         if (name === 'oms')    this.renderOms();
         if (name === 'tpm')    this.renderTpm();
@@ -404,6 +405,74 @@ const mf = {
     },
 
     // ═══ IMPORTAR LEGADO ═══════════════════════════════════════════════════════
+    // ═══ CNQ — CUSTO DA NÃO QUALIDADE ══════════════════════════════════════════
+    async renderCnq() {
+        const pan = $('mf-pan-cnq');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando custos...</div>`;
+        const d = await api.get('/api/mf/cnq');
+        if (!d) { pan.innerHTML = `<div class="summary-card" style="padding:24px;color:#f06292;">CNQ indisponível — rode <b>mes_cnq.sql</b> no SQL Editor.</div>`; return; }
+        const r = d.resumo || {};
+        const brl = n => 'R$ ' + Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const kpis = [
+            ['#f06292', brl(r.custo_total), 'CUSTO TOTAL (CNQ)'],
+            ['#ff5252', brl(r.custo_refugo), 'REFUGO'],
+            ['#ffca28', brl(r.custo_retrabalho), 'RETRABALHO'],
+            ['#7c4dff', brl(r.custo_segregado), 'SEGREGADO'],
+        ].map(([c,n,l]) => `<div style="background:${c}18;border:1px solid ${c}44;border-radius:10px;padding:14px 20px;text-align:center;flex:1;min-width:140px;">
+            <div style="font-size:1.45rem;font-weight:800;color:${c};">${n}</div><div style="font-size:.66rem;color:${c};letter-spacing:.05em;">${l}</div></div>`).join('');
+        const aviso = r.ncs_sem_custo_produto ? `<div style="background:rgba(255,202,40,.1);border:1px solid rgba(255,202,40,.3);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.78rem;color:#ffca28;">⚠ ${r.ncs_sem_custo_produto} NC(s) sem custo porque o produto está com custo unitário R$ 0 — preencha os custos abaixo.</div>` : '';
+
+        const prods = (d.produtos || []).map(p => `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+            <td style="padding:7px 10px;font-weight:600;color:var(--indigo-primary);">${esc(p.codigo)}</td>
+            <td style="padding:7px 10px;">${esc((p.descricao||'').slice(0,34))}</td>
+            <td style="padding:7px 10px;text-align:center;color:var(--text-dim);">${esc(p.unidade_medida)}</td>
+            <td style="padding:7px 10px;text-align:right;"><input type="number" min="0" step="0.01" value="${p.custo_unitario||0}" id="mf-cst-${p.id}"
+                style="width:110px;padding:4px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;text-align:right;"
+                onchange="mf.salvarCustoProduto('${p.id}')"></td></tr>`).join('');
+
+        const par = (d.porDefeito || []);
+        const maxC = Math.max(1, ...par.map(x => x.custo));
+        const paretoCusto = par.length ? par.slice(0, 12).map(x => `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+            <td style="padding:7px 10px;font-weight:600;color:var(--indigo-primary);">${esc(x.codigo)}</td>
+            <td style="padding:7px 10px;">${esc(x.descricao)}</td>
+            <td style="padding:7px 10px;width:32%;"><div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="width:${x.custo/maxC*100}%;height:100%;background:#f06292;"></div></div></td>
+            <td style="padding:7px 10px;text-align:right;color:#f06292;font-weight:700;">${brl(x.custo)}</td>
+            <td style="padding:7px 10px;text-align:right;color:var(--text-dim);">${x.ocorrencias}</td></tr>`).join('')
+            : `<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text-dim);">Sem custo apurado (defina os custos de produto e registre NCs).</td></tr>`;
+
+        pan.innerHTML = `
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">${kpis}</div>
+            ${aviso}
+            <div class="summary-card" style="padding:0;overflow:hidden;margin-bottom:18px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px 10px;">
+                    <div class="s-label">PARETO DE CUSTO POR DEFEITO</div>
+                    <button class="btn secondary" style="font-size:.74rem;" onclick="mf.recalcularCnq()" title="Congela o custo atual em cada NC (campo custo_estimado)">↻ Congelar custos nas NCs</button>
+                </div>
+                <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                <thead><tr style="border-bottom:2px solid var(--border-color);color:var(--text-dim);font-size:.66rem;">
+                    <th style="padding:8px 10px;text-align:left;">COD</th><th style="padding:8px 10px;text-align:left;">DEFEITO</th>
+                    <th style="padding:8px 10px;text-align:left;">CUSTO</th><th style="padding:8px 10px;text-align:right;">R$</th><th style="padding:8px 10px;text-align:right;">OCORR.</th>
+                </tr></thead><tbody>${paretoCusto}</tbody></table>
+            </div>
+            <div class="summary-card" style="padding:0;overflow:hidden;">
+                <div class="s-label" style="padding:14px 16px 10px;">CUSTO UNITÁRIO DOS PRODUTOS (R$ / unidade) — base do CNQ</div>
+                <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                <thead><tr style="border-bottom:2px solid var(--border-color);color:var(--text-dim);font-size:.66rem;">
+                    <th style="padding:8px 10px;text-align:left;">CÓDIGO</th><th style="padding:8px 10px;text-align:left;">PRODUTO</th>
+                    <th style="padding:8px 10px;text-align:center;">UN</th><th style="padding:8px 10px;text-align:right;">CUSTO UNIT. (R$)</th>
+                </tr></thead><tbody>${prods}</tbody></table>
+            </div>`;
+    },
+    async salvarCustoProduto(id) {
+        const v = parseFloat($('mf-cst-' + id).value) || 0;
+        const r = await api.put('/api/mf/produtos/' + id + '/custo', { custo_unitario: v });
+        if (r?.ok) { toast('Custo salvo.'); this.renderCnq(); } else toast('Erro ao salvar custo.', 'erro');
+    },
+    async recalcularCnq() {
+        const r = await api.post('/api/mf/cnq/recalcular', {});
+        toast(r?.ok ? `Custo congelado em ${r.atualizadas} NC(s).` : 'Erro: ' + (r?.erro || ''), r?.ok ? 'ok' : 'erro');
+    },
+
     // ═══ MANUTENÇÃO (TPM) ══════════════════════════════════════════════════════
     _TIPO_ETIQ: ['seguranca','qualidade','quebra_iminente','lubrificacao','limpeza','outro'],
 
