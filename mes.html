@@ -70,6 +70,17 @@
                 </ul>
             </nav>
 
+            <nav class="nav-section" id="nav-section-ind">
+                <h3 class="nav-section-header" data-key="mf-ind" onclick="toggleNavSection(this)">
+                    INDICADORES <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-ind" data-mftab="ind" onclick="mf.tab('ind')">
+                        <div class="item-content">OEE &amp; Qualidade</div>
+                    </li>
+                </ul>
+            </nav>
+
             <nav class="nav-section" id="nav-section-dados">
                 <h3 class="nav-section-header" data-key="mf-dados" onclick="toggleNavSection(this)">
                     DADOS <span class="nav-toggle">▾</span>
@@ -109,6 +120,7 @@
 
         <div id="mf-pan-apont"></div>
         <div id="mf-pan-ncs"    style="display:none;"></div>
+        <div id="mf-pan-ind"    style="display:none;"></div>
         <div id="mf-pan-import" style="display:none;"></div>
     </main>
 

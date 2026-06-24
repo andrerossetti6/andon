@@ -1564,6 +1564,24 @@ app.get('/api/mf/importacao/:lote_id/relatorio', auth, async (req, res) => {
     res.json({ total: rows.length, porStatus, porMetodo, porErro });
 });
 
+// ── Indicadores (fases 2-3): OEE, Pareto, qualidade — leem as VIEWS ──
+app.get('/api/mf/indicadores', auth, async (_req, res) => {
+    const [oee, pareto, resumo, categoria] = await Promise.all([
+        supabase.from('vw_oee').select('*'),
+        supabase.from('vw_pareto_defeito').select('*'),
+        supabase.from('vw_qualidade_resumo').select('*').single(),
+        supabase.from('vw_qualidade_categoria').select('*'),
+    ]);
+    const erroView = [oee, pareto, resumo, categoria].find(r => r.error && /schema cache|does not exist|relation/i.test(r.error.message || ''));
+    if (erroView) return res.status(503).json({ erro: 'Views de indicadores ainda não criadas. Rode mes_indicadores.sql no SQL Editor.' });
+    res.json({
+        oee: oee.data || [],
+        pareto: pareto.data || [],
+        resumo: resumo.data || {},
+        categoria: categoria.data || [],
+    });
+});
+
 // ── Fallback para SPA ─────────────────────────────────────────
 app.get('/{*path}', (_req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));

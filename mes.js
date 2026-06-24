@@ -189,9 +189,10 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['apont','ncs','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['apont','ncs','ind','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'apont')  this.renderApont();
         if (name === 'ncs')    this.renderNcs();
+        if (name === 'ind')    this.renderInd();
         if (name === 'import') this.renderImport();
     },
 
@@ -400,6 +401,69 @@ const mf = {
     },
 
     // ═══ IMPORTAR LEGADO ═══════════════════════════════════════════════════════
+    // ═══ INDICADORES (OEE, Pareto, Qualidade) ══════════════════════════════════
+    async renderInd() {
+        const pan = $('mf-pan-ind');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando indicadores...</div>`;
+        const d = await api.get('/api/mf/indicadores');
+        if (!d) { pan.innerHTML = `<div class="summary-card" style="padding:24px;color:#f06292;">Indicadores indisponíveis. Rode <b>mes_indicadores.sql</b> no SQL Editor do Supabase.</div>`; return; }
+        const r = d.resumo || {};
+        const fmt = n => Number(n || 0).toLocaleString('pt-BR');
+        const corOee = v => v == null ? '#8b949e' : v >= 75 ? '#26a69a' : v >= 50 ? '#ffca28' : '#f06292';
+
+        // KPIs de qualidade
+        const kpis = [
+            ['#26c6da', fmt(r.total_ncs), 'NÃO CONFORMIDADES'],
+            ['#f06292', fmt(r.qtd_refugada), 'QTD REFUGADA'],
+            ['#ffca28', fmt(r.qtd_retrabalho), 'QTD RETRABALHO'],
+            ['#ff5252', fmt(r.rncs_geradas), 'RNCs (GATILHO)'],
+            ['#ef6c00', fmt(r.criticas), 'CRÍTICAS (SEV 4)'],
+        ].map(([c,n,l]) => `<div style="background:${c}18;border:1px solid ${c}44;border-radius:10px;padding:14px 20px;text-align:center;min-width:120px;flex:1;">
+            <div style="font-size:1.6rem;font-weight:800;color:${c};">${n}</div><div style="font-size:.66rem;color:${c};letter-spacing:.06em;">${l}</div></div>`).join('');
+
+        // OEE por máquina
+        const barra = (v, cor) => `<div style="flex:1;height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="width:${Math.min(v||0,100)}%;height:100%;background:${cor};"></div></div>`;
+        const oeeLinhas = (d.oee || []).length ? d.oee.map(m => `
+            <div style="padding:12px 0;border-bottom:1px solid var(--border-color);">
+                <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+                    <span style="font-weight:600;">${esc(m.maquina_codigo)} <span style="color:var(--text-dim);font-weight:400;font-size:.8rem;">${esc(m.maquina_nome||'')}</span></span>
+                    <span style="font-weight:800;color:${corOee(m.oee)};">OEE ${m.oee != null ? m.oee + '%' : '—'}</span>
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;font-size:.72rem;">
+                    <div><div style="color:var(--text-dim);margin-bottom:3px;">Disponibilidade ${m.disponibilidade ?? '—'}%</div>${barra(m.disponibilidade,'#26a69a')}</div>
+                    <div><div style="color:var(--text-dim);margin-bottom:3px;">Performance ${m.performance ?? '—'}%</div>${barra(m.performance,'#26c6da')}</div>
+                    <div><div style="color:var(--text-dim);margin-bottom:3px;">Qualidade ${m.qualidade ?? '—'}%</div>${barra(m.qualidade,'#7c4dff')}</div>
+                </div>
+            </div>`).join('') : `<div style="color:var(--text-dim);padding:14px;">Sem apontamentos para calcular OEE ainda.</div>`;
+
+        // Pareto de defeitos
+        const maxOc = Math.max(1, ...(d.pareto || []).map(p => p.ocorrencias));
+        const paretoLinhas = (d.pareto || []).length ? d.pareto.slice(0, 12).map(p => `
+            <tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+                <td style="padding:7px 10px;font-weight:600;color:var(--indigo-primary);">${esc(p.codigo)}</td>
+                <td style="padding:7px 10px;">${esc(p.descricao)}</td>
+                <td style="padding:7px 10px;width:34%;"><div style="display:flex;align-items:center;gap:8px;"><div style="flex:1;height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="width:${p.ocorrencias/maxOc*100}%;height:100%;background:#f06292;"></div></div><span style="font-size:.72rem;color:var(--text-dim);min-width:30px;">${p.ocorrencias}</span></div></td>
+                <td style="padding:7px 10px;text-align:right;">${fmt(p.qtd_afetada)}</td>
+                <td style="padding:7px 10px;text-align:right;color:var(--text-dim);">${p.pct_acumulado}%</td>
+            </tr>`).join('') : `<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--text-dim);">Sem não conformidades registradas.</td></tr>`;
+
+        pan.innerHTML = `
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;">${kpis}</div>
+            <div class="summary-card" style="margin-bottom:18px;">
+                <div class="s-label" style="margin-bottom:6px;">OEE POR MÁQUINA</div>
+                <div style="font-size:.72rem;color:var(--text-dim);margin-bottom:8px;">Disponibilidade × Performance × Qualidade · período: histórico completo</div>
+                ${oeeLinhas}
+            </div>
+            <div class="summary-card" style="padding:0;overflow:hidden;">
+                <div class="s-label" style="padding:16px 16px 10px;">PARETO DE DEFEITOS</div>
+                <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                <thead><tr style="border-bottom:2px solid var(--border-color);color:var(--text-dim);font-size:.66rem;">
+                    <th style="padding:8px 10px;text-align:left;">COD</th><th style="padding:8px 10px;text-align:left;">DEFEITO</th>
+                    <th style="padding:8px 10px;text-align:left;">OCORRÊNCIAS</th><th style="padding:8px 10px;text-align:right;">QTD AFETADA</th><th style="padding:8px 10px;text-align:right;">% ACUM</th>
+                </tr></thead><tbody>${paretoLinhas}</tbody></table>
+            </div>`;
+    },
+
     _CAMPOS_IMP: [
         ['op_numero','Nº da OP *'], ['datahora','Data/hora *'], ['defeito_texto','Defeito (texto livre) *'], ['qtd_afetada','Qtd afetada *'],
         ['maquina_nome','Máquina'], ['operador_nome','Operador'], ['turno','Turno'], ['qtd_boa','Qtd boa'], ['disposicao','Disposição'],
