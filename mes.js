@@ -193,9 +193,10 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['apont','ncs','ind','cnq','etiq','oms','tpm','cil','cad','fio','gene','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['apont','ncs','rnc','ind','cnq','etiq','oms','tpm','cil','cad','fio','gene','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'apont')  this.renderApont();
         if (name === 'ncs')    this.renderNcs();
+        if (name === 'rnc')    this.renderRnc();
         if (name === 'ind')    this.renderInd();
         if (name === 'cnq')    this.renderCnq();
         if (name === 'cil')    this.renderCil();
@@ -413,6 +414,101 @@ const mf = {
     },
 
     // ═══ IMPORTAR LEGADO ═══════════════════════════════════════════════════════
+    // ═══ RNC / CAPA — LOOP DE AÇÃO CORRETIVA ═══════════════════════════════════
+    _ESTAGIOS: { aberta:'1 · Aberta', em_analise:'2 · Análise de causa', em_acao:'3 · Ação corretiva', verificacao:'4 · Verificação', fechada:'✓ Fechada', cancelada:'✕ Cancelada' },
+    async renderRnc() {
+        const pan = $('mf-pan-rnc');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando...</div>`;
+        const d = await api.get('/api/mf/rncs');
+        if (!d) { pan.innerHTML = `<div class="summary-card" style="padding:24px;color:#f06292;">RNC indisponível — rode <b>mes_rnc.sql</b> no SQL Editor.</div>`; return; }
+        this._rncs = d.rncs || [];
+        const r = d.resumo || {};
+        const kpis = [
+            ['#26c6da', r.abertas||0, 'ABERTAS'], ['#7c4dff', r.em_acao||0, 'EM AÇÃO'],
+            ['#ffca28', r.verificacao||0, 'VERIFICAÇÃO'], ['#f06292', r.atrasadas||0, 'ATRASADAS'],
+            ['#26a69a', r.fechadas_eficazes||0, 'FECHADAS (EFICAZES)'],
+        ].map(([c,n,l]) => `<div style="background:${c}18;border:1px solid ${c}44;border-radius:10px;padding:12px 18px;text-align:center;flex:1;min-width:110px;">
+            <div style="font-size:1.5rem;font-weight:800;color:${c};">${n}</div><div style="font-size:.62rem;color:${c};letter-spacing:.05em;">${l}</div></div>`).join('');
+        const corS = { aberta:'#26c6da', em_analise:'#ffca28', em_acao:'#7c4dff', verificacao:'#ff9800', fechada:'#26a69a', cancelada:'#8b949e' };
+        const lista = this._rncs.length ? this._rncs.map(x => {
+            const atrasada = x.prazo && new Date(x.prazo) < new Date() && !['fechada','cancelada'].includes(x.status);
+            return `<div class="summary-card" style="margin-bottom:10px;cursor:pointer;border-left:3px solid ${corS[x.status]};" onclick="mf.abrirRnc('${x.id}')">
+                <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+                    <div><span style="font-weight:600;">${esc(x.titulo)}</span> <span style="font-size:.7rem;color:var(--text-dim);">${x.maquina?.codigo?'· '+esc(x.maquina.codigo):''} ${x.responsavel?.nome?'· '+esc(x.responsavel.nome):''}</span></div>
+                    <span style="font-size:.72rem;font-weight:700;color:${corS[x.status]};">${this._ESTAGIOS[x.status]}${x.eficaz===false?' (ineficaz)':''}</span>
+                </div>
+                <div style="font-size:.72rem;color:var(--text-dim);margin-top:4px;">prioridade ${x.prioridade}${x.prazo?` · prazo ${new Date(x.prazo).toLocaleDateString('pt-BR')}${atrasada?' <span style="color:#f06292;font-weight:700;">ATRASADA</span>':''}`:''}</div>
+            </div>`; }).join('') : `<div class="summary-card" style="text-align:center;padding:24px;color:var(--text-dim);">Nenhuma RNC. Elas abrem sozinhas quando um gatilho dispara, ou crie manualmente.</div>`;
+        pan.innerHTML = `
+            <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">${kpis}</div>
+            <div style="margin-bottom:12px;"><button class="btn secondary" style="font-size:.78rem;" onclick="mf.novaRnc()">+ Nova RNC manual</button></div>
+            ${lista}`;
+    },
+    novaRnc() {
+        const defOpt = this._cad.defeitos.map(x => `<option value="${x.id}">${esc(x.codigo)} — ${esc(x.descricao)}</option>`).join('');
+        const maqOpt = this._cad.maquinas.map(m => `<option value="${m.id}">${esc(m.codigo)}</option>`).join('');
+        this._modal(`<div class="s-label" style="margin-bottom:12px;">+ NOVA RNC</div>
+            <span class="mf-label">TÍTULO *</span><input id="mf-rn-tit" class="mf-input" placeholder="ex: Recorrência de furos na CIRC-01" style="margin-bottom:10px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
+                <div><span class="mf-label">DEFEITO</span><select id="mf-rn-def" class="mf-input"><option value="">—</option>${defOpt}</select></div>
+                <div><span class="mf-label">MÁQUINA</span><select id="mf-rn-maq" class="mf-input"><option value="">—</option>${maqOpt}</select></div>
+                <div><span class="mf-label">PRIORIDADE</span><select id="mf-rn-prio" class="mf-input"><option value="baixa">baixa</option><option value="media" selected>média</option><option value="alta">alta</option><option value="critica">crítica</option></select></div>
+            </div>
+            <span class="mf-label">DESCRIÇÃO</span><input id="mf-rn-desc" class="mf-input" style="margin-bottom:14px;">
+            <div style="display:flex;gap:8px;justify-content:flex-end;"><button class="btn secondary" onclick="mf._fecharModal()">Cancelar</button><button class="btn primary" onclick="mf.salvarNovaRnc()">Abrir RNC</button></div>`);
+    },
+    async salvarNovaRnc() {
+        const t = $('mf-rn-tit').value.trim(); if (!t) return toast('Informe o título.', 'erro');
+        const r = await api.post('/api/mf/rncs', { titulo: t, defeito_id: $('mf-rn-def').value||null, maquina_id: $('mf-rn-maq').value||null, prioridade: $('mf-rn-prio').value, descricao: $('mf-rn-desc').value||null });
+        if (!r?.ok) return toast('Erro: '+(r?.erro||''), 'erro');
+        this._fecharModal(); toast('RNC aberta.'); this.renderRnc();
+    },
+    abrirRnc(id) {
+        const x = (this._rncs||[]).find(r => r.id === id); if (!x) return;
+        const operOpt = this._cad.operadores.map(o => `<option value="${o.id}"${x.responsavel_id===o.id?' selected':''}>${esc(o.nome)}</option>`).join('');
+        const campo = (lbl, html) => `<div style="margin-bottom:10px;"><span class="mf-label">${lbl}</span>${html}</div>`;
+        let corpo = `<div style="background:var(--bg-input);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:.8rem;">
+            <div style="font-weight:600;">${esc(x.titulo)}</div><div style="color:var(--text-dim);font-size:.74rem;">${esc(x.descricao||'')}</div></div>`;
+        // estágio 1 → define responsável/prazo e inicia análise
+        if (x.status === 'aberta') corpo += `
+            ${campo('RESPONSÁVEL', `<select id="mf-rw-resp" class="mf-input">${operOpt}</select>`)}
+            ${campo('PRAZO', `<input id="mf-rw-prazo" type="date" class="mf-input">`)}
+            <button class="btn primary" onclick="mf.avancarRnc('${id}','analise')">Iniciar análise de causa →</button>`;
+        else if (x.status === 'em_analise') corpo += `
+            ${campo('CAUSA RAIZ', `<textarea id="mf-rw-causa" class="mf-input" rows="3" placeholder="ex: agulha gasta além da vida útil">${esc(x.causa_raiz||'')}</textarea>`)}
+            ${campo('MÉTODO', `<select id="mf-rw-met" class="mf-input"><option value="cinco_porques">5 Porquês</option><option value="ishikawa">Ishikawa</option><option value="outro">Outro</option></select>`)}
+            <button class="btn primary" onclick="mf.avancarRnc('${id}','acao')">Definir ação corretiva →</button>`;
+        else if (x.status === 'em_acao') corpo += `
+            <div style="font-size:.74rem;color:var(--text-dim);margin-bottom:8px;">Causa raiz: ${esc(x.causa_raiz||'—')}</div>
+            ${campo('AÇÃO CORRETIVA', `<textarea id="mf-rw-acao" class="mf-input" rows="3" placeholder="ex: plano de troca de agulhas a cada 5.000 kg">${esc(x.acao_corretiva||'')}</textarea>`)}
+            <button class="btn primary" onclick="mf.avancarRnc('${id}','verificacao')">Concluir ação → verificar eficácia →</button>`;
+        else if (x.status === 'verificacao') corpo += `
+            <div style="font-size:.74rem;color:var(--text-dim);margin-bottom:8px;">Ação: ${esc(x.acao_corretiva||'—')}</div>
+            ${campo('A AÇÃO FOI EFICAZ? (defeito não recorreu)', `<select id="mf-rw-efic" class="mf-input"><option value="true">Sim — eficaz</option><option value="false">Não — reabrir ação</option></select>`)}
+            ${campo('OBSERVAÇÃO', `<input id="mf-rw-vobs" class="mf-input" value="${esc(x.verificacao_obs||'')}">`)}
+            <button class="btn primary" onclick="mf.verificarRnc('${id}')">Registrar verificação</button>`;
+        else corpo += `<div style="color:var(--text-dim);font-size:.82rem;">RNC ${x.status}. Causa: ${esc(x.causa_raiz||'—')} · Ação: ${esc(x.acao_corretiva||'—')} · Eficaz: ${x.eficaz===true?'sim':x.eficaz===false?'não':'—'}</div>`;
+        this._modal(`<div class="s-label" style="margin-bottom:6px;">RNC — ${this._ESTAGIOS[x.status]}</div>${corpo}
+            <div style="margin-top:12px;text-align:right;"><button class="btn secondary" style="font-size:.74rem;" onclick="mf._fecharModal()">Fechar</button></div>`);
+    },
+    async avancarRnc(id, etapa) {
+        const upd = { avancar: etapa };
+        if (etapa === 'analise') { upd.responsavel_id = $('mf-rw-resp')?.value || null; upd.prazo = $('mf-rw-prazo')?.value || null; }
+        if (etapa === 'acao')    { upd.causa_raiz = $('mf-rw-causa')?.value || null; upd.metodo_analise = $('mf-rw-met')?.value || null; }
+        if (etapa === 'verificacao') upd.acao_corretiva = $('mf-rw-acao')?.value || null;
+        const r = await api.put('/api/mf/rncs/' + id, upd);
+        if (!r?.ok) return toast('Erro: '+(r?.erro||''), 'erro');
+        this._fecharModal(); toast('RNC avançada.'); this.renderRnc();
+    },
+    async verificarRnc(id) {
+        const eficaz = $('mf-rw-efic').value === 'true';
+        const upd = eficaz ? { avancar: 'fechar', eficaz: true, verificacao_obs: $('mf-rw-vobs').value||null }
+                           : { status: 'em_acao', eficaz: false, verificacao_obs: $('mf-rw-vobs').value||null };
+        const r = await api.put('/api/mf/rncs/' + id, upd);
+        if (!r?.ok) return toast('Erro: '+(r?.erro||''), 'erro');
+        this._fecharModal(); toast(eficaz ? 'RNC fechada (eficaz).' : 'Ação reaberta — não foi eficaz.', eficaz?'ok':'aviso'); this.renderRnc();
+    },
+
     // ═══ CADASTROS TPM (peças, componentes, planos) ════════════════════════════
     async renderCadTpm() {
         const pan = $('mf-pan-cad');

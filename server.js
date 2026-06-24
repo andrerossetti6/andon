@@ -1312,7 +1312,56 @@ app.post('/api/mf/ncs', auth, mfEscrita, async (req, res) => {
     if (b.id) nc.id = b.id;  // id do cliente (fila offline)
     const { data, error } = await supabase.from('nao_conformidade').upsert(nc).select().single();
     if (error) return res.status(500).json({ erro: error.message });
-    res.json({ ok: true, nc: data, gera_rnc: gera });
+    // Loop de melhoria: gatilho disparou → abre RNC formal automaticamente (se ainda não houver)
+    let rnc_id = null;
+    if (gera) {
+        try {
+            const { data: ap } = await supabase.from('apontamento').select('maquina_id').eq('id', b.apontamento_id).single();
+            const { data: existe } = await supabase.from('rnc').select('id').eq('nc_id', data.id).limit(1);
+            if (!existe?.length) {
+                const prio = defeito.severidade >= 4 ? 'critica' : defeito.severidade === 3 ? 'alta' : 'media';
+                const { data: r } = await supabase.from('rnc').insert({ nc_id: data.id, defeito_id: b.defeito_id, maquina_id: ap?.maquina_id || null,
+                    titulo: `RNC — ${defeito.descricao}`, descricao: `Gerada por gatilho. Qtd afetada: ${b.qtd_afetada}. ${b.causa_preliminar || ''}`.trim(),
+                    prioridade: prio }).select('id').single();
+                rnc_id = r?.id || null;
+            }
+        } catch { /* tabela rnc ausente ou erro — NC já foi salva, segue sem RNC */ }
+    }
+    res.json({ ok: true, nc: data, gera_rnc: gera, rnc_id });
+});
+
+// ── RNC / CAPA (loop de ação corretiva) ───────────────────────
+app.get('/api/mf/rncs', auth, async (req, res) => {
+    const resumo = await supabase.from('vw_rnc_resumo').select('*').single();
+    if (resumo.error && /schema cache|does not exist/i.test(resumo.error.message || '')) return res.status(503).json({ erro: 'RNC ainda não criada. Rode mes_rnc.sql.' });
+    let q = supabase.from('rnc').select('*, defeito:defeito_id(codigo,descricao), maquina:maquina_id(codigo), responsavel:responsavel_id(nome)').order('aberta_em', { ascending: false });
+    if (req.query.status === 'abertas') q = q.not('status', 'in', '(fechada,cancelada)');
+    else if (req.query.status) q = q.eq('status', req.query.status);
+    const { data, error } = await q.limit(200);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ resumo: resumo.data || {}, rncs: data || [] });
+});
+app.post('/api/mf/rncs', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {};
+    if (!b.titulo) return res.status(400).json({ erro: 'titulo obrigatório' });
+    const row = { titulo: b.titulo, descricao: b.descricao || null, defeito_id: b.defeito_id || null, maquina_id: b.maquina_id || null,
+        nc_id: b.nc_id || null, prioridade: b.prioridade || 'media' };
+    const { data, error } = await supabase.from('rnc').insert(row).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, rnc: data });
+});
+app.put('/api/mf/rncs/:id', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {}, upd = {};
+    ['prioridade','responsavel_id','prazo','causa_raiz','metodo_analise','acao_corretiva','eficaz','verificacao_obs','status'].forEach(f => { if (b[f] !== undefined) upd[f] = b[f]; });
+    // transições de estágio
+    if (b.avancar === 'analise')     upd.status = 'em_analise';
+    if (b.avancar === 'acao')      { upd.status = 'em_acao'; }
+    if (b.avancar === 'verificacao') { upd.status = 'verificacao'; upd.acao_concluida_em = new Date().toISOString(); }
+    if (b.avancar === 'fechar')    { upd.status = 'fechada'; upd.fechada_em = new Date().toISOString(); }
+    if (b.avancar === 'cancelar')  { upd.status = 'cancelada'; upd.fechada_em = new Date().toISOString(); }
+    const { data, error } = await supabase.from('rnc').update(upd).eq('id', req.params.id).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, rnc: data });
 });
 
 // ── Foto da NC: sobe a imagem para o Supabase Storage (bucket mf-fotos) ──
