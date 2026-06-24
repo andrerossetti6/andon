@@ -189,10 +189,13 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['apont','ncs','ind','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['apont','ncs','ind','etiq','oms','tpm','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'apont')  this.renderApont();
         if (name === 'ncs')    this.renderNcs();
         if (name === 'ind')    this.renderInd();
+        if (name === 'etiq')   this.renderEtiquetas();
+        if (name === 'oms')    this.renderOms();
+        if (name === 'tpm')    this.renderTpm();
         if (name === 'import') this.renderImport();
     },
 
@@ -401,6 +404,175 @@ const mf = {
     },
 
     // ═══ IMPORTAR LEGADO ═══════════════════════════════════════════════════════
+    // ═══ MANUTENÇÃO (TPM) ══════════════════════════════════════════════════════
+    _TIPO_ETIQ: ['seguranca','qualidade','quebra_iminente','lubrificacao','limpeza','outro'],
+
+    async renderEtiquetas() {
+        const pan = $('mf-pan-etiq');
+        const maqOpt = this._cad.maquinas.map(m => `<option value="${m.id}">${esc(m.codigo)} · ${esc(m.nome)}</option>`).join('');
+        const operOpt = this._cad.operadores.map(o => `<option value="${o.id}">${esc(o.nome)}</option>`).join('');
+        const tipoOpt = this._TIPO_ETIQ.map(t => `<option value="${t}">${t.replace('_',' ')}</option>`).join('');
+        pan.innerHTML = `
+        <div class="summary-card" style="margin-bottom:18px;">
+            <div class="s-label" style="margin-bottom:12px;">🏷 NOVA ETIQUETA DE ANOMALIA</div>
+            <p style="font-size:.78rem;color:var(--text-dim);margin-bottom:12px;">Sinalize algo errado ANTES da quebra (manutenção autônoma).</p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-bottom:12px;">
+                <div><span class="mf-label">MÁQUINA</span><select id="mf-et-maq" class="mf-input">${maqOpt}</select></div>
+                <div><span class="mf-label">OPERADOR</span><select id="mf-et-oper" class="mf-input">${operOpt}</select></div>
+                <div><span class="mf-label">TIPO</span><select id="mf-et-tipo" class="mf-input">${tipoOpt}</select></div>
+                <div><span class="mf-label">GRAVIDADE</span><select id="mf-et-grav" class="mf-input"><option value="baixa">baixa</option><option value="media" selected>média</option><option value="alta">alta</option></select></div>
+            </div>
+            <span class="mf-label">DESCRIÇÃO</span><input id="mf-et-desc" class="mf-input" placeholder="o que foi observado" style="margin-bottom:10px;">
+            <span class="mf-label">FOTO (opcional)</span>
+            <input id="mf-et-foto" type="file" accept="image/*" capture="environment" class="mf-input" style="margin-bottom:8px;" onchange="mf._previewFoto(event)">
+            <img id="mf-nc-prev" style="display:none;max-width:140px;border-radius:8px;margin-bottom:10px;">
+            <button class="btn primary" onclick="mf.salvarEtiqueta()">Registrar etiqueta</button>
+        </div>
+        <div id="mf-et-lista"><div style="color:var(--text-dim);padding:12px;">Carregando...</div></div>`;
+        await this._listarEtiquetas();
+    },
+    async _listarEtiquetas() {
+        const wrap = $('mf-et-lista'); if (!wrap) return;
+        const ets = await api.get('/api/mf/etiquetas');
+        if (ets === null) { wrap.innerHTML = `<div class="summary-card" style="padding:20px;color:#f06292;">TPM indisponível — rode mes_tpm.sql.</div>`; return; }
+        if (!ets.length) { wrap.innerHTML = `<div class="summary-card" style="text-align:center;padding:24px;color:var(--text-dim);">Nenhuma etiqueta aberta.</div>`; return; }
+        const corG = { baixa:'#8b949e', media:'#ffca28', alta:'#f06292' };
+        wrap.innerHTML = `<div class="s-label" style="margin:6px 0 12px;">ETIQUETAS ABERTAS (${ets.length})</div>` + ets.map(e => `
+            <div class="summary-card" style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+                <div style="display:flex;align-items:center;gap:12px;">
+                    ${e.foto_url ? `<img src="${e.foto_url}" style="width:44px;height:44px;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="window.open().document.write('<img src=\\'' + this.src + '\\'>')">` : ''}
+                    <div><div style="font-weight:600;">${esc(e.maquina?.codigo||'')} <span style="font-size:.7rem;color:${corG[e.gravidade]};">● ${e.gravidade}</span> <span style="font-size:.72rem;color:var(--text-dim);">${e.tipo.replace('_',' ')}</span></div>
+                    <div style="font-size:.82rem;color:#ccc;">${esc(e.descricao)}</div>
+                    <div style="font-size:.68rem;color:var(--text-dim);">${esc(e.operador?.nome||'')} · ${new Date(e.aberta_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}${e.status==='em_tratativa'?' · <span style="color:#26c6da;">em tratativa</span>':''}</div></div>
+                </div>
+                <div style="display:flex;gap:6px;">
+                    ${e.status==='aberta' ? `<button class="btn secondary" style="font-size:.74rem;" onclick="mf.gerarOmDeEtiqueta('${e.id}','${e.maquina_id}','${esc(e.descricao).replace(/'/g,"\\'")}')">Gerar OM</button>` : ''}
+                    <button class="btn secondary" style="font-size:.74rem;color:#26a69a;border-color:rgba(38,166,154,.4);" onclick="mf.resolverEtiqueta('${e.id}')">✓ Resolver</button>
+                </div>
+            </div>`).join('');
+    },
+    async salvarEtiqueta() {
+        const desc = $('mf-et-desc').value.trim();
+        if (!desc) return toast('Descreva a anomalia.', 'erro');
+        const r = await api.post('/api/mf/etiquetas', { maquina_id: $('mf-et-maq').value, operador_id: $('mf-et-oper').value,
+            tipo: $('mf-et-tipo').value, gravidade: $('mf-et-grav').value, descricao: desc, foto_url: this._fotoData?.url || null });
+        if (!r?.ok) return toast('Erro: ' + (r?.erro || ''), 'erro');
+        this._fotoData = null; toast('Etiqueta registrada.'); this.renderEtiquetas();
+    },
+    async resolverEtiqueta(id) { const r = await api.put('/api/mf/etiquetas/' + id, { status: 'resolvida' }); if (r?.ok) { toast('Etiqueta resolvida.'); this._listarEtiquetas(); } },
+    gerarOmDeEtiqueta(etiqId, maqId, desc) {
+        const operOpt = this._cad.operadores.map(o => `<option value="${o.id}">${esc(o.nome)}</option>`).join('');
+        this._modal(`
+            <div class="s-label" style="margin-bottom:14px;">🔧 ABRIR ORDEM DE MANUTENÇÃO</div>
+            <span class="mf-label">DESCRIÇÃO</span><input id="mf-om-desc" class="mf-input" value="${esc(desc)}" style="margin-bottom:12px;">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+                <div><span class="mf-label">PRIORIDADE</span><select id="mf-om-prio" class="mf-input"><option value="baixa">baixa</option><option value="media">média</option><option value="alta" selected>alta</option><option value="urgente">urgente</option></select></div>
+                <div><span class="mf-label">EXECUTOR</span><select id="mf-om-exec" class="mf-input"><option value="">—</option>${operOpt}</select></div>
+            </div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button class="btn secondary" onclick="mf._fecharModal()">Cancelar</button>
+                <button class="btn primary" onclick="mf.abrirOm('${maqId}','${etiqId}')">Abrir OM</button>
+            </div>`);
+    },
+
+    async renderOms() {
+        const pan = $('mf-pan-oms');
+        const maqOpt = this._cad.maquinas.map(m => `<option value="${m.id}">${esc(m.codigo)} · ${esc(m.nome)}</option>`).join('');
+        const operOpt = this._cad.operadores.map(o => `<option value="${o.id}">${esc(o.nome)}</option>`).join('');
+        pan.innerHTML = `
+        <div class="summary-card" style="margin-bottom:18px;">
+            <div class="s-label" style="margin-bottom:12px;">🔧 NOVA ORDEM DE MANUTENÇÃO</div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:12px;">
+                <div><span class="mf-label">MÁQUINA</span><select id="mf-omn-maq" class="mf-input">${maqOpt}</select></div>
+                <div><span class="mf-label">TIPO</span><select id="mf-omn-tipo" class="mf-input"><option value="corretiva">corretiva</option><option value="preventiva">preventiva</option><option value="preditiva">preditiva</option></select></div>
+                <div><span class="mf-label">PRIORIDADE</span><select id="mf-omn-prio" class="mf-input"><option value="baixa">baixa</option><option value="media" selected>média</option><option value="alta">alta</option><option value="urgente">urgente</option></select></div>
+                <div><span class="mf-label">EXECUTOR</span><select id="mf-omn-exec" class="mf-input"><option value="">—</option>${operOpt}</select></div>
+            </div>
+            <span class="mf-label">DESCRIÇÃO</span><input id="mf-omn-desc" class="mf-input" placeholder="o que será feito" style="margin-bottom:10px;">
+            <button class="btn primary" onclick="mf.abrirOm()">Abrir OM</button>
+        </div>
+        <div id="mf-om-lista"><div style="color:var(--text-dim);padding:12px;">Carregando...</div></div>`;
+        await this._listarOms();
+    },
+    async _listarOms() {
+        const wrap = $('mf-om-lista'); if (!wrap) return;
+        const oms = await api.get('/api/mf/oms');
+        if (oms === null) { wrap.innerHTML = `<div class="summary-card" style="padding:20px;color:#f06292;">TPM indisponível — rode mes_tpm.sql.</div>`; return; }
+        if (!oms.length) { wrap.innerHTML = `<div class="summary-card" style="text-align:center;padding:24px;color:var(--text-dim);">Nenhuma ordem de manutenção.</div>`; return; }
+        const corS = { aberta:'#ffca28', planejada:'#26c6da', em_execucao:'#7c4dff', concluida:'#26a69a', cancelada:'#8b949e' };
+        wrap.innerHTML = `<div class="s-label" style="margin:6px 0 12px;">ORDENS (${oms.length})</div>` + oms.map(o => `
+            <div class="summary-card" style="margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+                    <div><span style="font-weight:700;color:var(--indigo-primary);">${esc(o.maquina?.codigo||'')}</span>
+                        <span style="font-size:.72rem;color:var(--text-dim);"> · ${o.tipo} · ${o.prioridade}${o.executor?.nome?` · ${esc(o.executor.nome)}`:''}</span></div>
+                    <span style="font-size:.72rem;font-weight:700;color:${corS[o.status]};">${o.status.replace('_',' ').toUpperCase()}${o.tempo_reparo_min!=null?` · ${o.tempo_reparo_min} min`:''}</span>
+                </div>
+                <div style="font-size:.84rem;color:#ccc;margin-bottom:8px;">${esc(o.descricao)}${o.causa?`<div style="font-size:.74rem;color:var(--text-dim);">causa: ${esc(o.causa)} · ação: ${esc(o.acao_realizada||'')}</div>`:''}</div>
+                <div style="display:flex;gap:6px;">
+                    ${o.status==='aberta'||o.status==='planejada' ? `<button class="btn secondary" style="font-size:.74rem;" onclick="mf.iniciarOm('${o.id}')">▶ Iniciar</button>` : ''}
+                    ${o.status==='em_execucao' ? `<button class="btn primary" style="font-size:.74rem;" onclick="mf.concluirOm('${o.id}')">✓ Concluir</button>` : ''}
+                </div>
+            </div>`).join('');
+    },
+    async abrirOm(maqIdModal, etiqId) {
+        const fromModal = !!maqIdModal;
+        const maq = fromModal ? maqIdModal : $('mf-omn-maq').value;
+        const desc = (fromModal ? $('mf-om-desc') : $('mf-omn-desc')).value.trim();
+        if (!desc) return toast('Descreva a OM.', 'erro');
+        const body = { maquina_id: maq, descricao: desc,
+            tipo: fromModal ? 'corretiva' : $('mf-omn-tipo').value,
+            prioridade: (fromModal ? $('mf-om-prio') : $('mf-omn-prio')).value,
+            executor_id: (fromModal ? $('mf-om-exec') : $('mf-omn-exec')).value || null,
+            etiqueta_id: etiqId || null };
+        const r = await api.post('/api/mf/oms', body);
+        if (!r?.ok) return toast('Erro: ' + (r?.erro || ''), 'erro');
+        if (fromModal) this._fecharModal();
+        toast('OM aberta.'); this.tab('oms');
+    },
+    async iniciarOm(id) { const r = await api.put('/api/mf/oms/' + id, { iniciar: true }); if (r?.ok) { toast('OM iniciada.'); this._listarOms(); } },
+    concluirOm(id) {
+        this._modal(`
+            <div class="s-label" style="margin-bottom:14px;">✓ CONCLUIR ORDEM</div>
+            <span class="mf-label">CAUSA RAIZ</span><input id="mf-om-causa" class="mf-input" placeholder="ex: rolamento desgastado" style="margin-bottom:10px;">
+            <span class="mf-label">AÇÃO REALIZADA</span><input id="mf-om-acao" class="mf-input" placeholder="ex: rolamento substituído" style="margin-bottom:14px;">
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button class="btn secondary" onclick="mf._fecharModal()">Cancelar</button>
+                <button class="btn primary" onclick="mf._concluirOm('${id}')">Concluir</button>
+            </div>`);
+    },
+    async _concluirOm(id) {
+        const r = await api.put('/api/mf/oms/' + id, { concluir: true, causa: $('mf-om-causa').value || null, acao_realizada: $('mf-om-acao').value || null });
+        if (!r?.ok) return toast('Erro: ' + (r?.erro || ''), 'erro');
+        this._fecharModal(); toast(`OM concluída${r.om?.tempo_reparo_min!=null?` · ${r.om.tempo_reparo_min} min`:''}.`); this._listarOms();
+    },
+
+    async renderTpm() {
+        const pan = $('mf-pan-tpm');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando indicadores TPM...</div>`;
+        const d = await api.get('/api/mf/tpm');
+        if (!d) { pan.innerHTML = `<div class="summary-card" style="padding:24px;color:#f06292;">Indicadores TPM indisponíveis — rode <b>mes_tpm.sql</b> no SQL Editor.</div>`; return; }
+        const maqDe = Object.fromEntries((d.maquinas || []).map(m => [m.id, m.codigo]));
+        const idx = (arr) => Object.fromEntries((arr || []).map(r => [r.maquina_id, r]));
+        const mttr = idx(d.mttr), mtbf = idx(d.mtbf), cil = idx(d.cil), etiq = idx(d.etiquetas);
+        const ids = [...new Set([...Object.keys(mttr), ...Object.keys(mtbf), ...Object.keys(cil), ...Object.keys(etiq)])];
+        if (!ids.length) { pan.innerHTML = `<div class="summary-card" style="text-align:center;padding:28px;color:var(--text-dim);">Sem dados de manutenção ainda. Registre paradas de manutenção e ordens para ver MTBF/MTTR.</div>`; return; }
+        pan.innerHTML = `<div class="summary-card" style="padding:0;overflow:hidden;">
+            <div class="s-label" style="padding:16px 16px 10px;">INDICADORES DE MANUTENÇÃO POR MÁQUINA</div>
+            <table style="width:100%;border-collapse:collapse;font-size:.84rem;">
+            <thead><tr style="border-bottom:2px solid var(--border-color);color:var(--text-dim);font-size:.68rem;">
+                <th style="padding:10px 12px;text-align:left;">MÁQUINA</th><th style="padding:10px;text-align:right;">MTBF (h)</th>
+                <th style="padding:10px;text-align:right;">MTTR (min)</th><th style="padding:10px;text-align:right;">QUEBRAS</th>
+                <th style="padding:10px;text-align:right;">CIL %</th><th style="padding:10px;text-align:right;">ETIQ. ABERTAS</th>
+            </tr></thead><tbody>${ids.map(id => `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+                <td style="padding:9px 12px;font-weight:600;color:var(--indigo-primary);">${esc(maqDe[id]||'?')}</td>
+                <td style="padding:9px;text-align:right;">${mtbf[id]?.mtbf_horas ?? '—'}</td>
+                <td style="padding:9px;text-align:right;">${mttr[id]?.mttr_min ?? '—'}</td>
+                <td style="padding:9px;text-align:right;color:${mtbf[id]?.quebras?'#f06292':'var(--text-dim)'};">${mtbf[id]?.quebras ?? 0}</td>
+                <td style="padding:9px;text-align:right;">${cil[id]?.pct_cumprimento != null ? cil[id].pct_cumprimento + '%' : '—'}</td>
+                <td style="padding:9px;text-align:right;color:${etiq[id]?.abertas?'#ffca28':'var(--text-dim)'};">${etiq[id]?.abertas ?? 0}</td>
+            </tr>`).join('')}</tbody></table></div>`;
+    },
+
     // ═══ INDICADORES (OEE, Pareto, Qualidade) ══════════════════════════════════
     async renderInd() {
         const pan = $('mf-pan-ind');

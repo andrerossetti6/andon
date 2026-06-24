@@ -1564,6 +1564,115 @@ app.get('/api/mf/importacao/:lote_id/relatorio', auth, async (req, res) => {
     res.json({ total: rows.length, porStatus, porMetodo, porErro });
 });
 
+// ══════════════════════════════════════════════════════════════
+// TPM / MANUTENÇÃO (fase 5)
+// ══════════════════════════════════════════════════════════════
+async function mfSubirImagem(dataUrl, caminho) {
+    const m = /^data:(image\/\w+);base64,(.+)$/s.exec(dataUrl || '');
+    if (!m) return { url: dataUrl || null, bytes: null };
+    const mime = m[1], buffer = Buffer.from(m[2], 'base64');
+    const { error } = await supabase.storage.from(MF_BUCKET).upload(caminho, buffer, { contentType: mime, upsert: true });
+    if (error) throw new Error('upload: ' + error.message);
+    return { url: supabase.storage.from(MF_BUCKET).getPublicUrl(caminho).data.publicUrl, bytes: buffer.length };
+}
+
+app.get('/api/mf/componentes', auth, async (req, res) => {
+    let q = supabase.from('componente').select('*, maquina:maquina_id(codigo)').eq('ativo', true).order('codigo');
+    if (req.query.maquina_id) q = q.eq('maquina_id', req.query.maquina_id);
+    const { data, error } = await q;
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.get('/api/mf/pecas', auth, (_q, res) => mfLista(res, 'peca', '*', 'nome'));
+
+// ── Etiqueta de anomalia (TPM tag do operador) ────────────────
+app.get('/api/mf/etiquetas', auth, async (req, res) => {
+    let q = supabase.from('etiqueta_anomalia')
+        .select('*, maquina:maquina_id(codigo,nome), operador:operador_id(nome)')
+        .order('aberta_em', { ascending: false });
+    if (req.query.status) q = q.eq('status', req.query.status);
+    else q = q.neq('status', 'resolvida');
+    const { data, error } = await q.limit(200);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.post('/api/mf/etiquetas', auth, async (req, res) => {
+    const b = req.body || {};
+    if (!b.maquina_id || !b.operador_id || !b.tipo || !b.descricao) return res.status(400).json({ erro: 'maquina_id, operador_id, tipo e descricao obrigatórios' });
+    const id = b.id || require('crypto').randomUUID();
+    let foto_url = null;
+    if (b.foto_url) { try { foto_url = (await mfSubirImagem(b.foto_url, `etiqueta/${id}/${id}.jpg`)).url; } catch (e) { return res.status(500).json({ erro: e.message }); } }
+    const row = { id, maquina_id: b.maquina_id, componente_id: b.componente_id || null, operador_id: b.operador_id,
+        tipo: b.tipo, gravidade: b.gravidade || 'media', descricao: b.descricao, foto_url };
+    const { data, error } = await supabase.from('etiqueta_anomalia').upsert(row).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, etiqueta: data });
+});
+app.put('/api/mf/etiquetas/:id', auth, async (req, res) => {
+    const upd = {};
+    ['status','ordem_manutencao_id'].forEach(f => { if (req.body[f] !== undefined) upd[f] = req.body[f]; });
+    if (req.body.status === 'resolvida') upd.resolvida_em = new Date().toISOString();
+    const { data, error } = await supabase.from('etiqueta_anomalia').update(upd).eq('id', req.params.id).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, etiqueta: data });
+});
+
+// ── Ordem de manutenção (OM) ──────────────────────────────────
+app.get('/api/mf/oms', auth, async (req, res) => {
+    let q = supabase.from('ordem_manutencao')
+        .select('*, maquina:maquina_id(codigo,nome), executor:executor_id(nome), consumo_peca(id,quantidade,peca:peca_id(nome))')
+        .order('aberta_em', { ascending: false });
+    if (req.query.status) q = q.eq('status', req.query.status);
+    const { data, error } = await q.limit(200);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.post('/api/mf/oms', auth, async (req, res) => {
+    const b = req.body || {};
+    if (!b.maquina_id || !b.tipo || !b.descricao) return res.status(400).json({ erro: 'maquina_id, tipo e descricao obrigatórios' });
+    const row = { maquina_id: b.maquina_id, componente_id: b.componente_id || null, plano_id: b.plano_id || null, parada_id: b.parada_id || null,
+        tipo: b.tipo, prioridade: b.prioridade || 'media', status: b.status || 'aberta', descricao: b.descricao, executor_id: b.executor_id || null };
+    const { data, error } = await supabase.from('ordem_manutencao').insert(row).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    // se veio de uma etiqueta, vincula
+    if (b.etiqueta_id) await supabase.from('etiqueta_anomalia').update({ status: 'em_tratativa', ordem_manutencao_id: data.id }).eq('id', b.etiqueta_id);
+    res.json({ ok: true, om: data });
+});
+app.put('/api/mf/oms/:id', auth, async (req, res) => {
+    const b = req.body || {}, upd = {};
+    ['status','prioridade','executor_id','causa','acao_realizada','componente_id'].forEach(f => { if (b[f] !== undefined) upd[f] = b[f]; });
+    if (b.iniciar)  upd.iniciada_em  = b.iniciada_em  || new Date().toISOString(), upd.status = 'em_execucao';
+    if (b.concluir) upd.concluida_em = b.concluida_em || new Date().toISOString(), upd.status = 'concluida';
+    const { data, error } = await supabase.from('ordem_manutencao').update(upd).eq('id', req.params.id).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, om: data });
+});
+// consumo de peça numa OM (baixa estoque)
+app.post('/api/mf/oms/:id/peca', auth, async (req, res) => {
+    const b = req.body || {};
+    if (!b.peca_id || !(Number(b.quantidade) > 0)) return res.status(400).json({ erro: 'peca_id e quantidade>0 obrigatórios' });
+    const { error: e1 } = await supabase.from('consumo_peca').insert({ ordem_manutencao_id: req.params.id, peca_id: b.peca_id, quantidade: b.quantidade });
+    if (e1) return res.status(500).json({ erro: e1.message });
+    const { data: pc } = await supabase.from('peca').select('estoque_atual').eq('id', b.peca_id).single();
+    if (pc) await supabase.from('peca').update({ estoque_atual: Math.max(0, Number(pc.estoque_atual) - Number(b.quantidade)) }).eq('id', b.peca_id);
+    res.json({ ok: true });
+});
+
+// ── Indicadores TPM (lê as VIEWS) ─────────────────────────────
+app.get('/api/mf/tpm', auth, async (_req, res) => {
+    const [mttr, mtbf, cil, etiq] = await Promise.all([
+        supabase.from('vw_mttr').select('*'),
+        supabase.from('vw_mtbf').select('*'),
+        supabase.from('vw_cil_cumprimento').select('*'),
+        supabase.from('vw_etiquetas_abertas').select('*'),
+    ]);
+    const err = [mttr, mtbf, cil, etiq].find(r => r.error && /schema cache|does not exist|relation/i.test(r.error.message || ''));
+    if (err) return res.status(503).json({ erro: 'Views de TPM ainda não criadas. Rode mes_tpm.sql no SQL Editor.' });
+    // mapa de máquinas p/ rótulo
+    const { data: maqs } = await supabase.from('maquina').select('id,codigo,nome');
+    res.json({ maquinas: maqs || [], mttr: mttr.data || [], mtbf: mtbf.data || [], cil: cil.data || [], etiquetas: etiq.data || [] });
+});
+
 // ── Indicadores (fases 2-3): OEE, Pareto, qualidade — leem as VIEWS ──
 app.get('/api/mf/indicadores', auth, async (_req, res) => {
     const [oee, pareto, resumo, categoria] = await Promise.all([

@@ -81,6 +81,17 @@
                 </ul>
             </nav>
 
+            <nav class="nav-section" id="nav-section-manut">
+                <h3 class="nav-section-header" data-key="mf-manut" onclick="toggleNavSection(this)">
+                    MANUTENÇÃO <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-etiq" data-mftab="etiq" onclick="mf.tab('etiq')"><div class="item-content">Etiquetas de Anomalia</div></li>
+                    <li id="nav-oms"  data-mftab="oms"  onclick="mf.tab('oms')"><div class="item-content">Ordens de Manutenção</div></li>
+                    <li id="nav-tpm"  data-mftab="tpm"  onclick="mf.tab('tpm')"><div class="item-content">Indicadores TPM</div></li>
+                </ul>
+            </nav>
+
             <nav class="nav-section" id="nav-section-dados">
                 <h3 class="nav-section-header" data-key="mf-dados" onclick="toggleNavSection(this)">
                     DADOS <span class="nav-toggle">▾</span>
@@ -121,6 +132,9 @@
         <div id="mf-pan-apont"></div>
         <div id="mf-pan-ncs"    style="display:none;"></div>
         <div id="mf-pan-ind"    style="display:none;"></div>
+        <div id="mf-pan-etiq"   style="display:none;"></div>
+        <div id="mf-pan-oms"    style="display:none;"></div>
+        <div id="mf-pan-tpm"    style="display:none;"></div>
         <div id="mf-pan-import" style="display:none;"></div>
     </main>
 
