@@ -199,6 +199,7 @@ const mf = {
         if (name === 'rnc')    this.renderRnc();
         if (name === 'ind')    this.renderInd();
         if (name === 'cnq')    this.renderCnq();
+        if (name === 'cep')    this.renderCep();
         if (name === 'cil')    this.renderCil();
         if (name === 'cad')    this.renderCadTpm();
         if (name === 'fio')    this.renderFio();
@@ -759,6 +760,91 @@ const mf = {
                 <td style="padding:7px 10px;text-align:right;">${Number(r.qtd_consumida_kg).toLocaleString('pt-BR')}</td>
                 <td style="padding:7px 10px;text-align:right;color:${r.ncs_na_sessao?'#f06292':'var(--text-dim)'};font-weight:${r.ncs_na_sessao?'700':'400'};">${r.ncs_na_sessao}</td>
             </tr>`).join('')}</tbody></table></div>`;
+    },
+
+    // ═══ CEP — CONTROLE ESTATÍSTICO DE PROCESSO ════════════════════════════════
+    async renderCep() {
+        const pan = $('mf-pan-cep');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando CEP...</div>`;
+        const d = await api.get('/api/mf/cep');
+        if (!d) { pan.innerHTML = `<div class="summary-card" style="padding:24px;color:#f06292;">CEP indisponível — rode <b>mes_cep.sql</b> no SQL Editor.</div>`; return; }
+        this._cepData = d;
+        const prodOpt = (d.produtos || []).map(p => `<option value="${p.id}">${esc(p.codigo)} — ${esc((p.descricao||'').slice(0,28))}</option>`).join('');
+        // capabilidade em tabela
+        const capCor = v => v == null ? '#8b949e' : v >= 1.33 ? '#26a69a' : v >= 1.0 ? '#ffca28' : '#f06292';
+        const capLbl = v => v == null ? '—' : v >= 1.33 ? 'capaz' : v >= 1.0 ? 'marginal' : 'incapaz';
+        const capLinhas = (d.capabilidade || []).length ? d.capabilidade.map(c => `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+            <td style="padding:7px 10px;font-weight:600;color:var(--indigo-primary);">${esc(c.produto_codigo)}</td>
+            <td style="padding:7px 10px;">${c.tipo}</td>
+            <td style="padding:7px 10px;text-align:right;">${c.n}</td>
+            <td style="padding:7px 10px;text-align:right;">${c.media ?? '—'}</td>
+            <td style="padding:7px 10px;text-align:right;color:var(--text-dim);">${c.alvo ?? '—'}${c.tol?' ±'+c.tol:''}</td>
+            <td style="padding:7px 10px;text-align:right;">${c.sigma ?? '—'}</td>
+            <td style="padding:7px 10px;text-align:right;font-weight:700;color:${capCor(c.cp)};">${c.cp ?? '—'}</td>
+            <td style="padding:7px 10px;text-align:right;font-weight:700;color:${capCor(c.cpk)};">${c.cpk ?? '—'} <span style="font-size:.66rem;font-weight:400;">${capLbl(c.cpk)}</span></td>
+        </tr>`).join('') : `<tr><td colspan="8" style="padding:16px;text-align:center;color:var(--text-dim);">Sem medições. Registre gramatura/largura abaixo.</td></tr>`;
+        pan.innerHTML = `
+        <div class="summary-card" style="margin-bottom:16px;">
+            <div class="s-label" style="margin-bottom:10px;">📏 REGISTRAR MEDIÇÃO</div>
+            <div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:10px;align-items:end;">
+                <div><span class="mf-label">PRODUTO</span><select id="mf-md-prod" class="mf-input">${prodOpt}</select></div>
+                <div><span class="mf-label">VARIÁVEL</span><select id="mf-md-tipo" class="mf-input"><option value="gramatura">gramatura (g/m²)</option><option value="largura">largura (cm)</option></select></div>
+                <div><span class="mf-label">VALOR</span><input id="mf-md-val" type="number" step="0.01" class="mf-input"></div>
+                <button class="btn primary" onclick="mf.salvarMedicao()">Registrar</button>
+            </div>
+            <p style="font-size:.72rem;color:var(--text-dim);margin-top:8px;">Defina o alvo no cadastro de produto (CNQ) e a tolerância (±) abaixo para calcular Cp/Cpk.</p>
+        </div>
+        <div class="summary-card" style="margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <div class="s-label">CARTA DE CONTROLE</div>
+                <div style="display:flex;gap:8px;">
+                    <select id="mf-cep-prod" class="mf-input" style="width:auto;" onchange="mf._carregarCarta()">${prodOpt}</select>
+                    <select id="mf-cep-tipo" class="mf-input" style="width:auto;" onchange="mf._carregarCarta()"><option value="gramatura">gramatura</option><option value="largura">largura</option></select>
+                </div>
+            </div>
+            <div id="mf-cep-chart" style="overflow-x:auto;"></div>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;">
+            <div class="s-label" style="padding:14px 16px 10px;">CAPABILIDADE (Cp / Cpk) — capaz ≥ 1,33 · marginal 1,0–1,33 · incapaz < 1,0</div>
+            <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+            <thead><tr style="border-bottom:2px solid var(--border-color);color:var(--text-dim);font-size:.64rem;">
+                <th style="padding:8px 10px;text-align:left;">PRODUTO</th><th style="padding:8px 10px;text-align:left;">VAR</th><th style="padding:8px 10px;text-align:right;">n</th>
+                <th style="padding:8px 10px;text-align:right;">MÉDIA</th><th style="padding:8px 10px;text-align:right;">ALVO ±TOL</th><th style="padding:8px 10px;text-align:right;">σ</th><th style="padding:8px 10px;text-align:right;">Cp</th><th style="padding:8px 10px;text-align:right;">Cpk</th>
+            </tr></thead><tbody>${capLinhas}</tbody></table>
+        </div>`;
+        this._carregarCarta();
+    },
+    async salvarMedicao() {
+        const v = parseFloat($('mf-md-val').value);
+        if (isNaN(v)) return toast('Informe o valor medido.', 'erro');
+        const r = await api.post('/api/mf/medicao', { produto_id: $('mf-md-prod').value, tipo: $('mf-md-tipo').value, valor: v });
+        if (!r?.ok) return toast('Erro: ' + (r?.erro||''), 'erro');
+        toast('Medição registrada.'); this.renderCep();
+    },
+    async _carregarCarta() {
+        const prod = $('mf-cep-prod')?.value, tipo = $('mf-cep-tipo')?.value;
+        const el = $('mf-cep-chart'); if (!el || !prod) return;
+        const d = await api.get(`/api/mf/cep?produto_id=${prod}&tipo=${tipo}`);
+        const pts = (d?.pontos || []).map(p => Number(p.valor));
+        const cap = (d?.capabilidade || []).find(c => c.produto_id === prod && c.tipo === tipo);
+        if (!pts.length) { el.innerHTML = `<div style="color:var(--text-dim);padding:20px;text-align:center;">Sem medições para ${tipo} deste produto.</div>`; return; }
+        el.innerHTML = this._svgCarta(pts, cap);
+    },
+    _svgCarta(pts, cap) {
+        const W = 720, H = 220, pad = 40;
+        const ucl = cap?.ucl, lcl = cap?.lcl, alvo = cap?.alvo != null ? Number(cap.alvo) : null, media = cap?.media != null ? Number(cap.media) : null;
+        const vals = [...pts, ucl, lcl, alvo].filter(v => v != null).map(Number);
+        let lo = Math.min(...vals), hi = Math.max(...vals); const m = (hi - lo) * 0.1 || 1; lo -= m; hi += m;
+        const x = i => pad + (i / Math.max(pts.length - 1, 1)) * (W - 2 * pad);
+        const y = v => H - pad - ((v - lo) / (hi - lo)) * (H - 2 * pad);
+        const linha = (v, cor, dash, lbl) => v == null ? '' : `<line x1="${pad}" y1="${y(v).toFixed(1)}" x2="${W-pad}" y2="${y(v).toFixed(1)}" stroke="${cor}" stroke-width="1" stroke-dasharray="${dash}"/><text x="${W-pad+2}" y="${y(v).toFixed(1)+3}" fill="${cor}" font-size="9">${lbl} ${Number(v).toFixed(0)}</text>`;
+        const path = pts.map((v, i) => `${i?'L':'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
+        const pontos = pts.map((v, i) => { const fora = (ucl != null && v > ucl) || (lcl != null && v < lcl); return `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${fora?4:3}" fill="${fora?'#f06292':'#26c6da'}"/>`; }).join('');
+        return `<svg width="100%" viewBox="0 0 ${W} ${H}" style="min-width:520px;">
+            ${linha(ucl, '#f06292', '4 3', 'UCL')}${linha(lcl, '#f06292', '4 3', 'LCL')}
+            ${linha(alvo, '#26a69a', '2 2', 'alvo')}${linha(media, '#7c4dff', '0', 'x̄')}
+            <path d="${path}" fill="none" stroke="#26c6da" stroke-width="1.5" opacity="0.7"/>${pontos}
+        </svg>`;
     },
 
     // ═══ CNQ — CUSTO DA NÃO QUALIDADE ══════════════════════════════════════════

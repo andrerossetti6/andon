@@ -1877,6 +1877,39 @@ app.get('/api/mf/genealogia', auth, async (req, res) => {
     res.json(data || []);
 });
 
+// ── CEP (Controle Estatístico de Processo) — Onda 3 ───────────
+app.post('/api/mf/medicao', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {};
+    if (!b.produto_id || !b.tipo || b.valor === undefined) return res.status(400).json({ erro: 'produto_id, tipo e valor obrigatórios' });
+    const row = { produto_id: b.produto_id, tipo: b.tipo, valor: b.valor, apontamento_id: b.apontamento_id || null,
+        operador_id: b.operador_id || null, datahora: b.datahora || new Date().toISOString() };
+    const { data, error } = await supabase.from('medicao').insert(row).select().single();
+    if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'CEP ainda não criado. Rode mes_cep.sql.' });
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, medicao: data });
+});
+// define tolerância (± especificação) de um produto
+app.put('/api/mf/produtos/:id/tolerancia', auth, mfEscrita, async (req, res) => {
+    const upd = {};
+    if (req.body.gramatura_tol !== undefined) upd.gramatura_tol = req.body.gramatura_tol;
+    if (req.body.largura_tol   !== undefined) upd.largura_tol   = req.body.largura_tol;
+    const { error } = await supabase.from('produto').update(upd).eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+// carta de controle + capabilidade de um produto/tipo
+app.get('/api/mf/cep', auth, async (req, res) => {
+    const cap = await supabase.from('vw_cep_capabilidade').select('*');
+    if (cap.error && /schema cache|does not exist/i.test(cap.error.message || '')) return res.status(503).json({ erro: 'CEP ainda não criado. Rode mes_cep.sql.' });
+    let pontos = [];
+    if (req.query.produto_id && req.query.tipo) {
+        const m = await supabase.from('medicao').select('valor,datahora').eq('produto_id', req.query.produto_id).eq('tipo', req.query.tipo).order('datahora').limit(200);
+        pontos = m.data || [];
+    }
+    const prods = await supabase.from('produto').select('id,codigo,descricao,gramatura_alvo,gramatura_tol,largura_alvo,largura_tol').order('codigo');
+    res.json({ capabilidade: cap.data || [], pontos, produtos: prods.data || [] });
+});
+
 // ── Fallback para SPA ─────────────────────────────────────────
 app.get('/{*path}', (_req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
