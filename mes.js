@@ -36,6 +36,64 @@ function toggleNavGroup(li) {
 }
 function navigateTo(view) { if (view !== 'mes') window.location.href = 'index.html'; }
 
+// ── Fila offline (IndexedDB) ─────────────────────────────────────────────────
+// Toda escrita vira uma operação enfileirada com id gerado no cliente. Online,
+// é enviada na hora; offline, fica pendente e sobe sozinha quando a rede volta.
+const fila = {
+    _db: null,
+    _open() {
+        if (this._db) return Promise.resolve(this._db);
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open('mf-fila', 1);
+            req.onupgradeneeded = () => {
+                const db = req.result;
+                if (!db.objectStoreNames.contains('ops'))    db.createObjectStore('ops', { keyPath: 'seq', autoIncrement: true });
+                if (!db.objectStoreNames.contains('estado')) db.createObjectStore('estado', { keyPath: 'chave' });
+            };
+            req.onsuccess = () => { this._db = req.result; resolve(this._db); };
+            req.onerror   = () => reject(req.error);
+        });
+    },
+    _wrap(r) { return new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); },
+    async _store(nome, modo) { const db = await this._open(); return db.transaction(nome, modo).objectStore(nome); },
+
+    async enfileirar(metodo, url, payload) {
+        const st = await this._store('ops', 'readwrite');
+        await this._wrap(st.add({ metodo, url, payload, criado_em: Date.now() }));
+        mf._atualizarBadge();
+        this.flush();
+        return payload.id;
+    },
+    async pendentes() { const st = await this._store('ops', 'readonly'); return (await this._wrap(st.getAll())) || []; },
+    async _remover(seq) { const st = await this._store('ops', 'readwrite'); return this._wrap(st.delete(seq)); },
+
+    async salvarEstado(chave, valor) { const st = await this._store('estado', 'readwrite'); return this._wrap(st.put({ chave, valor })); },
+    async lerEstado(chave) { const st = await this._store('estado', 'readonly'); const r = await this._wrap(st.get(chave)); return r?.valor ?? null; },
+
+    _enviando: false,
+    async flush() {
+        if (this._enviando || !navigator.onLine) return;
+        this._enviando = true;
+        try {
+            const ops = (await this.pendentes()).sort((a, b) => a.seq - b.seq);
+            for (const op of ops) {
+                let r;
+                try { r = await fetch(op.url, { method: op.metodo, headers: api._h(), body: JSON.stringify({ ...op.payload, sincronizado_em: new Date().toISOString() }) }); }
+                catch { break; } // rede caiu — para e tenta no próximo 'online'
+                if (r.status === 401) { mf._expirou(); break; }
+                if (!r.ok) { toast('Um item da fila falhou no servidor — verifique.', 'erro'); break; }
+                await this._remover(op.seq);
+                mf._atualizarBadge();
+            }
+        } finally {
+            this._enviando = false;
+            mf._atualizarBadge();
+            const restam = (await this.pendentes()).length;
+            if (restam === 0 && navigator.onLine) mf._reconciliar();
+        }
+    },
+};
+
 // ── App principal ────────────────────────────────────────────────────────────
 const mf = {
     _cad: { produtos:[], maquinas:[], operadores:[], turnos:[], motivos:[], defeitos:[], ops:[] },
@@ -47,11 +105,42 @@ const mf = {
         document.querySelectorAll('.has-sub[id]').forEach(li => { if (localStorage.getItem('nav-grp-' + li.id) === '1') li.classList.add('nav-collapsed'); });
         document.querySelectorAll('.nav-section-header[data-key]').forEach(h3 => { if (localStorage.getItem('nav-sec-' + h3.dataset.key) === '1') h3.closest('.nav-section')?.classList.add('nav-section-collapsed'); });
 
+        // PWA: service worker (carrega offline) + sincronização ao voltar a rede
+        if ('serviceWorker' in navigator) navigator.serviceWorker.register('/mes-sw.js').catch(() => {});
+        window.addEventListener('online',  () => { this._atualizarBadge(); fila.flush(); });
+        window.addEventListener('offline', () => this._atualizarBadge());
+
+        // restaura cadastros e sessões abertas do cache local (funciona offline)
+        try { const c = await fila.lerEstado('cadastros'); if (c) this._cad = c; } catch {}
+        try { this._abertas = (await fila.lerEstado('abertas')) || []; } catch {}
+
         if (!localStorage.getItem(TOKEN_KEY)) return this._mostrarLogin();
-        // valida token buscando cadastros
-        const ok = await this._carregarCadastros();
-        if (ok === false) return this._mostrarLogin();
+        if (navigator.onLine) {
+            const ok = await this._carregarCadastros();
+            if (ok === false) return this._mostrarLogin();
+        } else if (!this._cad.ops.length) {
+            // offline e sem cache: não dá pra apontar
+            this._mostrarApp(); toast('Offline e sem dados em cache — conecte ao menos uma vez.', 'aviso'); return;
+        }
         this._mostrarApp();
+        fila.flush();
+    },
+
+    _uuid() { return (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random()*16|0; return (c==='x'?r:(r&0x3|0x8)).toString(16); })); },
+
+    async _atualizarBadge() {
+        const el = $('mf-sync'); if (!el) return;
+        let n = 0; try { n = (await fila.pendentes()).length; } catch {}
+        if (!navigator.onLine) { el.textContent = `⚠ offline${n?` · ${n} na fila`:''}`; el.style.background = 'rgba(239,108,0,.15)'; el.style.color = '#ef6c00'; }
+        else if (n)            { el.textContent = `⏳ sincronizando ${n}...`;        el.style.background = 'rgba(255,202,40,.15)'; el.style.color = '#ffca28'; }
+        else                   { el.textContent = '✓ sincronizado';                 el.style.background = 'rgba(38,166,154,.12)'; el.style.color = '#26a69a'; }
+    },
+
+    // reconcilia o estado local com o servidor (depois que a fila esvazia)
+    async _reconciliar() {
+        if (!navigator.onLine) return;
+        const srv = await api.get('/api/mf/apontamentos?abertas=1');
+        if (srv) { this._abertas = srv; await fila.salvarEstado('abertas', srv); if (document.querySelector('#app-sidebar .active')?.dataset.mftab === 'apont') this.renderSessoes(); }
     },
 
     _expirou() { localStorage.removeItem(TOKEN_KEY); toast('Sessão expirada — faça login.', 'erro'); this._mostrarLogin(); return null; },
@@ -79,6 +168,7 @@ const mf = {
         $('view-mes').style.display = 'flex';
         try { const n = JSON.parse(localStorage.getItem('sin1_usuario'))?.nome || '';
             $('mf-user').textContent = n; const sn = $('mf-user-nome'); if (sn) sn.textContent = n || '—'; } catch {}
+        this._atualizarBadge();
         this.tab('apont');
     },
 
@@ -92,6 +182,7 @@ const mf = {
         if (produtos === null) return false; // 401
         this._cad = { produtos:produtos||[], maquinas:maquinas||[], operadores:operadores||[], turnos:turnos||[],
             motivos:motivos||[], defeitos:defeitos||[], ops:ops||[] };
+        fila.salvarEstado('cadastros', this._cad).catch(() => {}); // cache p/ uso offline
         return true;
     },
 
@@ -120,23 +211,32 @@ const mf = {
             </div>
             <button class="btn primary" style="margin-top:14px;" onclick="mf.iniciarSessao()">▶ Iniciar Sessão</button>
         </div>`;
-        $('mf-pan-apont').innerHTML = novaSessao + `<div id="mf-sessoes"><div style="color:var(--text-dim);padding:12px;">Carregando sessões...</div></div>`;
-        await this.renderSessoes();
+        $('mf-pan-apont').innerHTML = novaSessao + `<div id="mf-sessoes"></div>`;
+        if (navigator.onLine) await this._reconciliar();
+        this.renderSessoes();
     },
 
     async iniciarSessao() {
-        const b = { op_id: $('mf-op').value, maquina_id: $('mf-maq').value, operador_id: $('mf-oper').value, turno_id: $('mf-turno').value,
-            dispositivo_id: navigator.userAgent.slice(0, 60) };
-        if (!b.op_id || !b.maquina_id || !b.operador_id || !b.turno_id) return toast('Preencha OP, máquina, operador e turno.', 'erro');
-        const r = await api.post('/api/mf/apontamentos', b);
-        if (!r?.ok) return toast('Erro ao iniciar: ' + (r?.erro || 'falha'), 'erro');
-        toast('Sessão iniciada.'); await this.renderSessoes();
+        const opId = $('mf-op').value, maqId = $('mf-maq').value, operId = $('mf-oper').value, turnoId = $('mf-turno').value;
+        if (!opId || !maqId || !operId || !turnoId) return toast('Preencha OP, máquina, operador e turno.', 'erro');
+        const id = this._uuid();
+        const c = this._cad;
+        // estado otimista (mostra na hora, mesmo offline)
+        this._abertas.unshift({ id, datahora_inicio: new Date().toISOString(), qtd_boa:0, qtd_refugo:0, qtd_retrabalho:0,
+            op: { numero: c.ops.find(o=>o.id===opId)?.numero || 'OP' },
+            maquina: { codigo: c.maquinas.find(m=>m.id===maqId)?.codigo || '' },
+            operador: { nome: c.operadores.find(o=>o.id===operId)?.nome || '' },
+            turno: { codigo: c.turnos.find(t=>t.id===turnoId)?.codigo || '' },
+            nao_conformidade: [], parada: [], _pendente: true });
+        await fila.salvarEstado('abertas', this._abertas);
+        this.renderSessoes();
+        await fila.enfileirar('POST', '/api/mf/apontamentos', { id, op_id: opId, maquina_id: maqId, operador_id: operId, turno_id: turnoId, dispositivo_id: navigator.userAgent.slice(0, 60) });
+        toast(navigator.onLine ? 'Sessão iniciada.' : 'Sessão iniciada (offline — na fila).', navigator.onLine ? 'ok' : 'aviso');
     },
 
-    async renderSessoes() {
+    renderSessoes() {
         const wrap = $('mf-sessoes'); if (!wrap) return;
-        const abertas = await api.get('/api/mf/apontamentos?abertas=1') || [];
-        this._abertas = abertas;
+        const abertas = this._abertas || [];
         if (!abertas.length) { wrap.innerHTML = `<div class="summary-card" style="color:var(--text-dim);text-align:center;padding:28px;">Nenhuma sessão aberta. Inicie uma acima.</div>`; return; }
         wrap.innerHTML = `<div class="s-label" style="margin:6px 0 12px;">SESSÕES ABERTAS (${abertas.length})</div>` + abertas.map(a => {
             const dur = Math.max(0, Math.round((Date.now() - new Date(a.datahora_inicio).getTime()) / 60000));
@@ -146,7 +246,7 @@ const mf = {
                 <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
                     <div><span style="font-weight:700;color:var(--indigo-primary);">${esc(a.op?.numero||'OP')}</span>
                         <span style="color:var(--text-dim);font-size:.82rem;"> · ${esc(a.maquina?.codigo||'')} · ${esc(a.operador?.nome||'')} · turno ${esc(a.turno?.codigo||'')}</span></div>
-                    <span style="font-size:.72rem;color:var(--text-dim);">há ${dur} min${ncs?` · <span style="color:#f06292;">${ncs} NC</span>`:''}${paradas?` · <span style="color:#ffca28;">${paradas} parada aberta</span>`:''}</span>
+                    <span style="font-size:.72rem;color:var(--text-dim);">há ${dur} min${ncs?` · <span style="color:#f06292;">${ncs} NC</span>`:''}${paradas?` · <span style="color:#ffca28;">${paradas} parada aberta</span>`:''}${a._pendente?` · <span style="color:#ef6c00;">⏳ pendente</span>`:''}</span>
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-bottom:12px;">
                     <div><span class="mf-label">QTD BOA</span><input type="number" min="0" step="0.001" value="${a.qtd_boa||0}" id="mf-qb-${a.id}" class="mf-input"></div>
@@ -164,19 +264,21 @@ const mf = {
     },
 
     async salvarQtd(id) {
-        const r = await api.put('/api/mf/apontamentos/' + id, {
-            qtd_boa: parseFloat($('mf-qb-' + id).value) || 0,
-            qtd_refugo: parseFloat($('mf-qr-' + id).value) || 0,
-            qtd_retrabalho: parseFloat($('mf-qt-' + id).value) || 0,
-        });
-        toast(r?.ok ? 'Quantidades salvas.' : 'Erro ao salvar.', r?.ok ? 'ok' : 'erro');
+        const qtd = { qtd_boa: parseFloat($('mf-qb-' + id).value) || 0, qtd_refugo: parseFloat($('mf-qr-' + id).value) || 0, qtd_retrabalho: parseFloat($('mf-qt-' + id).value) || 0 };
+        const a = this._abertas.find(x => x.id === id); if (a) Object.assign(a, qtd);
+        await fila.salvarEstado('abertas', this._abertas);
+        await fila.enfileirar('PUT', '/api/mf/apontamentos/' + id, { ...qtd });
+        toast(navigator.onLine ? 'Quantidades salvas.' : 'Salvo na fila (offline).', navigator.onLine ? 'ok' : 'aviso');
     },
 
     async fecharSessao(id) {
-        await this.salvarQtd(id);
-        const r = await api.put('/api/mf/apontamentos/' + id, { fechar: true });
-        if (!r?.ok) return toast('Erro ao fechar.', 'erro');
-        toast('Sessão fechada.'); this.renderSessoes();
+        const qtd = { qtd_boa: parseFloat($('mf-qb-' + id).value) || 0, qtd_refugo: parseFloat($('mf-qr-' + id).value) || 0, qtd_retrabalho: parseFloat($('mf-qt-' + id).value) || 0 };
+        this._abertas = this._abertas.filter(x => x.id !== id);  // some da lista de abertas
+        await fila.salvarEstado('abertas', this._abertas);
+        this.renderSessoes();
+        await fila.enfileirar('PUT', '/api/mf/apontamentos/' + id, { ...qtd });
+        await fila.enfileirar('PUT', '/api/mf/apontamentos/' + id, { fechar: true });
+        toast(navigator.onLine ? 'Sessão fechada.' : 'Fechada (offline — na fila).', navigator.onLine ? 'ok' : 'aviso');
     },
 
     // ── Parada ──
@@ -193,9 +295,14 @@ const mf = {
             <p style="font-size:.72rem;color:var(--text-dim);margin-top:10px;">A parada fica aberta; feche-a depois na lista de paradas da sessão.</p>`);
     },
     async salvarParada(apId) {
-        const r = await api.post('/api/mf/paradas', { apontamento_id: apId, motivo_id: $('mf-mot').value, observacao: $('mf-mot-obs').value || null });
-        if (!r?.ok) return toast('Erro ao registrar parada.', 'erro');
-        this._fecharModal(); toast('Parada registrada.'); this.renderSessoes();
+        const motivo_id = $('mf-mot').value, observacao = $('mf-mot-obs').value || null;
+        if (!motivo_id) return toast('Selecione o motivo.', 'erro');
+        const id = this._uuid();
+        const a = this._abertas.find(x => x.id === apId); if (a) { (a.parada = a.parada || []).push({ id, datahora_fim: null }); }
+        await fila.salvarEstado('abertas', this._abertas);
+        this._fecharModal(); this.renderSessoes();
+        await fila.enfileirar('POST', '/api/mf/paradas', { id, apontamento_id: apId, motivo_id, observacao });
+        toast(navigator.onLine ? 'Parada registrada.' : 'Parada na fila (offline).', navigator.onLine ? 'ok' : 'aviso');
     },
 
     // ── NC com foto ──
@@ -249,18 +356,22 @@ const mf = {
     async salvarNc(apId) {
         const qtd = parseFloat($('mf-nc-qtd').value);
         if (!qtd || qtd <= 0) return toast('Quantidade afetada deve ser > 0.', 'erro');
-        const r = await api.post('/api/mf/ncs', {
-            apontamento_id: apId, defeito_id: $('mf-nc-def').value, qtd_afetada: qtd, unidade: 'kg',
+        const ncId = this._uuid();
+        const foto = this._fotoData;
+        const a = this._abertas.find(x => x.id === apId); if (a) (a.nao_conformidade = a.nao_conformidade || []).push({ id: ncId });
+        await fila.salvarEstado('abertas', this._abertas);
+        // NC primeiro, foto depois (a fila respeita a ordem → foto só sobe após a NC existir)
+        await fila.enfileirar('POST', '/api/mf/ncs', {
+            id: ncId, apontamento_id: apId, defeito_id: $('mf-nc-def').value, qtd_afetada: qtd, unidade: 'kg',
             disposicao: $('mf-nc-disp').value, posicao: $('mf-nc-pos').value || null, causa_preliminar: $('mf-nc-causa').value || null,
         });
-        if (!r?.ok) return toast('Erro ao salvar NC: ' + (r?.erro || ''), 'erro');
-        if (this._fotoData) {
-            await api.post('/api/mf/fotos', { nc_id: r.nc.id, url: this._fotoData.url, nome_arquivo: this._fotoData.nome,
-                tamanho_bytes: this._fotoData.bytes, largura_px: this._fotoData.w, altura_px: this._fotoData.h });
+        if (foto) {
+            await fila.enfileirar('POST', '/api/mf/fotos', { id: this._uuid(), nc_id: ncId, url: foto.url, nome_arquivo: foto.nome,
+                tamanho_bytes: foto.bytes, largura_px: foto.w, altura_px: foto.h });
             this._fotoData = null;
         }
         this._fecharModal();
-        toast(r.gera_rnc ? '⚠ NC salva — GATILHO DE RNC disparado!' : 'NC registrada.', r.gera_rnc ? 'aviso' : 'ok');
+        toast(navigator.onLine ? 'NC registrada.' : 'NC na fila (offline) — sobe ao reconectar.', navigator.onLine ? 'ok' : 'aviso');
         this.renderSessoes();
     },
 

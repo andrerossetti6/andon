@@ -1211,8 +1211,10 @@ app.post('/api/mf/apontamentos', auth, async (req, res) => {
     for (const f of ['op_id','maquina_id','operador_id','turno_id']) if (!b[f]) return res.status(400).json({ erro: `${f} obrigatório` });
     const row = { op_id: b.op_id, maquina_id: b.maquina_id, operador_id: b.operador_id, turno_id: b.turno_id,
         datahora_inicio: b.datahora_inicio || new Date().toISOString(), unidade: b.unidade || 'kg',
-        dispositivo_id: b.dispositivo_id || null, origem: b.origem || 'pwa' };
-    const { data, error } = await supabase.from('apontamento').insert(row).select().single();
+        dispositivo_id: b.dispositivo_id || null, origem: b.origem || 'pwa',
+        sincronizado_em: b.sincronizado_em || new Date().toISOString() };
+    if (b.id) row.id = b.id;  // id gerado no cliente (fila offline) → upsert idempotente
+    const { data, error } = await supabase.from('apontamento').upsert(row).select().single();
     if (error) return res.status(500).json({ erro: error.message });
     // marca a OP como em produção
     await supabase.from('ordem_producao').update({ status: 'em_producao' }).eq('id', b.op_id).in('status', ['planejada','liberada']);
@@ -1234,7 +1236,8 @@ app.post('/api/mf/paradas', auth, async (req, res) => {
     if (!b.apontamento_id || !b.motivo_id) return res.status(400).json({ erro: 'apontamento_id e motivo_id obrigatórios' });
     const row = { apontamento_id: b.apontamento_id, motivo_id: b.motivo_id,
         datahora_inicio: b.datahora_inicio || new Date().toISOString(), datahora_fim: b.datahora_fim || null, observacao: b.observacao || null };
-    const { data, error } = await supabase.from('parada').insert(row).select().single();
+    if (b.id) row.id = b.id;
+    const { data, error } = await supabase.from('parada').upsert(row).select().single();
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, parada: data });
 });
@@ -1300,7 +1303,8 @@ app.post('/api/mf/ncs', auth, async (req, res) => {
     };
     const gera = await mfAvaliarGatilhos(nc, defeito).catch(() => false);
     nc.gera_rnc = gera;
-    const { data, error } = await supabase.from('nao_conformidade').insert(nc).select().single();
+    if (b.id) nc.id = b.id;  // id do cliente (fila offline)
+    const { data, error } = await supabase.from('nao_conformidade').upsert(nc).select().single();
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, nc: data, gera_rnc: gera });
 });
@@ -1316,8 +1320,10 @@ app.post('/api/mf/fotos', auth, async (req, res) => {
     if (m) {
         const mime = m[1], buffer = Buffer.from(m[2], 'base64');
         const ext = mime.split('/')[1].replace('jpeg', 'jpg');
-        const caminho = `nc/${b.nc_id}/${Date.now()}.${ext}`;
-        const { error: upErr } = await supabase.storage.from(MF_BUCKET).upload(caminho, buffer, { contentType: mime, upsert: false });
+        // caminho determinístico pelo id da foto (cliente) → re-sync sobrescreve, sem duplicar
+        const nomeBase = b.id || Date.now();
+        const caminho = `nc/${b.nc_id}/${nomeBase}.${ext}`;
+        const { error: upErr } = await supabase.storage.from(MF_BUCKET).upload(caminho, buffer, { contentType: mime, upsert: true });
         if (upErr) return res.status(500).json({ erro: 'Falha no upload da foto: ' + upErr.message });
         urlFinal = supabase.storage.from(MF_BUCKET).getPublicUrl(caminho).data.publicUrl;
         tamanho = buffer.length;
@@ -1325,7 +1331,8 @@ app.post('/api/mf/fotos', auth, async (req, res) => {
     const row = { nc_id: b.nc_id, url: urlFinal, nome_arquivo: b.nome_arquivo || null,
         tamanho_bytes: tamanho, largura_px: b.largura_px || null, altura_px: b.altura_px || null,
         capturada_em: b.capturada_em || new Date().toISOString(), metadados: b.metadados || null };
-    const { data, error } = await supabase.from('foto').insert(row).select().single();
+    if (b.id) row.id = b.id;
+    const { data, error } = await supabase.from('foto').upsert(row).select().single();
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, foto: data });
 });

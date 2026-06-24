@@ -9,6 +9,10 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="mes.webmanifest">
+    <meta name="theme-color" content="#0D1117">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 </head>
 <body class="sin1-layout">
 
@@ -97,6 +101,7 @@
                 <p class="page-subtitle">Malha Forte · Apontamento · Qualidade · OEE</p>
             </div>
             <div class="page-header-actions" style="display:flex;align-items:center;gap:12px;">
+                <span id="mf-sync" style="font-size:.74rem;font-weight:600;padding:4px 10px;border-radius:6px;"></span>
                 <span id="mf-user" style="font-size:.78rem;color:var(--text-dim);"></span>
                 <button class="btn secondary" onclick="mf.sair()" style="font-size:.78rem;">Sair</button>
             </div>
