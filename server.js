@@ -1145,6 +1145,217 @@ app.get('/emergencia', (_req, res) => {
     else document.getElementById('msg').textContent=d.erro||'Erro';}</script></body></html>`);
 });
 
+// ══════════════════════════════════════════════════════════════
+// MES MALHA FORTE — API /api/mf/*  (sistema têxtil, tabelas singulares)
+// ══════════════════════════════════════════════════════════════
+const mfNorm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+
+// ── Cadastros (leitura) ───────────────────────────────────────
+async function mfLista(res, tabela, cols, orderCol) {
+    let q = supabase.from(tabela).select(cols || '*');
+    if (orderCol) q = q.order(orderCol);
+    const { data, error } = await q;
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+}
+app.get('/api/mf/produtos',  auth, (_q, res) => mfLista(res, 'produto', '*', 'codigo'));
+app.get('/api/mf/maquinas',  auth, (_q, res) => mfLista(res, 'maquina', '*', 'codigo'));
+app.get('/api/mf/operadores',auth, (_q, res) => mfLista(res, 'operador', '*', 'nome'));
+app.get('/api/mf/turnos',    auth, (_q, res) => mfLista(res, 'turno', '*', 'codigo'));
+app.get('/api/mf/motivos',   auth, (_q, res) => mfLista(res, 'motivo_parada', '*', 'descricao'));
+app.get('/api/mf/defeitos',  auth, (_q, res) => mfLista(res, 'catalogo_defeito', '*', 'descricao'));
+
+app.get('/api/mf/ops', auth, async (req, res) => {
+    let q = supabase.from('ordem_producao').select('*, produto:produto_id(codigo,descricao,unidade_medida)').order('criado_em', { ascending: false });
+    if (req.query.status) q = q.eq('status', req.query.status);
+    const { data, error } = await q.limit(500);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+
+// ── Cadastros (escrita genérica, admin) ───────────────────────
+const MF_CADASTROS = { produto:'codigo', maquina:'codigo', operador:'matricula', turno:'codigo', motivo_parada:'codigo', catalogo_defeito:'codigo' };
+app.post('/api/mf/cadastro/:tabela', auth, async (req, res) => {
+    const t = req.params.tabela;
+    if (!MF_CADASTROS[t]) return res.status(400).json({ erro: 'Tabela inválida' });
+    const { data, error } = await supabase.from(t).upsert(req.body, { onConflict: MF_CADASTROS[t] }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, registro: data });
+});
+
+// ── Ordem de produção ─────────────────────────────────────────
+app.post('/api/mf/ops', auth, async (req, res) => {
+    const b = req.body || {};
+    if (!b.numero || !b.produto_id || !b.qtd_planejada) return res.status(400).json({ erro: 'numero, produto_id e qtd_planejada obrigatórios' });
+    const row = { numero: b.numero, produto_id: b.produto_id, qtd_planejada: b.qtd_planejada, unidade: b.unidade || 'kg',
+        maquina_prevista_id: b.maquina_prevista_id || null, data_abertura: b.data_abertura || null, data_prevista: b.data_prevista || null,
+        status: b.status || 'planejada', origem: b.origem || 'manual' };
+    const { data, error } = await supabase.from('ordem_producao').upsert(row, { onConflict: 'numero' }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, op: data });
+});
+
+// ── Apontamento (sessão de trabalho) ──────────────────────────
+app.get('/api/mf/apontamentos', auth, async (req, res) => {
+    let q = supabase.from('apontamento')
+        .select('*, op:op_id(numero), maquina:maquina_id(codigo,nome), operador:operador_id(nome), turno:turno_id(codigo), parada(*), nao_conformidade(*)')
+        .order('datahora_inicio', { ascending: false });
+    if (req.query.abertas === '1') q = q.is('datahora_fim', null);
+    const { data, error } = await q.limit(200);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+
+app.post('/api/mf/apontamentos', auth, async (req, res) => {
+    const b = req.body || {};
+    for (const f of ['op_id','maquina_id','operador_id','turno_id']) if (!b[f]) return res.status(400).json({ erro: `${f} obrigatório` });
+    const row = { op_id: b.op_id, maquina_id: b.maquina_id, operador_id: b.operador_id, turno_id: b.turno_id,
+        datahora_inicio: b.datahora_inicio || new Date().toISOString(), unidade: b.unidade || 'kg',
+        dispositivo_id: b.dispositivo_id || null, origem: b.origem || 'pwa' };
+    const { data, error } = await supabase.from('apontamento').insert(row).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    // marca a OP como em produção
+    await supabase.from('ordem_producao').update({ status: 'em_producao' }).eq('id', b.op_id).in('status', ['planejada','liberada']);
+    res.json({ ok: true, apontamento: data });
+});
+
+app.put('/api/mf/apontamentos/:id', auth, async (req, res) => {
+    const updates = {};
+    ['qtd_boa','qtd_refugo','qtd_retrabalho','datahora_fim','sincronizado_em'].forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
+    if (req.body.fechar && !updates.datahora_fim) updates.datahora_fim = new Date().toISOString();
+    const { data, error } = await supabase.from('apontamento').update(updates).eq('id', req.params.id).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, apontamento: data });
+});
+
+// ── Parada ────────────────────────────────────────────────────
+app.post('/api/mf/paradas', auth, async (req, res) => {
+    const b = req.body || {};
+    if (!b.apontamento_id || !b.motivo_id) return res.status(400).json({ erro: 'apontamento_id e motivo_id obrigatórios' });
+    const row = { apontamento_id: b.apontamento_id, motivo_id: b.motivo_id,
+        datahora_inicio: b.datahora_inicio || new Date().toISOString(), datahora_fim: b.datahora_fim || null, observacao: b.observacao || null };
+    const { data, error } = await supabase.from('parada').insert(row).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, parada: data });
+});
+app.put('/api/mf/paradas/:id', auth, async (req, res) => {
+    const updates = {};
+    ['datahora_fim','observacao'].forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
+    if (req.body.fechar && !updates.datahora_fim) updates.datahora_fim = new Date().toISOString();
+    const { data, error } = await supabase.from('parada').update(updates).eq('id', req.params.id).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, parada: data });
+});
+
+// ── Não conformidade (congela severidade + avalia gatilhos de RNC) ──
+async function mfAvaliarGatilhos(nc, defeito) {
+    const { data: gatilhos } = await supabase.from('gatilho_rnc').select('*').eq('ativo', true);
+    if (!gatilhos?.length) return false;
+    const aplicaveis = gatilhos.filter(g =>
+        (g.defeito_id && g.defeito_id === nc.defeito_id) ||
+        (g.categoria && g.categoria === defeito.categoria) ||
+        (!g.defeito_id && !g.categoria));
+    for (const g of aplicaveis) {
+        if (g.tipo === 'volume') {
+            if (g.unidade_limiar === 'qtd' && Number(nc.qtd_afetada) >= Number(g.limiar)) return true;
+            if (g.unidade_limiar === 'percentual') {
+                const { data: ap } = await supabase.from('apontamento').select('op_id').eq('id', nc.apontamento_id).single();
+                if (ap?.op_id) {
+                    const { data: op } = await supabase.from('ordem_producao').select('qtd_planejada').eq('id', ap.op_id).single();
+                    if (op?.qtd_planejada > 0 && (Number(nc.qtd_afetada) / Number(op.qtd_planejada) * 100) >= Number(g.limiar)) return true;
+                }
+            }
+        } else if (g.tipo === 'recorrencia' && g.unidade_limiar === 'ocorrencias') {
+            const desde = new Date(Date.now() - (Number(g.janela_horas) || 24) * 3600 * 1000).toISOString();
+            const { count } = await supabase.from('nao_conformidade').select('id', { count: 'exact', head: true })
+                .eq('defeito_id', nc.defeito_id).gte('datahora', desde);
+            if ((count || 0) >= Number(g.limiar)) return true;
+        }
+    }
+    return false;
+}
+
+app.get('/api/mf/ncs', auth, async (req, res) => {
+    let q = supabase.from('nao_conformidade')
+        .select('*, defeito:defeito_id(codigo,descricao,categoria), foto(id,url)')
+        .order('datahora', { ascending: false });
+    if (req.query.apontamento_id) q = q.eq('apontamento_id', req.query.apontamento_id);
+    const { data, error } = await q.limit(300);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+
+app.post('/api/mf/ncs', auth, async (req, res) => {
+    const b = req.body || {};
+    if (!b.apontamento_id || !b.defeito_id || !b.qtd_afetada) return res.status(400).json({ erro: 'apontamento_id, defeito_id e qtd_afetada obrigatórios' });
+    const { data: defeito, error: eDef } = await supabase.from('catalogo_defeito').select('*').eq('id', b.defeito_id).single();
+    if (eDef || !defeito) return res.status(400).json({ erro: 'Defeito não encontrado no catálogo' });
+    const nc = {
+        apontamento_id: b.apontamento_id, defeito_id: b.defeito_id,
+        qtd_afetada: b.qtd_afetada, unidade: b.unidade || 'kg',
+        disposicao: b.disposicao || defeito.disposicao_padrao || 'segregar',
+        severidade_aplicada: b.severidade_aplicada || defeito.severidade,  // congelada
+        posicao: b.posicao || null, causa_preliminar: b.causa_preliminar || null,
+        origem_legado: b.origem_legado || null, datahora: b.datahora || new Date().toISOString(),
+    };
+    const gera = await mfAvaliarGatilhos(nc, defeito).catch(() => false);
+    nc.gera_rnc = gera;
+    const { data, error } = await supabase.from('nao_conformidade').insert(nc).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, nc: data, gera_rnc: gera });
+});
+
+// ── Foto da NC (v1: data URL comprimida no campo url; produção → Storage) ──
+app.post('/api/mf/fotos', auth, async (req, res) => {
+    const b = req.body || {};
+    if (!b.nc_id || !b.url) return res.status(400).json({ erro: 'nc_id e url obrigatórios' });
+    const row = { nc_id: b.nc_id, url: b.url, nome_arquivo: b.nome_arquivo || null,
+        tamanho_bytes: b.tamanho_bytes || null, largura_px: b.largura_px || null, altura_px: b.altura_px || null,
+        capturada_em: b.capturada_em || new Date().toISOString(), metadados: b.metadados || null };
+    const { data, error } = await supabase.from('foto').insert(row).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, foto: data });
+});
+
+// ── Importador do legado → stg_importacao + normalização via de_para ──
+app.post('/api/mf/importar', auth, async (req, res) => {
+    const { linhas, campo_defeito } = req.body || {};
+    if (!Array.isArray(linhas) || !linhas.length) return res.status(400).json({ erro: 'linhas[] obrigatório' });
+    const lote_id = (require('crypto').randomUUID)();
+    // carrega mapas de tradução
+    const { data: depara } = await supabase.from('de_para_defeito').select('termo_legado,defeito_id');
+    const { data: defs }   = await supabase.from('catalogo_defeito').select('id,descricao');
+    const mapaExato = Object.fromEntries((depara || []).map(d => [d.termo_legado, d.defeito_id]));
+    const defsNorm  = (defs || []).map(d => ({ id: d.id, n: mfNorm(d.descricao) }));
+
+    const rows = linhas.map((linha, i) => {
+        const txt = mfNorm(linha[campo_defeito] ?? linha.defeito ?? linha.DEFEITO ?? '');
+        let defeito_id = null, metodo = null, confianca = null, status = 'novo';
+        const erros = [];
+        if (!txt) { erros.push('sem texto de defeito'); status = 'rejeitado'; }
+        else if (mapaExato[txt]) { defeito_id = mapaExato[txt]; metodo = 'exato'; confianca = 1; status = 'valido'; }
+        else {
+            // fuzzy simples: descrição do catálogo contida no texto ou vice-versa
+            const hit = defsNorm.find(d => d.n && (txt.includes(d.n) || d.n.includes(txt)));
+            if (hit) { defeito_id = hit.id; metodo = 'fuzzy'; confianca = 0.6; status = 'valido'; }
+            else { erros.push('defeito não traduzido — requer classificação manual/agente'); status = 'rejeitado'; }
+        }
+        return { lote_id, linha_origem: i + 1, linha_bruta: linha, defeito_id, metodo_traducao: metodo,
+            confianca, status, erros: erros.length ? erros : null };
+    });
+
+    const { error } = await supabase.from('stg_importacao').insert(rows);
+    if (error) return res.status(500).json({ erro: error.message });
+    const validos = rows.filter(r => r.status === 'valido').length;
+    res.json({ ok: true, lote_id, total: rows.length, validos, rejeitados: rows.length - validos });
+});
+
+app.get('/api/mf/importacao/:lote_id', auth, async (req, res) => {
+    const { data, error } = await supabase.from('stg_importacao').select('*').eq('lote_id', req.params.lote_id).order('linha_origem');
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+
 // ── Fallback para SPA ─────────────────────────────────────────
 app.get('/{*path}', (_req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
