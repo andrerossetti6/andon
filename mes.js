@@ -400,21 +400,26 @@ const mf = {
     },
 
     // ═══ IMPORTAR LEGADO ═══════════════════════════════════════════════════════
+    _CAMPOS_IMP: [
+        ['op_numero','Nº da OP *'], ['datahora','Data/hora *'], ['defeito_texto','Defeito (texto livre) *'], ['qtd_afetada','Qtd afetada *'],
+        ['maquina_nome','Máquina'], ['operador_nome','Operador'], ['turno','Turno'], ['qtd_boa','Qtd boa'], ['disposicao','Disposição'],
+    ],
+
     renderImport() {
         $('mf-pan-import').innerHTML = `
         <div class="summary-card" style="margin-bottom:18px;">
-            <div class="s-label" style="margin-bottom:8px;">IMPORTAR DEFEITOS DO LEGADO</div>
-            <p style="font-size:.8rem;color:var(--text-dim);margin-bottom:14px;">Suba a planilha (CSV/XLS). Cada linha vai para a staging e o defeito é traduzido pelo de-para (exato → fuzzy). O que não traduzir fica como <b>rejeitado</b> para classificação manual.</p>
-            <input id="mf-imp-file" type="file" accept=".csv,.xls,.xlsx" class="mf-input" style="margin-bottom:12px;" onchange="mf._lerArquivo(event)">
+            <div class="s-label" style="margin-bottom:8px;">IMPORTAR LEGADO — ETL com staging</div>
+            <p style="font-size:.8rem;color:var(--text-dim);margin-bottom:14px;">Suba a planilha (CSV/XLS), mapeie as colunas, e os dados passam por validação → tradução do defeito (exato → fuzzy → IA) → deduplicação. Só linhas válidas sobem para produção.</p>
+            <input id="mf-imp-file" type="file" accept=".csv,.xls,.xlsx" class="mf-input" style="margin-bottom:12px;max-width:420px;" onchange="mf._lerArquivo(event)">
             <div id="mf-imp-cfg" style="display:none;">
-                <span class="mf-label">COLUNA DO DEFEITO (texto livre)</span>
-                <select id="mf-imp-col" class="mf-input" style="max-width:320px;margin-bottom:12px;"></select>
-                <div><button class="btn primary" onclick="mf.importar()">Importar para staging</button>
-                     <span id="mf-imp-info" style="margin-left:12px;font-size:.78rem;color:var(--text-dim);"></span></div>
+                <div class="mf-label" style="margin-bottom:8px;">MAPA DE COLUNAS — ligue cada campo do modelo à coluna da sua planilha</div>
+                <div id="mf-imp-mapa" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;margin-bottom:14px;"></div>
+                <button class="btn primary" onclick="mf.importar()">1 · Importar para staging</button>
+                <span id="mf-imp-info" style="margin-left:12px;font-size:.78rem;color:var(--text-dim);"></span>
             </div>
         </div>
         <div id="mf-imp-result"></div>`;
-        this._impLinhas = null;
+        this._impLinhas = null; this._loteAtual = null;
     },
 
     _lerArquivo(ev) {
@@ -423,52 +428,87 @@ const mf = {
         const aplicar = (linhas) => {
             this._impLinhas = linhas;
             const cols = Object.keys(linhas[0] || {});
-            const sel = $('mf-imp-col');
-            // tenta achar coluna que pareça defeito
-            const pref = cols.find(c => /defeit|ocorr|problema|descri|motivo/i.test(c)) || cols[0];
-            sel.innerHTML = cols.map(c => `<option value="${esc(c)}"${c===pref?' selected':''}>${esc(c)}</option>`).join('');
+            // auto-mapeia por palpite
+            const palpite = { op_numero:/op|ordem/i, datahora:/data|hora/i, defeito_texto:/defeit|ocorr|problema/i, qtd_afetada:/afet|qtd.?def|defeit.*qtd/i,
+                maquina_nome:/maq|tear|circ/i, operador_nome:/oper|funcion/i, turno:/turno/i, qtd_boa:/boa|produz|qtd.?boa/i, disposicao:/dispos|destino/i };
+            $('mf-imp-mapa').innerHTML = this._CAMPOS_IMP.map(([campo,lbl]) => {
+                const pref = cols.find(c => palpite[campo]?.test(c)) || '';
+                return `<div><span class="mf-label">${lbl}</span>
+                    <select class="mf-input mf-map" data-campo="${campo}">
+                        <option value="">— ignorar —</option>
+                        ${cols.map(c => `<option value="${esc(c)}"${c===pref?' selected':''}>${esc(c)}</option>`).join('')}
+                    </select></div>`;
+            }).join('');
             $('mf-imp-cfg').style.display = 'block';
             $('mf-imp-info').textContent = `${linhas.length} linhas lidas`;
         };
-        if (ext === 'csv') {
-            Papa.parse(file, { header: true, skipEmptyLines: true, complete: r => aplicar(r.data) });
-        } else {
-            const reader = new FileReader();
-            reader.onload = e => {
-                const wb = XLSX.read(e.target.result, { type: 'array' });
-                const linhas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' });
-                aplicar(linhas);
-            };
-            reader.readAsArrayBuffer(file);
-        }
+        if (ext === 'csv') Papa.parse(file, { header: true, skipEmptyLines: true, complete: r => aplicar(r.data) });
+        else { const reader = new FileReader(); reader.onload = e => { const wb = XLSX.read(e.target.result, { type: 'array' }); aplicar(XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' })); }; reader.readAsArrayBuffer(file); }
     },
 
     async importar() {
         if (!this._impLinhas?.length) return toast('Selecione um arquivo.', 'erro');
-        const campo = $('mf-imp-col').value;
-        const r = await api.post('/api/mf/importar', { linhas: this._impLinhas, campo_defeito: campo });
+        const mapa = {};
+        document.querySelectorAll('.mf-map').forEach(s => { if (s.value) mapa[s.dataset.campo] = s.value; });
+        if (!mapa.defeito_texto) return toast('Mapeie ao menos a coluna do Defeito.', 'erro');
+        const r = await api.post('/api/mf/importar', { linhas: this._impLinhas, mapa });
         if (!r?.ok) return toast('Erro ao importar: ' + (r?.erro || ''), 'erro');
-        toast(`Importado: ${r.validos} válidos, ${r.rejeitados} rejeitados.`, r.rejeitados ? 'aviso' : 'ok');
-        const rows = await api.get('/api/mf/importacao/' + r.lote_id) || [];
+        this._loteAtual = r.lote_id;
+        toast(`Staging: ${r.valido} válidas, ${r.novo} pendentes, ${r.rejeitado} rejeitadas.`, r.rejeitado ? 'aviso' : 'ok');
+        await this._renderLote();
+    },
+
+    async _classificar() {
+        toast('Classificando com IA...', 'aviso');
+        const r = await api.post('/api/mf/classificar', { lote_id: this._loteAtual });
+        if (!r?.ok) return toast('Erro: ' + (r?.erro || ''), 'erro');
+        if (r.semChave) toast(r.msg, 'aviso');
+        else toast(`Classificados: ${r.classificados} · revisão: ${r.paraRevisao}`, 'ok');
+        await this._renderLote();
+    },
+
+    async _carga() {
+        const r = await api.post('/api/mf/importar/' + this._loteAtual + '/carga', {});
+        if (!r?.ok) return toast('Erro na carga: ' + (r?.erro || ''), 'erro');
+        toast(`Carregados p/ produção: ${r.carregados}${r.pulados?` · ${r.pulados} duplicados`:''}.`, 'ok');
+        await this._renderLote();
+    },
+
+    async _renderLote() {
+        const rows = await api.get('/api/mf/importacao/' + this._loteAtual) || [];
+        const rel  = await api.get('/api/mf/importacao/' + this._loteAtual + '/relatorio') || {};
         const defMap = Object.fromEntries(this._cad.defeitos.map(d => [d.id, d.codigo + ' — ' + d.descricao]));
+        const cont = s => rel.porStatus?.[s] || 0;
+        const corS = { valido:'#26a69a', novo:'#ffca28', rejeitado:'#f06292', carregado:'#26c6da' };
+        const erroLista = Object.entries(rel.porErro || {}).map(([k,v]) => `${k}: ${v}`).join(' · ') || '—';
         $('mf-imp-result').innerHTML = `
-            <div class="s-label" style="margin:6px 0 12px;">RESULTADO DO LOTE — ${r.total} linhas · ${r.validos} válidas · ${r.rejeitados} rejeitadas</div>
-            <div class="summary-card" style="padding:0;overflow:hidden;max-height:420px;overflow-y:auto;">
-            <table style="width:100%;border-collapse:collapse;font-size:.8rem;">
-            <thead><tr style="border-bottom:2px solid var(--border-color);color:var(--text-dim);font-size:.66rem;position:sticky;top:0;background:var(--bg-card);">
-                <th style="padding:8px;text-align:left;">#</th><th style="padding:8px;text-align:left;">TEXTO LEGADO</th>
-                <th style="padding:8px;text-align:left;">→ DEFEITO</th><th style="padding:8px;text-align:center;">MÉTODO</th><th style="padding:8px;text-align:center;">STATUS</th>
-            </tr></thead><tbody>${rows.map(row => {
-                const txt = row.linha_bruta?.[$('mf-imp-col').value] ?? Object.values(row.linha_bruta||{})[0] ?? '';
-                const cor = row.status === 'valido' ? '#26a69a' : '#f06292';
+            <div class="summary-card" style="margin-bottom:14px;">
+                <div class="s-label" style="margin-bottom:10px;">RELATÓRIO DO LOTE</div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+                    ${['valido','novo','rejeitado','carregado'].map(s => `<div style="background:${corS[s]}18;border:1px solid ${corS[s]}44;border-radius:8px;padding:10px 18px;text-align:center;min-width:90px;">
+                        <div style="font-size:1.4rem;font-weight:800;color:${corS[s]};">${cont(s)}</div><div style="font-size:.66rem;color:${corS[s]};letter-spacing:.06em;">${s.toUpperCase()}</div></div>`).join('')}
+                </div>
+                <div style="font-size:.74rem;color:var(--text-dim);margin-bottom:12px;">Métodos: ${Object.entries(rel.porMetodo||{}).map(([k,v])=>`${k} ${v}`).join(' · ')||'—'} · Rejeições: ${esc(erroLista)}</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    ${cont('novo') ? `<button class="btn secondary" style="font-size:.78rem;" onclick="mf._classificar()">2 · Classificar pendentes (IA)</button>` : ''}
+                    ${cont('valido') ? `<button class="btn primary" style="font-size:.78rem;" onclick="mf._carga()">3 · Promover válidos → produção</button>` : ''}
+                </div>
+            </div>
+            <div class="summary-card" style="padding:0;overflow:hidden;max-height:380px;overflow-y:auto;">
+            <table style="width:100%;border-collapse:collapse;font-size:.78rem;">
+            <thead><tr style="border-bottom:2px solid var(--border-color);color:var(--text-dim);font-size:.64rem;position:sticky;top:0;background:var(--bg-card);">
+                <th style="padding:8px;text-align:left;">#</th><th style="padding:8px;text-align:left;">OP</th><th style="padding:8px;text-align:left;">TEXTO LEGADO</th>
+                <th style="padding:8px;text-align:left;">→ DEFEITO</th><th style="padding:8px;text-align:center;">MÉTODO</th><th style="padding:8px;text-align:center;">STATUS</th><th style="padding:8px;text-align:left;">ERROS</th>
+            </tr></thead><tbody>${rows.map(row => { const c = row.linha_bruta?._campos || {}; const cor = corS[row.status] || '#8b949e';
                 return `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
-                    <td style="padding:7px 8px;color:var(--text-dim);">${row.linha_origem}</td>
-                    <td style="padding:7px 8px;">${esc(String(txt).slice(0,50))}</td>
-                    <td style="padding:7px 8px;">${row.defeito_id ? esc(defMap[row.defeito_id]||'?') : '<span style="color:#f06292;">— não traduzido</span>'}</td>
-                    <td style="padding:7px 8px;text-align:center;color:var(--text-dim);">${row.metodo_traducao||'—'}${row.confianca?` (${row.confianca})`:''}</td>
-                    <td style="padding:7px 8px;text-align:center;color:${cor};font-weight:700;">${row.status}</td>
-                </tr>`;
-            }).join('')}</tbody></table></div>`;
+                    <td style="padding:6px 8px;color:var(--text-dim);">${row.linha_origem}</td>
+                    <td style="padding:6px 8px;">${esc(c.op_numero||'')}</td>
+                    <td style="padding:6px 8px;">${esc(String(c.defeito_texto||'').slice(0,40))}</td>
+                    <td style="padding:6px 8px;">${row.defeito_id ? esc(defMap[row.defeito_id]||'?') : '<span style="color:#8b949e;">—</span>'}</td>
+                    <td style="padding:6px 8px;text-align:center;color:var(--text-dim);">${row.metodo_traducao||'—'}${row.confianca?` ${row.confianca}`:''}</td>
+                    <td style="padding:6px 8px;text-align:center;color:${cor};font-weight:700;">${row.status}</td>
+                    <td style="padding:6px 8px;color:#f06292;font-size:.7rem;">${esc((row.erros||[]).join('; '))}</td>
+                </tr>`; }).join('')}</tbody></table></div>`;
     },
 
     // ── Modal ──

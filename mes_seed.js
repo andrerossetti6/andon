@@ -47,6 +47,11 @@ const DEFEITOS = [
     { codigo: 'FUF', descricao: 'Fungo / mofo',              categoria: 'sujeira',     etapa: 'acabamento', severidade: 4, disposicao_padrao: 'refugar' },
     { codigo: 'PUI', descricao: 'Puído',                     categoria: 'acabamento',  etapa: 'acabamento', severidade: 2, disposicao_padrao: 'retrabalhar' },
     { codigo: 'ARR', descricao: 'Arranhão / abrasão',        categoria: 'acabamento',  etapa: 'acabamento', severidade: 2, disposicao_padrao: 'retrabalhar' },
+    { codigo: 'QUE', descricao: 'Quebra de fio',             categoria: 'fio',         etapa: 'malharia',   severidade: 3, disposicao_padrao: 'retrabalhar' },
+    { codigo: 'PIL', descricao: 'Pilling (bolinhas)',        categoria: 'acabamento',  etapa: 'acabamento', severidade: 2, disposicao_padrao: 'reclassificar' },
+    { codigo: 'TOR', descricao: 'Torção / espiralidade',     categoria: 'dimensional', etapa: 'acabamento', severidade: 3, disposicao_padrao: 'reclassificar' },
+    { codigo: 'DEN', descricao: 'Densidade irregular',       categoria: 'malha',       etapa: 'malharia',   severidade: 2, disposicao_padrao: 'reclassificar' },
+    { codigo: 'EMB', descricao: 'Fio embaraçado',            categoria: 'fio',         etapa: 'malharia',   severidade: 2, disposicao_padrao: 'retrabalhar' },
 ];
 
 // Tradução do legado: texto livre normalizado → código do catálogo
@@ -71,6 +76,11 @@ const DEPARA = {
     FUF: ['fungo', 'mofo', 'mofado', 'bolor'],
     PUI: ['puido', 'puida', 'desgastado'],
     ARR: ['arranhao', 'arranhado', 'abrasao', 'arranhadura'],
+    QUE: ['quebra de fio', 'fio rompido', 'rompimento', 'fio quebrado'],
+    PIL: ['pilling', 'bolinha', 'bolinhas', 'bolotas'],
+    TOR: ['torcao', 'espiralidade', 'torcido', 'enviesado', 'torto'],
+    DEN: ['densidade', 'malha frouxa', 'frouxo', 'densidade irregular', 'malha aberta'],
+    EMB: ['embaracado', 'enrolado', 'embolado', 'no enrolado'],
 };
 
 const PRODUTOS = [

@@ -1337,43 +1337,231 @@ app.post('/api/mf/fotos', auth, async (req, res) => {
     res.json({ ok: true, foto: data });
 });
 
-// ── Importador do legado → stg_importacao + normalização via de_para ──
+// ══════════════════════════════════════════════════════════════
+// IMPORTADOR DO LEGADO (ETL) — staging → normalização → carga
+// ══════════════════════════════════════════════════════════════
+const MF_DISPOSICOES = ['liberar','retrabalhar','refugar','segregar','reclassificar'];
+
+// similaridade de string (Levenshtein normalizado 0..1)
+function mfSimilar(a, b) {
+    a = mfNorm(a); b = mfNorm(b);
+    if (!a || !b) return 0; if (a === b) return 1;
+    const m = a.length, n = b.length;
+    const dp = Array.from({ length: m + 1 }, (_, i) => { const r = new Array(n + 1).fill(0); r[0] = i; return r; });
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+    for (let i = 1; i <= m; i++) for (let j = 1; j <= n; j++)
+        dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+    return 1 - dp[m][n] / Math.max(m, n);
+}
+// parse de data BR (dd/mm/aaaa [hh:mm]) ou ISO
+function mfParseData(s) {
+    s = String(s || '').trim(); if (!s) return null;
+    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
+    if (m) { const d = new Date(+m[3], +m[2]-1, +m[1], +(m[4]||0), +(m[5]||0), +(m[6]||0)); return isNaN(d) ? null : d.toISOString(); }
+    const d = new Date(s); return isNaN(d) ? null : d.toISOString();
+}
+
+// ETAPA 1-3: ingestão + validação + normalização (exato → fuzzy; resto fica 'novo' p/ agente)
 app.post('/api/mf/importar', auth, async (req, res) => {
-    const { linhas, campo_defeito } = req.body || {};
+    const { linhas, mapa } = req.body || {};
     if (!Array.isArray(linhas) || !linhas.length) return res.status(400).json({ erro: 'linhas[] obrigatório' });
-    const lote_id = (require('crypto').randomUUID)();
-    // carrega mapas de tradução
+    if (!mapa || !mapa.defeito_texto) return res.status(400).json({ erro: 'mapa.defeito_texto obrigatório (coluna do defeito)' });
+    const lote_id = require('crypto').randomUUID();
+
     const { data: depara } = await supabase.from('de_para_defeito').select('termo_legado,defeito_id');
     const { data: defs }   = await supabase.from('catalogo_defeito').select('id,descricao');
-    const mapaExato = Object.fromEntries((depara || []).map(d => [d.termo_legado, d.defeito_id]));
-    const defsNorm  = (defs || []).map(d => ({ id: d.id, n: mfNorm(d.descricao) }));
+    const mapaExato  = Object.fromEntries((depara || []).map(d => [d.termo_legado, d.defeito_id]));
+    const deparaTerm = (depara || []).map(d => ({ termo: d.termo_legado, id: d.defeito_id }));
+    const defsNorm   = (defs || []).map(d => ({ id: d.id, n: mfNorm(d.descricao) }));
+    const get = (linha, campo) => mapa[campo] ? (linha[mapa[campo]] ?? '') : '';
 
+    const vistas = new Set();
     const rows = linhas.map((linha, i) => {
-        const txt = mfNorm(linha[campo_defeito] ?? linha.defeito ?? linha.DEFEITO ?? '');
-        let defeito_id = null, metodo = null, confianca = null, status = 'novo';
+        const c = {
+            op_numero: String(get(linha,'op_numero')).trim(),
+            maquina_nome: String(get(linha,'maquina_nome')).trim(),
+            operador_nome: String(get(linha,'operador_nome')).trim(),
+            turno: String(get(linha,'turno')).trim().toUpperCase(),
+            datahora: get(linha,'datahora'),
+            qtd_boa: get(linha,'qtd_boa'),
+            defeito_texto: String(get(linha,'defeito_texto')).trim(),
+            qtd_afetada: get(linha,'qtd_afetada'),
+            disposicao: String(get(linha,'disposicao') || '').trim().toLowerCase(),
+        };
         const erros = [];
-        if (!txt) { erros.push('sem texto de defeito'); status = 'rejeitado'; }
-        else if (mapaExato[txt]) { defeito_id = mapaExato[txt]; metodo = 'exato'; confianca = 1; status = 'valido'; }
-        else {
-            // fuzzy simples: descrição do catálogo contida no texto ou vice-versa
-            const hit = defsNorm.find(d => d.n && (txt.includes(d.n) || d.n.includes(txt)));
-            if (hit) { defeito_id = hit.id; metodo = 'fuzzy'; confianca = 0.6; status = 'valido'; }
-            else { erros.push('defeito não traduzido — requer classificação manual/agente'); status = 'rejeitado'; }
+        if (!c.op_numero)      erros.push('op_numero vazio');
+        const dataISO = mfParseData(c.datahora);
+        if (!dataISO)          erros.push('datahora inválida');
+        if (!c.defeito_texto)  erros.push('defeito_texto vazio');
+        const qtdAf = parseFloat(String(c.qtd_afetada).replace(',', '.'));
+        if (!(qtdAf > 0))      erros.push('qtd_afetada inválida (>0)');
+        if (!c.disposicao)     c.disposicao = 'refugar';
+        else if (!MF_DISPOSICOES.includes(c.disposicao)) erros.push('disposicao inválida: ' + c.disposicao);
+
+        // tradução do defeito
+        let defeito_id = null, metodo = null, confianca = null;
+        const termo = mfNorm(c.defeito_texto);
+        if (mapaExato[termo]) { defeito_id = mapaExato[termo]; metodo = 'exato'; confianca = 1; }
+        else if (termo) {
+            let best = { score: 0, id: null };
+            for (const d of defsNorm)   { const s = mfSimilar(termo, d.n);     if (s > best.score) best = { score: s, id: d.id }; }
+            for (const t of deparaTerm) { const s = mfSimilar(termo, t.termo); if (s > best.score) best = { score: s, id: t.id }; }
+            if (best.score >= 0.85) { defeito_id = best.id; metodo = 'fuzzy'; confianca = +best.score.toFixed(2); }
         }
-        return { lote_id, linha_origem: i + 1, linha_bruta: linha, defeito_id, metodo_traducao: metodo,
-            confianca, status, erros: erros.length ? erros : null };
+
+        let status;
+        if (erros.length)      status = 'rejeitado';
+        else if (defeito_id)   status = 'valido';
+        else                   status = 'novo';   // válido, mas defeito pendente de classificação (agente)
+
+        // dedup dentro do lote: op + maquina + datahora + defeito/termo
+        if (status !== 'rejeitado') {
+            const chave = [c.op_numero, mfNorm(c.maquina_nome), dataISO, defeito_id || termo].join('|');
+            if (vistas.has(chave)) { status = 'rejeitado'; erros.push('duplicado (no lote)'); }
+            else vistas.add(chave);
+        }
+
+        c._data_iso = dataISO; c._qtd_af = qtdAf;
+        return { lote_id, linha_origem: i + 1, linha_bruta: { ...linha, _campos: c }, defeito_id,
+            metodo_traducao: metodo, confianca, status, erros: erros.length ? erros : null };
     });
 
     const { error } = await supabase.from('stg_importacao').insert(rows);
     if (error) return res.status(500).json({ erro: error.message });
-    const validos = rows.filter(r => r.status === 'valido').length;
-    res.json({ ok: true, lote_id, total: rows.length, validos, rejeitados: rows.length - validos });
+    const cont = s => rows.filter(r => r.status === s).length;
+    const termosPendentes = [...new Set(rows.filter(r => r.status === 'novo').map(r => r.linha_bruta._campos.defeito_texto))];
+    res.json({ ok: true, lote_id, total: rows.length, valido: cont('valido'), novo: cont('novo'), rejeitado: cont('rejeitado'), termosPendentes });
+});
+
+// ETAPA 3 (camada 3): subagente classificador — termos 'novo' → catálogo via Claude
+app.post('/api/mf/classificar', auth, async (req, res) => {
+    const { lote_id } = req.body || {};
+    if (!lote_id) return res.status(400).json({ erro: 'lote_id obrigatório' });
+    const { data: pend } = await supabase.from('stg_importacao').select('id,linha_bruta').eq('lote_id', lote_id).eq('status', 'novo');
+    const termos = [...new Set((pend || []).map(r => r.linha_bruta?._campos?.defeito_texto).filter(Boolean))];
+    if (!termos.length) return res.json({ ok: true, classificados: 0, msg: 'Nenhum termo pendente.' });
+
+    const { data: defs } = await supabase.from('catalogo_defeito').select('codigo,descricao,categoria,etapa');
+    const chave = process.env.ANTHROPIC_API_KEY;
+    if (!chave) return res.json({ ok: true, classificados: 0, semChave: true, termos,
+        msg: 'Configure ANTHROPIC_API_KEY no .env para classificação automática. Termos seguem em revisão manual.' });
+
+    // chamada única ao modelo com a fila inteira
+    const prompt = `Você é um especialista em defeitos de malharia têxtil. Receberá:
+(A) catálogo de defeitos padronizado (JSON): ${JSON.stringify(defs)}
+(B) descrições de defeito em texto livre de registros antigos: ${JSON.stringify(termos)}
+Para cada item de (B), retorne o "codigo" de (A) que melhor corresponde, ou codigo=null se nenhum corresponder com clareza.
+Responda APENAS em JSON, sem markdown: [{"termo":"...","codigo":"...","confianca":0.0}]`;
+    let sugestoes = [];
+    try {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST', headers: { 'content-type': 'application/json', 'x-api-key': chave, 'anthropic-version': '2023-06-01' },
+            body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] }),
+        });
+        const j = await r.json();
+        if (!r.ok) return res.status(502).json({ erro: 'Anthropic: ' + (j?.error?.message || r.status) });
+        const txt = (j.content || []).map(b => b.text || '').join('');
+        sugestoes = JSON.parse(txt.replace(/```json|```/g, '').trim());
+    } catch (e) { return res.status(502).json({ erro: 'Falha na classificação: ' + e.message }); }
+
+    const { data: cat } = await supabase.from('catalogo_defeito').select('id,codigo');
+    const idDe = Object.fromEntries((cat || []).map(d => [d.codigo, d.id]));
+    let aplicados = 0, revisao = 0;
+    for (const s of sugestoes) {
+        const termoNorm = mfNorm(s.termo);
+        const defId = s.codigo ? idDe[s.codigo] : null;
+        if (defId && Number(s.confianca) >= 0.6) {
+            await supabase.from('de_para_defeito').upsert({ termo_legado: termoNorm, defeito_id: defId, fonte: 'aprovado_agente' }, { onConflict: 'termo_legado' });
+            // re-traduz linhas do lote com esse termo
+            const alvo = (pend || []).filter(r => mfNorm(r.linha_bruta?._campos?.defeito_texto) === termoNorm).map(r => r.id);
+            if (alvo.length) await supabase.from('stg_importacao').update({ defeito_id: defId, metodo_traducao: 'agente', confianca: Number(s.confianca), status: 'valido' }).in('id', alvo);
+            aplicados += alvo.length;
+        } else {
+            const alvo = (pend || []).filter(r => mfNorm(r.linha_bruta?._campos?.defeito_texto) === termoNorm).map(r => r.id);
+            if (alvo.length) await supabase.from('stg_importacao').update({ metodo_traducao: 'agente', confianca: Number(s.confianca) || 0, status: 'rejeitado', erros: ['agente: baixa confiança ou sem correspondência'] }).in('id', alvo);
+            revisao += alvo.length;
+        }
+    }
+    res.json({ ok: true, classificados: aplicados, paraRevisao: revisao, termos: termos.length });
+});
+
+// helpers find-or-create p/ a carga
+async function mfAcharOuCriar(tabela, filtro, criar) {
+    const q = supabase.from(tabela).select('id'); Object.entries(filtro).forEach(([k, v]) => q.ilike(k, v));
+    const { data } = await q.limit(1);
+    if (data?.[0]) return data[0].id;
+    const { data: novo, error } = await supabase.from(tabela).insert(criar).select('id').single();
+    if (error) throw new Error(`${tabela}: ${error.message}`);
+    return novo.id;
+}
+
+// ETAPA 5: carga — move linhas 'valido' do staging para produção (apontamento + NC)
+app.post('/api/mf/importar/:lote_id/carga', auth, async (req, res) => {
+    const lote_id = req.params.lote_id;
+    const { data: validos } = await supabase.from('stg_importacao').select('*').eq('lote_id', lote_id).eq('status', 'valido');
+    if (!validos?.length) return res.json({ ok: true, carregados: 0, msg: 'Nenhuma linha válida para carregar.' });
+
+    const { data: turnos } = await supabase.from('turno').select('id,codigo');
+    const turnoDe = Object.fromEntries((turnos || []).map(t => [t.codigo, t.id]));
+    const turnoFallback = turnos?.[0]?.id || null;
+    const { data: defs } = await supabase.from('catalogo_defeito').select('id,severidade');
+    const sevDe = Object.fromEntries((defs || []).map(d => [d.id, d.severidade]));
+    // produto placeholder p/ OPs do legado (ordem_producao exige produto_id)
+    const prodLegado = await mfAcharOuCriar('produto', { codigo: '(LEGADO)' }, { codigo: '(LEGADO)', descricao: 'Produto não identificado (legado)', unidade_medida: 'kg' });
+
+    let carregados = 0, pulados = 0, falhas = [];
+    for (const r of validos) {
+        const c = r.linha_bruta?._campos || {};
+        try {
+            const maqId = await mfAcharOuCriar('maquina', { nome: c.maquina_nome || '(legado)' },
+                { codigo: 'LEG-' + (mfNorm(c.maquina_nome).replace(/\s+/g,'-').slice(0,20) || 'maq'), nome: c.maquina_nome || '(legado)', tipo: 'outro', setor: 'malharia' });
+            const operId = await mfAcharOuCriar('operador', { nome: c.operador_nome || '(legado)' },
+                { matricula: 'LEG-' + (mfNorm(c.operador_nome).replace(/\s+/g,'-').slice(0,20) || Date.now()), nome: c.operador_nome || '(legado)' });
+            const opId = await mfAcharOuCriar('ordem_producao', { numero: c.op_numero },
+                { numero: c.op_numero, produto_id: prodLegado, qtd_planejada: 0, unidade: 'kg', status: 'concluida', origem: 'erp' });
+            const turnoId = turnoDe[c.turno] || turnoFallback;
+
+            // dedup contra produção: NC já importada com mesma OP+defeito+datahora?
+            const { data: dup } = await supabase.from('nao_conformidade')
+                .select('id, apontamento:apontamento_id(op_id)').eq('defeito_id', r.defeito_id).eq('datahora', c._data_iso).limit(5);
+            if ((dup || []).some(d => d.apontamento?.op_id === opId)) { pulados++; await supabase.from('stg_importacao').update({ status: 'rejeitado', erros: ['duplicado (produção)'] }).eq('id', r.id); continue; }
+
+            const { data: ap, error: eAp } = await supabase.from('apontamento').insert({
+                op_id: opId, maquina_id: maqId, operador_id: operId, turno_id: turnoId,
+                datahora_inicio: c._data_iso, datahora_fim: c._data_iso,
+                qtd_boa: parseFloat(String(c.qtd_boa).replace(',','.')) || 0, unidade: 'kg', origem: 'legado', sincronizado_em: new Date().toISOString(),
+            }).select('id').single();
+            if (eAp) throw new Error('apontamento: ' + eAp.message);
+
+            const ncRow = { apontamento_id: ap.id, defeito_id: r.defeito_id, qtd_afetada: c._qtd_af, unidade: 'kg',
+                disposicao: c.disposicao, severidade_aplicada: sevDe[r.defeito_id] || 2, origem_legado: c.defeito_texto, datahora: c._data_iso };
+            const { error: eNc } = await supabase.from('nao_conformidade').insert(ncRow);
+            if (eNc) throw new Error('nc: ' + eNc.message);
+
+            await supabase.from('stg_importacao').update({ status: 'carregado' }).eq('id', r.id);
+            carregados++;
+        } catch (e) { falhas.push(`linha ${r.linha_origem}: ${e.message}`); }
+    }
+    res.json({ ok: true, carregados, pulados, falhas: falhas.slice(0, 20) });
 });
 
 app.get('/api/mf/importacao/:lote_id', auth, async (req, res) => {
     const { data, error } = await supabase.from('stg_importacao').select('*').eq('lote_id', req.params.lote_id).order('linha_origem');
     if (error) return res.status(500).json({ erro: error.message });
     res.json(data || []);
+});
+
+// ETAPA 6: relatório do lote
+app.get('/api/mf/importacao/:lote_id/relatorio', auth, async (req, res) => {
+    const { data } = await supabase.from('stg_importacao').select('status,metodo_traducao,erros').eq('lote_id', req.params.lote_id);
+    const rows = data || [];
+    const porStatus = {}, porMetodo = {}, porErro = {};
+    rows.forEach(r => {
+        porStatus[r.status] = (porStatus[r.status] || 0) + 1;
+        if (r.metodo_traducao) porMetodo[r.metodo_traducao] = (porMetodo[r.metodo_traducao] || 0) + 1;
+        (r.erros || []).forEach(e => { const k = e.split(':')[0]; porErro[k] = (porErro[k] || 0) + 1; });
+    });
+    res.json({ total: rows.length, porStatus, porMetodo, porErro });
 });
 
 // ── Fallback para SPA ─────────────────────────────────────────
