@@ -199,7 +199,7 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['painel','wip','estrat','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','fio','gene','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','wip','estrat','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','fio','gene','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'painel') this.renderPainel();
         if (name === 'wip')    this.renderWip();
         if (name === 'estrat') this.renderEstrat();
@@ -216,6 +216,7 @@ const mf = {
         if (name === 'etiq')   this.renderEtiquetas();
         if (name === 'oms')    this.renderOms();
         if (name === 'tpm')    this.renderTpm();
+        if (name === 'impops') this.renderImportOps();
         if (name === 'import') this.renderImport();
     },
 
@@ -223,6 +224,8 @@ const mf = {
     async renderApont() {
         const c = this._cad;
         const opt = (arr, val, lbl) => arr.map(x => `<option value="${x.id}">${esc(lbl(x))}</option>`).join('');
+        const etapas = (this._etapasFluxo = await api.get('/api/mf/etapas-processo')) || [];
+        const etapaOpt = `<option value="">— sem etapa —</option>` + etapas.map(e => `<option value="${e.id}">${e.ordem}. ${esc(e.nome)}</option>`).join('');
         const novaSessao = `
         <div class="summary-card" style="margin-bottom:18px;">
             <div class="s-label" style="margin-bottom:14px;">+ NOVA SESSÃO DE APONTAMENTO</div>
@@ -232,6 +235,7 @@ const mf = {
                 <div><span class="mf-label">MÁQUINA *</span><select id="mf-maq" class="mf-input">${opt(c.maquinas,'id',m=>`${m.codigo} · ${m.nome}`)}</select></div>
                 <div><span class="mf-label">OPERADOR *</span><select id="mf-oper" class="mf-input">${opt(c.operadores,'id',o=>o.nome)}</select></div>
                 <div><span class="mf-label">TURNO *</span><select id="mf-turno" class="mf-input">${opt(c.turnos,'id',t=>`${t.codigo} — ${t.descricao||''}`)}</select></div>
+                <div><span class="mf-label">ETAPA DO FLUXO</span><select id="mf-etapa" class="mf-input">${etapaOpt}</select></div>
             </div>
             <button class="btn primary" style="margin-top:14px;" onclick="mf.iniciarSessao()">▶ Iniciar Sessão</button>
         </div>`;
@@ -250,12 +254,14 @@ const mf = {
 
     async iniciarSessao() {
         const opId = $('mf-op').value, maqId = $('mf-maq').value, operId = $('mf-oper').value, turnoId = $('mf-turno').value;
+        const etapaId = $('mf-etapa')?.value || null;
         if (!opId || !maqId || !operId || !turnoId) return toast('Preencha OP, máquina, operador e turno.', 'erro');
         const id = this._uuid();
         const c = this._cad;
+        const etapaNome = (this._etapasFluxo || []).find(e => e.id === etapaId)?.nome || '';
         // estado otimista (mostra na hora, mesmo offline)
         this._abertas.unshift({ id, datahora_inicio: new Date().toISOString(), qtd_boa:0, qtd_refugo:0, qtd_retrabalho:0,
-            op_id: opId, operador_id: operId,
+            op_id: opId, operador_id: operId, etapa_id: etapaId, etapa_nome: etapaNome,
             op: { numero: c.ops.find(o=>o.id===opId)?.numero || 'OP' },
             maquina: { codigo: c.maquinas.find(m=>m.id===maqId)?.codigo || '' },
             operador: { nome: c.operadores.find(o=>o.id===operId)?.nome || '' },
@@ -263,7 +269,7 @@ const mf = {
             nao_conformidade: [], parada: [], _pendente: true });
         await fila.salvarEstado('abertas', this._abertas);
         this.renderSessoes();
-        await fila.enfileirar('POST', '/api/mf/apontamentos', { id, op_id: opId, maquina_id: maqId, operador_id: operId, turno_id: turnoId, dispositivo_id: navigator.userAgent.slice(0, 60) });
+        await fila.enfileirar('POST', '/api/mf/apontamentos', { id, op_id: opId, maquina_id: maqId, operador_id: operId, turno_id: turnoId, etapa_id: etapaId, dispositivo_id: navigator.userAgent.slice(0, 60) });
         toast(navigator.onLine ? 'Sessão iniciada.' : 'Sessão iniciada (offline — na fila).', navigator.onLine ? 'ok' : 'aviso');
     },
 
@@ -278,7 +284,7 @@ const mf = {
             return `<div class="summary-card" style="margin-bottom:12px;">
                 <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">
                     <div><span style="font-weight:700;color:var(--indigo-primary);">${esc(a.op?.numero||'OP')}</span>
-                        <span style="color:var(--text-dim);font-size:.82rem;"> · ${esc(a.maquina?.codigo||'')} · ${esc(a.operador?.nome||'')} · turno ${esc(a.turno?.codigo||'')}</span></div>
+                        <span style="color:var(--text-dim);font-size:.82rem;"> · ${esc(a.maquina?.codigo||'')} · ${esc(a.operador?.nome||'')} · turno ${esc(a.turno?.codigo||'')}</span>${a.etapa_nome?`<span style="color:#26c6da;font-size:.78rem;"> · 🔀 ${esc(a.etapa_nome)}</span>`:''}</div>
                     <span style="font-size:.72rem;color:var(--text-dim);">há ${dur} min${ncs?` · <span style="color:#f06292;">${ncs} NC</span>`:''}${paradas?` · <span style="color:#ffca28;">${paradas} parada aberta</span>`:''}${a._pendente?` · <span style="color:#ef6c00;">⏳ pendente</span>`:''}</span>
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-bottom:12px;">
@@ -291,7 +297,8 @@ const mf = {
                     <button class="btn secondary" style="font-size:.78rem;" onclick="mf.formParada('${a.id}')">⏸ Registrar parada</button>
                     <button class="btn secondary" style="font-size:.78rem;" onclick="mf.formMedicao('${a.id}')">📏 Medir</button>
                     <button class="btn secondary" style="font-size:.78rem;border-color:rgba(240,98,146,.4);color:#f06292;" onclick="mf.formNc('${a.id}')">⚠ Registrar NC</button>
-                    <button class="btn primary" style="font-size:.78rem;margin-left:auto;" onclick="mf.fecharSessao('${a.id}')">✓ Fechar sessão</button>
+                    ${a.etapa_id?`<label style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--text-dim);margin-left:auto;cursor:pointer;" title="Ao fechar, move a OP para a próxima etapa do fluxo"><input type="checkbox" id="mf-av-${a.id}" checked> avançar no fluxo</label>`:''}
+                    <button class="btn primary" style="font-size:.78rem;${a.etapa_id?'':'margin-left:auto;'}" onclick="mf.fecharSessao('${a.id}')">✓ Fechar sessão</button>
                 </div>
             </div>`;
         }).join('');
@@ -307,12 +314,13 @@ const mf = {
 
     async fecharSessao(id) {
         const qtd = { qtd_boa: parseFloat($('mf-qb-' + id).value) || 0, qtd_refugo: parseFloat($('mf-qr-' + id).value) || 0, qtd_retrabalho: parseFloat($('mf-qt-' + id).value) || 0 };
+        const avancar = $('mf-av-' + id)?.checked || false;  // concluir a etapa e mover a OP no fluxo
         this._abertas = this._abertas.filter(x => x.id !== id);  // some da lista de abertas
         await fila.salvarEstado('abertas', this._abertas);
         this.renderSessoes();
         await fila.enfileirar('PUT', '/api/mf/apontamentos/' + id, { ...qtd });
-        await fila.enfileirar('PUT', '/api/mf/apontamentos/' + id, { fechar: true });
-        toast(navigator.onLine ? 'Sessão fechada.' : 'Fechada (offline — na fila).', navigator.onLine ? 'ok' : 'aviso');
+        await fila.enfileirar('PUT', '/api/mf/apontamentos/' + id, { fechar: true, avancar });
+        toast(navigator.onLine ? (avancar ? 'Sessão fechada e OP avançada no fluxo.' : 'Sessão fechada.') : 'Fechada (offline — na fila).', navigator.onLine ? 'ok' : 'aviso');
     },
 
     // ── Parada ──
@@ -994,21 +1002,25 @@ const mf = {
                 ${disp.length ? disp.map(o => `<option value="${o.id}" data-qtd="${o.qtd_planejada}">${esc(o.numero)} — ${Number(o.qtd_planejada).toLocaleString('pt-BR')} ${esc(o.unidade)}</option>`).join('') : '<option value="">Nenhuma OP disponível</option>'}
             </select>
             <button class="btn" style="font-size:.78rem;" onclick="mf.iniciarWip()" ${disp.length ? '' : 'disabled'}>Entrar na 1ª etapa</button>
-            <span style="margin-left:auto;font-size:.78rem;color:var(--text-dim);">Lead time médio (etapas concluídas): <strong style="color:#26c6da;">${d.lead_total_horas ? d.lead_total_horas + ' h' : '—'}</strong></span>
+            <span style="margin-left:auto;font-size:.76rem;color:var(--text-dim);">⏱ Lead real médio: <strong style="color:#26c6da;">${d.lead_total_horas ? d.lead_total_horas + ' h' : '—'}</strong>
+                &nbsp;·&nbsp; ⌛ Lead estimado (Little): <strong style="color:#7c4dff;">${d.lead_little_total ? d.lead_little_total + ' dias' : '—'}</strong></span>
         </div>`;
         const cols = d.board.map(col => {
             const corG = col.gargalo ? '#f06292' : (col.cor || '#26c6da');
-            const cards = col.cards.map(c => `<div style="background:var(--bg-card);border:1px solid var(--border-color);border-left:3px solid ${corG};border-radius:8px;padding:8px 10px;margin-bottom:8px;">
+            const cards = col.cards.map(c => `<div style="background:var(--bg-card);border:1px solid var(--border-color);border-left:3px solid ${c.em_processo ? '#26a69a' : corG};border-radius:8px;padding:8px 10px;margin-bottom:8px;">
                 <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
                     <strong style="font-size:.82rem;">${esc(c.numero)}</strong>
-                    <span style="font-size:.64rem;color:var(--text-dim);">há ${this._tempoDesde(c.entrou_em)}</span>
+                    <span style="font-size:.64rem;color:var(--text-dim);">há ${this._tempoDesde(c.desde)}</span>
                 </div>
                 ${c.produto ? `<div style="font-size:.66rem;color:var(--text-dim);margin:2px 0;">${esc(c.produto)}</div>` : ''}
-                <div style="font-size:.74rem;margin:3px 0 6px;">${Number(c.qtd).toLocaleString('pt-BR')} ${esc(c.unidade)}</div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin:3px 0 6px;">
+                    <span style="font-size:.74rem;">${Number(c.qtd).toLocaleString('pt-BR')} ${esc(c.unidade)}</span>
+                    ${c.em_processo ? `<span style="font-size:.58rem;font-weight:700;color:#26a69a;background:#26a69a22;border-radius:4px;padding:1px 5px;" title="${esc(c.operador||'')}">● EM PROCESSO</span>` : `<span style="font-size:.58rem;color:var(--text-dim);border:1px solid var(--border-color);border-radius:4px;padding:1px 5px;">aguardando</span>`}
+                </div>
                 <div style="display:flex;gap:4px;">
-                    <button title="Voltar (retrabalho)" onclick="mf.voltarWip('${c.movimento_id}')" style="${this._wipBtn}">◀</button>
-                    <button title="Avançar para a próxima etapa" onclick="mf.avancarWip('${c.movimento_id}')" style="${this._wipBtn}flex:1;background:${corG}22;color:${corG};border-color:${corG}55;font-weight:600;">Avançar ▸</button>
-                    <button title="Retirar do fluxo" onclick="mf.removerWip('${c.movimento_id}')" style="${this._wipBtn}color:#f06292;">✕</button>
+                    <button title="Voltar (retrabalho)" onclick="mf.voltarWip('${c.op_id}')" style="${this._wipBtn}">◀</button>
+                    <button title="Avançar para a próxima etapa" onclick="mf.avancarWip('${c.op_id}')" style="${this._wipBtn}flex:1;background:${corG}22;color:${corG};border-color:${corG}55;font-weight:600;">Avançar ▸</button>
+                    <button title="Retirar do fluxo" onclick="mf.removerWip('${c.op_id}')" style="${this._wipBtn}color:#f06292;">✕</button>
                 </div>
             </div>`).join('') || `<div style="font-size:.72rem;color:var(--text-dim);text-align:center;padding:14px 0;">— vazio —</div>`;
             return `<div style="min-width:200px;max-width:240px;flex:1;background:${corG}0c;border:1px solid ${corG}33;border-radius:10px;padding:10px;">
@@ -1017,11 +1029,12 @@ const mf = {
                     ${col.gargalo ? '<span style="font-size:.58rem;font-weight:700;color:#f06292;background:#f0629222;border-radius:4px;padding:1px 5px;">GARGALO</span>' : ''}
                 </div>
                 <div style="display:flex;justify-content:space-between;align-items:center;font-size:.66rem;color:var(--text-dim);margin-bottom:8px;">
-                    <span><strong style="color:var(--text-primary);">${col.ops}</strong> OP · ${Number(col.qtd_wip).toLocaleString('pt-BR')}</span>
+                    <span><strong style="color:var(--text-primary);">${col.ops}</strong> OP${col.em_processo ? ` · <span style="color:#26a69a;">${col.em_processo} em proc</span>` : ''} · ${Number(col.qtd_wip).toLocaleString('pt-BR')}</span>
                     <span title="Limite de WIP (vazio = sem limite)">lim <input type="number" min="0" value="${col.limite_wip != null ? col.limite_wip : ''}" onchange="mf.salvarLimiteWip('${col.etapa_id}', this.value)" style="width:42px;padding:1px 4px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:4px;color:var(--text-primary);font-size:.66rem;text-align:center;"></span>
                 </div>
                 ${cards}
-                ${col.lead_horas != null ? `<div style="font-size:.6rem;color:var(--text-dim);text-align:center;margin-top:6px;">⏱ ${col.lead_horas}h médio aqui</div>` : ''}
+                ${(col.lead_horas != null || col.throughput_dia || col.lead_little_dias != null) ? `<div style="font-size:.6rem;color:var(--text-dim);text-align:center;margin-top:6px;line-height:1.5;">
+                    ${col.lead_horas != null ? `⏱ ${col.lead_horas}h médio` : ''}${col.throughput_dia ? `${col.lead_horas != null ? ' · ' : ''}↻ ${Number(col.throughput_dia).toLocaleString('pt-BR')}/dia` : ''}${col.lead_little_dias != null ? `<br>⌛ Little: ${col.lead_little_dias} dias` : ''}</div>` : ''}
             </div>`;
         }).join('<div style="display:flex;align-items:center;color:var(--text-dim);font-size:1.1rem;padding:0 1px;">→</div>');
         pan.innerHTML = iniciar + `<div style="display:flex;align-items:stretch;gap:3px;overflow-x:auto;padding-bottom:8px;">${cols}</div>`;
@@ -1029,23 +1042,23 @@ const mf = {
     async iniciarWip() {
         const sel = $('mf-wip-op'); const op_id = sel?.value;
         if (!op_id) return toast('Selecione uma OP.', 'erro');
-        const r = await api.post('/api/mf/wip/iniciar', { op_id, qtd: sel.selectedOptions[0]?.dataset.qtd });
+        const r = await api.post('/api/mf/wip/iniciar', { op_id });
         toast(r?.ok ? 'OP entrou no fluxo.' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
         if (r?.ok) this.renderWip();
     },
-    async avancarWip(id) {
-        const r = await api.post('/api/mf/wip/avancar', { movimento_id: id });
+    async avancarWip(op_id) {
+        const r = await api.post('/api/mf/wip/avancar', { op_id });
         toast(r?.ok ? (r.concluida ? 'OP concluída! 🎉' : 'Avançou para ' + r.proxima) : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
         if (r?.ok) this.renderWip();
     },
-    async voltarWip(id) {
-        const r = await api.post('/api/mf/wip/voltar', { movimento_id: id });
+    async voltarWip(op_id) {
+        const r = await api.post('/api/mf/wip/voltar', { op_id });
         toast(r?.ok ? 'Voltou para ' + r.anterior + ' (retrabalho)' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
         if (r?.ok) this.renderWip();
     },
-    async removerWip(id) {
+    async removerWip(op_id) {
         if (!confirm('Retirar esta OP do fluxo?')) return;
-        const r = await api.del('/api/mf/wip/' + id);
+        const r = await api.del('/api/mf/wip/' + op_id);
         toast(r?.ok ? 'Retirada do fluxo.' : 'Erro.', r?.ok ? 'ok' : 'erro');
         if (r?.ok) this.renderWip();
     },
@@ -1691,6 +1704,110 @@ const mf = {
         ['op_numero','Nº da OP *'], ['datahora','Data/hora *'], ['defeito_texto','Defeito (texto livre) *'], ['qtd_afetada','Qtd afetada *'],
         ['maquina_nome','Máquina'], ['operador_nome','Operador'], ['turno','Turno'], ['qtd_boa','Qtd boa'], ['disposicao','Disposição'],
     ],
+
+    // ═══ IMPORTAR OPs DO ERP (relatório em blocos) ═════════════════════════════
+    renderImportOps() {
+        this._opsParsed = null; this._opsPreview = null;
+        $('mf-pan-impops').innerHTML = `
+            <div class="summary-card" style="margin-bottom:16px;">
+                <div class="s-label" style="margin-bottom:8px;">IMPORTAR ORDENS DE PRODUÇÃO — ERP</div>
+                <div style="font-size:.82rem;color:var(--text-dim);margin-bottom:12px;">Suba o Excel do ERP (relatório de OPs). Leio os blocos (“O.P. Nº” + “Produto:”), caso o produto pelo código e mostro uma prévia antes de gravar. OPs já existentes são ignoradas; produtos novos são criados a partir do arquivo.</div>
+                <input id="mf-impops-file" type="file" accept=".csv,.xls,.xlsx" class="mf-input" style="max-width:420px;" onchange="mf._lerArquivoOps(event)">
+                <div style="margin-top:10px;display:flex;align-items:center;gap:10px;">
+                    <span class="mf-label" style="margin:0;">UNIDADE</span>
+                    <select id="mf-impops-un" class="mf-input" style="width:90px;"><option value="pc">pç</option><option value="kg">kg</option><option value="m">m</option></select>
+                </div>
+            </div>
+            <div id="mf-impops-prev"></div>`;
+    },
+    // parser do relatório do ERP: cada OP é um bloco (linha "O.P. Nº" + linha "Produto: cod - desc | cor | marca | TAM. X")
+    _parseOpsErp(rows) {
+        const ops = []; let cur = null;
+        const numBR = s => { const t = String(s).trim().replace(/\.(?=\d{3}(?:[.,]|$))/g, '').replace(',', '.'); const n = parseFloat(t); return isFinite(n) ? n : null; };
+        for (const row of (rows || [])) {
+            const cells = (row || []).map(c => (c == null ? '' : String(c)));
+            const joined = cells.join(' ').replace(/\s+/g, ' ').trim();
+            if (!joined) continue;
+            const mOP = joined.match(/O\.?\s*P\.?\s*N[ºo°.]*\s*:?\s*(\d+)/i) || joined.match(/ordem\s*(?:de\s*)?produ[cç][ãa]o[^\d]*(\d+)/i);
+            if (mOP) {
+                cur = { numero: mOP[1] };
+                cur.emissao = (joined.match(/emiss[ãa]o\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i) || [])[1] || null;
+                cur.previsao = (joined.match(/previs[ãa]o\s*(?:inicial)?\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i) || [])[1] || null;
+                cur.previsao_final = (joined.match(/previs[ãa]o\s*final\s*:?\s*(\d{2}\/\d{2}\/\d{4})/i) || [])[1] || null;
+                cur.status = (joined.match(/status\s*:?\s*([^|]+?)\s*$/i) || [])[1] || null;
+                ops.push(cur);
+                continue;
+            }
+            if (cur && /produto\s*:?/i.test(joined)) {
+                const seg = joined.replace(/^.*?produto\s*:?\s*/i, '');
+                // as 5 colunas de quantidade ficam no fim (formato N,NNNN); a 1ª (Para Produção) é a planejada
+                const nums = seg.match(/\d[\d.]*,\d{4}(?!\d)/g) || [];
+                cur.qtd = nums.length ? numBR(nums[0]) : 0;
+                const corte = seg.search(/\s*\d[\d.]*,\d{4}(?!\d)/);  // texto do produto, sem as quantidades
+                const head = (corte > 0 ? seg.slice(0, corte) : seg).trim();
+                const m0 = head.match(/(\d+)\s*-\s*(.+)/);
+                if (m0) {
+                    cur.prod_codigo = m0[1];
+                    const partes = m0[2].split(/\s*[|/]\s*/).map(s => s.trim()).filter(Boolean);  // separador | ou /
+                    cur.descricao = partes[0] || m0[2].trim();
+                    const iTam = partes.findIndex(p => /\btam[\s.]/i.test(p));   // a parte com "TAM." é o tamanho
+                    if (iTam >= 0) { const mt = partes[iTam].match(/tam[\s.]+([^\s|/-]+)/i); cur.tamanho = mt ? mt[1] : null; }
+                    const attrs = partes.slice(1).filter((_, i) => (i + 1) !== iTam);  // restantes = cor/marca (ordem varia no ERP)
+                    cur.cor = attrs[0] || null;
+                    cur.marca = attrs[1] || null;
+                } else { cur.descricao = head; }
+                continue;
+            }
+            if (cur) { const ms = joined.match(/^status\s*:?\s*(.+)$/i); if (ms && !cur.status) cur.status = ms[1].trim(); }
+        }
+        return ops.filter(o => o.numero);
+    },
+    _lerArquivoOps(ev) {
+        const file = ev.target.files?.[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = e => {
+            try {
+                const wb = XLSX.read(e.target.result, { type: 'array' });
+                const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '', raw: false });
+                this._opsParsed = this._parseOpsErp(rows);
+                if (!this._opsParsed.length) { $('mf-impops-prev').innerHTML = `<div class="summary-card" style="color:#ffca28;">Não reconheci nenhuma OP no arquivo. Confira se é o relatório de Ordens de Produção (com “O.P. Nº” e “Produto:”). Me mande o arquivo que eu ajusto o leitor.</div>`; return; }
+                this.previewOps();
+            } catch (err) { toast('Erro ao ler o arquivo: ' + err.message, 'erro'); }
+        };
+        reader.readAsArrayBuffer(file);
+    },
+    _opsCard(cor, n, lbl) { return `<div style="background:${cor}14;border:1px solid ${cor}3a;border-radius:12px;padding:14px 18px;text-align:center;flex:1;min-width:150px;"><div style="font-size:1.7rem;font-weight:800;color:${cor};">${n}</div><div style="font-size:.64rem;color:${cor};letter-spacing:.04em;">${lbl}</div></div>`; },
+    async previewOps() {
+        if (!this._opsParsed?.length) return;
+        const unidade = $('mf-impops-un')?.value || 'pc';
+        const r = await api.post('/api/mf/importar-ops', { rows: this._opsParsed, unidade, confirmar: false });
+        if (!r?.ok) { $('mf-impops-prev').innerHTML = `<div class="summary-card" style="color:#f06292;">${esc(r?.erro || 'Erro na prévia.')}</div>`; return; }
+        this._opsPreview = r;
+        const lista = (arr, render) => arr.length ? arr.map(render).join('') : '<div style="color:var(--text-dim);font-size:.8rem;padding:6px 0;">—</div>';
+        $('mf-impops-prev').innerHTML = `
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+                ${this._opsCard('#26a69a', r.novas.length, 'OPs NOVAS A IMPORTAR')}
+                ${this._opsCard('#42a5f5', r.produtos_novos.length, 'PRODUTOS NOVOS (do arquivo)')}
+                ${this._opsCard('#8b949e', r.existentes.length, 'JÁ EXISTENTES (ignoradas)')}
+            </div>
+            ${r.produtos_novos.length ? `<div class="summary-card" style="margin-bottom:12px;"><div class="s-label" style="margin-bottom:8px;">PRODUTOS NOVOS QUE SERÃO CRIADOS (${r.produtos_novos.length})</div>
+                <div style="max-height:160px;overflow:auto;font-size:.8rem;">${lista(r.produtos_novos, p => `<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);">${esc(p.codigo)} — ${esc(p.descricao)} <span style="color:var(--text-dim);">${[p.cor, p.marca, p.tamanho].filter(Boolean).map(esc).join(' · ')}</span></div>`)}</div></div>` : ''}
+            <div class="summary-card" style="margin-bottom:14px;"><div class="s-label" style="margin-bottom:8px;">OPs NOVAS (${r.novas.length})</div>
+                <div style="max-height:240px;overflow:auto;font-size:.8rem;">${lista(r.novas, o => `<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,.04);">
+                    <span><strong>${esc(o.numero)}</strong> · ${esc(o.prod_codigo)} ${esc(o.descricao)}</span>
+                    <span style="color:var(--text-dim);white-space:nowrap;">${Number(o.qtd).toLocaleString('pt-BR')} ${esc(unidade)}${o.prod_novo ? ' · <span style="color:#42a5f5;">produto novo</span>' : ''}</span></div>`)}</div></div>
+            ${r.novas.length ? `<button class="btn primary" onclick="mf.confirmarOps()">✓ Importar ${r.novas.length} OP(s)${r.produtos_novos.length ? ` e criar ${r.produtos_novos.length} produto(s)` : ''}</button>` : `<div class="summary-card" style="color:var(--text-dim);">Nada novo para importar — todas as OPs do arquivo já existem no MES.</div>`}`;
+    },
+    async confirmarOps() {
+        if (!this._opsParsed?.length) return;
+        const unidade = $('mf-impops-un')?.value || 'pc';
+        const r = await api.post('/api/mf/importar-ops', { rows: this._opsParsed, unidade, confirmar: true });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao importar.', 'erro');
+        toast(`Importadas ${r.inseridas} OP(s)` + (r.produtos_criados ? `, ${r.produtos_criados} produto(s) criados` : '') + (r.erros?.length ? `, ${r.erros.length} com erro` : '') + '.', r.erros?.length ? 'aviso' : 'ok');
+        $('mf-impops-prev').innerHTML = `<div class="summary-card"><div class="s-label" style="margin-bottom:8px;">RESULTADO</div>
+            <div style="font-size:.85rem;line-height:1.8;">✅ <strong>${r.inseridas}</strong> OP(s) importadas<br>${r.produtos_criados ? `🆕 ${r.produtos_criados} produto(s) criados<br>` : ''}${r.ignoradas ? `⏭ ${r.ignoradas} já existentes (ignoradas)<br>` : ''}${r.erros?.length ? `<span style="color:#f06292;">⚠ ${r.erros.length} com erro:</span><br><span style="font-size:.74rem;color:var(--text-dim);">${r.erros.slice(0, 20).map(esc).join('<br>')}</span>` : ''}</div></div>`;
+        this._opsParsed = null;
+    },
 
     renderImport() {
         $('mf-pan-import').innerHTML = `

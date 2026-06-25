@@ -1219,21 +1219,33 @@ app.post('/api/mf/apontamentos', auth, mfEscrita, async (req, res) => {
         datahora_inicio: b.datahora_inicio || new Date().toISOString(), unidade: b.unidade || 'kg',
         dispositivo_id: b.dispositivo_id || null, origem: b.origem || 'pwa',
         sincronizado_em: b.sincronizado_em || new Date().toISOString() };
+    if (b.etapa_id) row.etapa_id = b.etapa_id;
     if (b.id) row.id = b.id;  // id gerado no cliente (fila offline) → upsert idempotente
     const { data, error } = await supabase.from('apontamento').upsert(row).select().single();
     if (error) return res.status(500).json({ erro: error.message });
     // marca a OP como em produção
     await supabase.from('ordem_producao').update({ status: 'em_producao' }).eq('id', b.op_id).in('status', ['planejada','liberada']);
+    // liga ao fluxo: se a OP ainda não está em etapa nenhuma, a sessão a "traz" para a etapa informada
+    if (b.etapa_id) {
+        try { await supabase.from('ordem_producao').update({ etapa_atual_id: b.etapa_id, etapa_desde: new Date().toISOString() }).eq('id', b.op_id).is('etapa_atual_id', null); }
+        catch { /* coluna ausente — apontamento já gravado, segue */ }
+    }
     res.json({ ok: true, apontamento: data });
 });
 
 app.put('/api/mf/apontamentos/:id', auth, mfEscrita, async (req, res) => {
     const updates = {};
-    ['qtd_boa','qtd_refugo','qtd_retrabalho','datahora_fim','sincronizado_em'].forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
+    ['qtd_boa','qtd_refugo','qtd_retrabalho','datahora_fim','sincronizado_em','etapa_id'].forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
     if (req.body.fechar && !updates.datahora_fim) updates.datahora_fim = new Date().toISOString();
     const { data, error } = await supabase.from('apontamento').update(updates).eq('id', req.params.id).select().single();
     if (error) return res.status(500).json({ erro: error.message });
-    res.json({ ok: true, apontamento: data });
+    let avanco = null;
+    // ao fechar concluindo a etapa, avança a OP no fluxo (move o ponteiro etapa_atual)
+    if (req.body.avancar && data?.op_id) {
+        try { const r = await avancarOpFluxo(data.op_id); if (!r.erro) avanco = r; }
+        catch { /* fluxo ausente — sessão já fechada, segue */ }
+    }
+    res.json({ ok: true, apontamento: data, avanco });
 });
 
 // ── Parada ────────────────────────────────────────────────────
@@ -2150,81 +2162,145 @@ app.delete('/api/mf/etapas-processo/:id', auth, mfEscrita, async (req, res) => {
 });
 
 // ── WIP / Kanban de produção (OP avança pelo fluxo) ───────────
-// quadro: por etapa, as OPs paradas ali (movimentos abertos) + WIP + gargalo + lead time
+// fecha o movimento aberto `m` e abre o próximo (ou conclui a OP na última etapa)
+// avança a OP no fluxo movendo o ponteiro etapa_atual (ou conclui na última etapa)
+async function avancarOpFluxo(op_id) {
+    const { data: op } = await supabase.from('ordem_producao').select('etapa_atual_id, etapa:etapa_atual_id(ordem)').eq('id', op_id).single();
+    if (!op?.etapa_atual_id) return { erro: 'OP não está no fluxo.' };
+    const { data: prox } = await supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).gt('ordem', op.etapa?.ordem ?? 0).order('ordem').limit(1);
+    if (prox?.length) {
+        await supabase.from('ordem_producao').update({ etapa_atual_id: prox[0].id, etapa_desde: new Date().toISOString() }).eq('id', op_id);
+        return { proxima: prox[0].nome };
+    }
+    await supabase.from('ordem_producao').update({ etapa_atual_id: null, etapa_desde: null, status: 'concluida' }).eq('id', op_id);  // saiu da última etapa
+    return { concluida: true };
+}
+// quadro: por etapa, as OPs cujo etapa_atual = etapa; sessão aberta = "em processo". Lead/throughput vêm do apontamento.
 app.get('/api/mf/wip', auth, async (_q, res) => {
     const etapasR = await supabase.from('etapa_processo').select('id,nome,ordem,cor,limite_wip').eq('ativo', true).order('ordem');
-    if (etapasR.error && /schema cache|does not exist|column/i.test(etapasR.error.message || '')) return res.status(503).json({ erro: 'WIP não inicializado. Rode mes_wip.sql.' });
+    if (etapasR.error && /schema cache|does not exist|column/i.test(etapasR.error.message || '')) return res.status(503).json({ erro: 'WIP não inicializado. Rode mes_wip_unificado.sql.' });
     if (etapasR.error) return res.status(500).json({ erro: etapasR.error.message });
-    const [movsR, ltR, opsR] = await Promise.all([
-        supabase.from('fluxo_movimento').select('id,op_id,etapa_id,qtd,entrou_em, op:op_id(numero,unidade,qtd_planejada, produto:produto_id(descricao))').is('saiu_em', null),
+    const opsR = await supabase.from('ordem_producao').select('id,numero,qtd_planejada,unidade,status,etapa_atual_id,etapa_desde, produto:produto_id(descricao)').not('status', 'in', '(concluida,cancelada)');
+    if (opsR.error && /column|does not exist/i.test(opsR.error.message || '')) return res.status(503).json({ erro: 'WIP não inicializado. Rode mes_wip_unificado.sql.' });
+    const [abertasR, ltR, tpR] = await Promise.all([
+        supabase.from('apontamento').select('op_id,etapa_id, operador:operador_id(nome)').is('datahora_fim', null),  // sessões abertas = em processo
         supabase.from('vw_wip_leadtime').select('*'),
-        supabase.from('ordem_producao').select('id,numero,qtd_planejada,unidade,status').not('status', 'in', '(concluida,cancelada)'),
+        supabase.from('vw_wip_throughput').select('*'),
     ]);
-    if (movsR.error) return res.status(503).json({ erro: 'WIP não inicializado. Rode mes_wip.sql. ' + movsR.error.message });
-    const movs = movsR.data || [];
+    const ops = opsR.data || [];
+    const sessByOp = {}; (abertasR.data || []).forEach(a => { sessByOp[a.op_id] = a; });
     const lt = Object.fromEntries((ltR.data || []).map(r => [r.etapa_id, r]));
+    const tp = Object.fromEntries((tpR.data || []).map(r => [r.etapa_id, r]));
     const board = (etapasR.data || []).map(e => {
-        const cards = movs.filter(m => m.etapa_id === e.id).map(m => ({
-            movimento_id: m.id, op_id: m.op_id, numero: m.op?.numero || '?', produto: m.op?.produto?.descricao || '',
-            unidade: m.op?.unidade || '', qtd: Number(m.qtd || 0), entrou_em: m.entrou_em,
-        }));
+        const cards = ops.filter(o => o.etapa_atual_id === e.id).map(o => {
+            const s = sessByOp[o.id];
+            return { op_id: o.id, numero: o.numero, produto: o.produto?.descricao || '', unidade: o.unidade || '',
+                qtd: Number(o.qtd_planejada || 0), desde: o.etapa_desde, em_processo: !!s, operador: s?.operador?.nome || null };
+        });
         const qtd_wip = cards.reduce((s, c) => s + c.qtd, 0);
+        const qtdDia = Number(tp[e.id]?.qtd_dia || 0);
+        const lead_little_dias = qtdDia > 0 && qtd_wip > 0 ? Math.round(qtd_wip / qtdDia * 10) / 10 : null;  // Lei de Little
         return { etapa_id: e.id, nome: e.nome, ordem: e.ordem, cor: e.cor, limite_wip: e.limite_wip,
-            ops: cards.length, qtd_wip, gargalo: e.limite_wip != null && cards.length > e.limite_wip,
-            lead_horas: lt[e.id]?.horas_medias ?? null, cards };
+            ops: cards.length, qtd_wip, em_processo: cards.filter(c => c.em_processo).length,
+            gargalo: e.limite_wip != null && cards.length > e.limite_wip,
+            lead_horas: lt[e.id]?.horas_medias ?? null, throughput_dia: qtdDia || null, lead_little_dias, cards };
     });
-    const emFluxo = new Set(movs.map(m => m.op_id));
-    const disponiveis = (opsR.data || []).filter(o => !emFluxo.has(o.id));
+    const disponiveis = ops.filter(o => !o.etapa_atual_id);  // OPs ainda fora do fluxo
     const lead_total_horas = Math.round(Object.values(lt).reduce((s, r) => s + Number(r.horas_medias || 0), 0) * 10) / 10;
-    res.json({ board, disponiveis, lead_total_horas });
+    const lead_little_total = Math.round(board.reduce((s, b) => s + Number(b.lead_little_dias || 0), 0) * 10) / 10;
+    res.json({ board, disponiveis, lead_total_horas, lead_little_total });
 });
 // coloca a OP no fluxo (1ª etapa, ou etapa_id informado)
 app.post('/api/mf/wip/iniciar', auth, mfEscrita, async (req, res) => {
     const { op_id } = req.body || {};
     if (!op_id) return res.status(400).json({ erro: 'op_id obrigatório' });
-    const { data: aberto } = await supabase.from('fluxo_movimento').select('id').eq('op_id', op_id).is('saiu_em', null).limit(1);
-    if (aberto?.length) return res.status(409).json({ erro: 'Esta OP já está no fluxo.' });
+    const { data: op } = await supabase.from('ordem_producao').select('etapa_atual_id').eq('id', op_id).single();
+    if (op?.etapa_atual_id) return res.status(409).json({ erro: 'Esta OP já está no fluxo.' });
     let etapaId = req.body.etapa_id;
     if (!etapaId) { const { data: e } = await supabase.from('etapa_processo').select('id').eq('ativo', true).order('ordem').limit(1); etapaId = e?.[0]?.id; }
     if (!etapaId) return res.status(400).json({ erro: 'Nenhuma etapa cadastrada.' });
-    let qtd = req.body.qtd;
-    if (qtd == null) { const { data: op } = await supabase.from('ordem_producao').select('qtd_planejada').eq('id', op_id).single(); qtd = op?.qtd_planejada || 0; }
-    const { data, error } = await supabase.from('fluxo_movimento').insert({ op_id, etapa_id: etapaId, qtd: Number(qtd) }).select().single();
+    const { error } = await supabase.from('ordem_producao').update({ etapa_atual_id: etapaId, etapa_desde: new Date().toISOString() }).eq('id', op_id);
     if (error) return res.status(500).json({ erro: error.message });
-    res.json({ ok: true, movimento: data });
+    res.json({ ok: true });
 });
-// avança a OP para a próxima etapa (fecha o movimento atual, abre na seguinte)
+// avança a OP para a próxima etapa (move o ponteiro)
 app.post('/api/mf/wip/avancar', auth, mfEscrita, async (req, res) => {
-    const { movimento_id } = req.body || {};
-    if (!movimento_id) return res.status(400).json({ erro: 'movimento_id obrigatório' });
-    const { data: m } = await supabase.from('fluxo_movimento').select('*, etapa:etapa_id(ordem)').eq('id', movimento_id).is('saiu_em', null).single();
-    if (!m) return res.status(404).json({ erro: 'Movimento não encontrado ou já avançado.' });
-    const { data: prox } = await supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).gt('ordem', m.etapa?.ordem ?? 0).order('ordem').limit(1);
-    await supabase.from('fluxo_movimento').update({ saiu_em: new Date().toISOString() }).eq('id', movimento_id);
-    if (prox?.length) {
-        await supabase.from('fluxo_movimento').insert({ op_id: m.op_id, etapa_id: prox[0].id, qtd: m.qtd });
-        return res.json({ ok: true, proxima: prox[0].nome });
-    }
-    await supabase.from('ordem_producao').update({ status: 'concluida' }).eq('id', m.op_id);  // saiu da última etapa
-    res.json({ ok: true, concluida: true });
+    const { op_id } = req.body || {};
+    if (!op_id) return res.status(400).json({ erro: 'op_id obrigatório' });
+    const r = await avancarOpFluxo(op_id);
+    if (r.erro) return res.status(404).json(r);
+    res.json({ ok: true, ...r });
 });
 // volta a OP para a etapa anterior (retrabalho)
 app.post('/api/mf/wip/voltar', auth, mfEscrita, async (req, res) => {
-    const { movimento_id } = req.body || {};
-    if (!movimento_id) return res.status(400).json({ erro: 'movimento_id obrigatório' });
-    const { data: m } = await supabase.from('fluxo_movimento').select('*, etapa:etapa_id(ordem)').eq('id', movimento_id).is('saiu_em', null).single();
-    if (!m) return res.status(404).json({ erro: 'Movimento não encontrado.' });
-    const { data: ant } = await supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).lt('ordem', m.etapa?.ordem ?? 0).order('ordem', { ascending: false }).limit(1);
+    const { op_id } = req.body || {};
+    if (!op_id) return res.status(400).json({ erro: 'op_id obrigatório' });
+    const { data: op } = await supabase.from('ordem_producao').select('etapa_atual_id, etapa:etapa_atual_id(ordem)').eq('id', op_id).single();
+    if (!op?.etapa_atual_id) return res.status(404).json({ erro: 'OP não está no fluxo.' });
+    const { data: ant } = await supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).lt('ordem', op.etapa?.ordem ?? 0).order('ordem', { ascending: false }).limit(1);
     if (!ant?.length) return res.status(400).json({ erro: 'Já está na primeira etapa.' });
-    await supabase.from('fluxo_movimento').update({ saiu_em: new Date().toISOString() }).eq('id', movimento_id);
-    await supabase.from('fluxo_movimento').insert({ op_id: m.op_id, etapa_id: ant[0].id, qtd: m.qtd, obs: 'retrabalho' });
+    await supabase.from('ordem_producao').update({ etapa_atual_id: ant[0].id, etapa_desde: new Date().toISOString() }).eq('id', op_id);
     res.json({ ok: true, anterior: ant[0].nome });
 });
-// retira a OP do fluxo (fecha o movimento sem avançar)
-app.delete('/api/mf/wip/:movimento_id', auth, mfEscrita, async (req, res) => {
-    const { error } = await supabase.from('fluxo_movimento').update({ saiu_em: new Date().toISOString(), obs: 'retirado do fluxo' }).eq('id', req.params.movimento_id).is('saiu_em', null);
+// retira a OP do fluxo (zera o ponteiro)
+app.delete('/api/mf/wip/:op_id', auth, mfEscrita, async (req, res) => {
+    const { error } = await supabase.from('ordem_producao').update({ etapa_atual_id: null, etapa_desde: null }).eq('id', req.params.op_id);
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true });
+});
+
+// ── Importar Ordens de Produção do ERP (relatório em blocos) ──
+function _opErpData(s) { const m = String(s || '').match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : null; }  // dd/mm/yyyy → ISO
+function _opErpStatus(s) {
+    const t = String(s || '').toLowerCase();
+    if (/conclu|encerr|finaliz/.test(t)) return 'concluida';
+    if (/cancel/.test(t)) return 'cancelada';
+    if (/em produ|produzind/.test(t)) return 'em_producao';
+    if (/libe?r/.test(t)) return 'liberada';
+    if (/pausa/.test(t)) return 'pausada';
+    return 'planejada';
+}
+// rows: [{numero, prod_codigo, descricao, cor, marca, tamanho, qtd, emissao, previsao, previsao_final, status}]
+app.post('/api/mf/importar-ops', auth, mfEscrita, async (req, res) => {
+    const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const confirmar = !!req.body?.confirmar;
+    const unidade = ['kg', 'm', 'pc'].includes(req.body?.unidade) ? req.body.unidade : 'pc';
+    if (!rows.length) return res.status(400).json({ erro: 'Nenhuma OP reconhecida no arquivo.' });
+    // dedup por número dentro do próprio arquivo (mantém o primeiro)
+    const vistos = new Set(); const limpas = [];
+    for (const r of rows) { const n = String(r.numero || '').trim(); if (!n || vistos.has(n)) continue; vistos.add(n); limpas.push(r); }
+    const { data: existsOps, error: eOps } = await supabase.from('ordem_producao').select('numero');
+    if (eOps) return res.status(500).json({ erro: eOps.message });
+    const opSet = new Set((existsOps || []).map(o => String(o.numero)));
+    const { data: prods } = await supabase.from('produto').select('id,codigo');
+    const prodMap = new Map((prods || []).map(p => [String(p.codigo), p.id]));
+    const novas = [], existentes = [], prodNovos = new Map();
+    for (const r of limpas) {
+        const numero = String(r.numero).trim();
+        if (opSet.has(numero)) { existentes.push(numero); continue; }
+        const cod = String(r.prod_codigo || '').trim();
+        const prodNovo = !!cod && !prodMap.has(cod);
+        if (prodNovo && !prodNovos.has(cod)) prodNovos.set(cod, { codigo: cod, descricao: r.descricao || cod, cor: r.cor || null, marca: r.marca || null, tamanho: r.tamanho || null });
+        novas.push({ numero, prod_codigo: cod, descricao: r.descricao || '', qtd: Number(r.qtd) || 0, prod_novo: prodNovo,
+            status: r.status || '', emissao: r.emissao || null, previsao: r.previsao_final || r.previsao || null });
+    }
+    const produtos_novos = [...prodNovos.values()];
+    if (!confirmar) return res.json({ ok: true, preview: true, total: limpas.length, novas, existentes, produtos_novos, unidade });
+    // EXECUTA: cria os produtos novos (a partir do arquivo), depois insere as OPs novas
+    let produtos_criados = 0;
+    for (const p of produtos_novos) {
+        const { data, error } = await supabase.from('produto').insert({ codigo: p.codigo, descricao: p.descricao, cor: p.cor, marca: p.marca, tamanho: p.tamanho, unidade_medida: unidade }).select('id,codigo').single();
+        if (!error && data) { prodMap.set(String(data.codigo), data.id); produtos_criados++; }
+    }
+    let inseridas = 0; const erros = [];
+    for (const o of novas) {
+        const pid = prodMap.get(String(o.prod_codigo));
+        if (!pid) { erros.push(`${o.numero}: produto ${o.prod_codigo} não cadastrado`); continue; }
+        const { error } = await supabase.from('ordem_producao').insert({ numero: o.numero, produto_id: pid, qtd_planejada: o.qtd || 0, unidade,
+            status: _opErpStatus(o.status), origem: 'erp', data_abertura: _opErpData(o.emissao), data_prevista: _opErpData(o.previsao) });
+        if (error) erros.push(`${o.numero}: ${error.message}`); else inseridas++;
+    }
+    res.json({ ok: true, inseridas, produtos_criados, ignoradas: existentes.length, erros });
 });
 
 // ── Fallback para SPA ─────────────────────────────────────────
