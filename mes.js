@@ -22,6 +22,7 @@ const api = {
     async get(url)      { const r = await fetch(url, { headers: this._h() }); if (r.status === 401) return mf._expirou(); return r.ok ? r.json() : null; },
     async post(url, b)  { const r = await fetch(url, { method:'POST', headers: this._h(), body: JSON.stringify(b) }); if (r.status === 401) return mf._expirou(); return r.json().catch(() => null); },
     async put(url, b)   { const r = await fetch(url, { method:'PUT',  headers: this._h(), body: JSON.stringify(b) }); if (r.status === 401) return mf._expirou(); return r.json().catch(() => null); },
+    async del(url)      { const r = await fetch(url, { method:'DELETE', headers: this._h() }); if (r.status === 401) return mf._expirou(); return r.json().catch(() => null); },
 };
 
 // ── Sidebar (mesmo comportamento do index) ──────────────────────────────────
@@ -198,8 +199,9 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['painel','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','fio','gene','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','estrat','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','fio','gene','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'painel') this.renderPainel();
+        if (name === 'estrat') this.renderEstrat();
         if (name === 'apont')  this.renderApont();
         if (name === 'ncs')    this.renderNcs();
         if (name === 'rnc')    this.renderRnc();
@@ -905,6 +907,162 @@ const mf = {
         const r = await api.put('/api/mf/metas/' + chave, { valor: v });
         toast(r?.ok ? 'Meta salva.' : 'Erro ao salvar meta.', r?.ok ? 'ok' : 'erro');
         if (r?.ok) this.renderPainel();
+    },
+
+    // ═══ ESTRATÉGICO — KPIs (vs meta) + OKRs ═══════════════════════════════════
+    // catálogo de KPIs: chave da métrica → rótulo, unidade, direção e meta
+    _KPI: [
+        { k:'oee',          lbl:'OEE Médio',           un:'%',   dir:'subir',  meta:m=>m.oee_meta??85,            cor:'#26c6da' },
+        { k:'fpy',          lbl:'FPY · 1ª Passagem',   un:'%',   dir:'subir',  meta:()=>95,                       cor:'#66bb6a' },
+        { k:'cpk_ok',       lbl:'Processos Capazes',   un:'%',   dir:'subir',  meta:()=>90,                       cor:'#42a5f5' },
+        { k:'rnc_eficacia', lbl:'Eficácia das RNCs',   un:'%',   dir:'subir',  meta:()=>90,                       cor:'#ab47bc' },
+        { k:'cil',          lbl:'Cumprimento CIL',     un:'%',   dir:'subir',  meta:()=>95,                       cor:'#26a69a' },
+        { k:'cnq',          lbl:'Custo da Qualidade',  un:'R$',  dir:'descer', meta:m=>m.cnq_limite_mensal??5000, cor:'#f06292' },
+        { k:'ncs',          lbl:'Não Conformidades',   un:'',    dir:'descer', meta:()=>null,                     cor:'#7c4dff', info:true },
+        { k:'mtbf',         lbl:'MTBF',                un:'h',   dir:'subir',  meta:()=>null,                     cor:'#ffa726', info:true },
+        { k:'mttr',         lbl:'MTTR',                un:'min', dir:'descer', meta:()=>null,                     cor:'#8d6e63', info:true },
+    ],
+    _METR: { oee:'OEE', cnq:'CNQ (R$)', fpy:'FPY %', cpk_ok:'% Capazes', rnc_eficacia:'Efic. RNC %', cil:'CIL %', ncs:'Nº NCs', mtbf:'MTBF h', mttr:'MTTR min', manual:'Manual' },
+
+    _fmtVal(v, un) {
+        if (v == null) return '—';
+        if (un === 'R$') return 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+        return Number(v).toLocaleString('pt-BR') + (un ? (un === '%' ? '%' : ' ' + un) : '');
+    },
+    _barCor(p) { return p >= 100 ? '#26a69a' : p >= 70 ? '#26c6da' : p >= 40 ? '#ffca28' : '#f06292'; },
+    _bar(p, cor) { return `<div style="height:7px;background:rgba(255,255,255,.08);border-radius:4px;overflow:hidden;margin-top:5px;">
+        <div style="height:100%;width:${Math.max(2,p)}%;background:${cor||this._barCor(p)};transition:width .4s;"></div></div>`; },
+
+    async renderEstrat() {
+        const pan = $('mf-pan-estrat');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando painel estratégico...</div>`;
+        const [met, okrs] = await Promise.all([api.get('/api/mf/metricas'), api.get('/api/mf/okrs')]);
+        if (!met) { pan.innerHTML = `<div class="summary-card" style="padding:24px;color:#f06292;">Indicadores indisponíveis — rode os SQLs pendentes (indicadores/TPM/metas).</div>`; return; }
+        const M = met.metricas || {}, metas = met.metas || {};
+
+        // ── KPIs vs meta ──
+        const cards = this._KPI.map(d => {
+            const val = M[d.k], meta = d.meta(metas);
+            const hit = (val == null || meta == null) ? null : (d.dir === 'subir' ? val >= meta : val <= meta);
+            const cor = hit == null ? d.cor : (hit ? '#26a69a' : '#f06292');
+            const metaTxt = meta == null ? (d.info ? 'informativo' : '—') : 'meta ' + (d.dir==='subir'?'≥ ':'≤ ') + this._fmtVal(meta, d.un);
+            return `<div style="background:${cor}12;border:1px solid ${cor}3a;border-radius:12px;padding:14px 16px;flex:1;min-width:150px;">
+                <div style="font-size:.64rem;color:${cor};letter-spacing:.05em;text-transform:uppercase;margin-bottom:6px;">${d.lbl}</div>
+                <div style="font-size:1.55rem;font-weight:800;color:${cor};">${this._fmtVal(val, d.un)}</div>
+                <div style="font-size:.66rem;color:var(--text-dim);margin-top:2px;">${hit==null?'':(hit?'✓ ':'✗ ')}${metaTxt}</div>
+            </div>`;
+        }).join('');
+
+        // ── OKRs ── (api.get devolve null em status != 2xx; nesse caso as tabelas ainda não existem)
+        const lista = Array.isArray(okrs) ? okrs : [];
+        const okrSemTabela = !Array.isArray(okrs);
+        const objHtml = lista.map(o => {
+            const krs = (o.okr_resultado || []).map(kr => {
+                const editavel = kr.metrica === 'manual';
+                const atualHtml = editavel
+                    ? `<input type="number" step="any" value="${kr.atual ?? ''}" onchange="mf.salvarKrValor('${kr.id}', this.value)"
+                         style="width:88px;padding:3px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:5px;color:var(--text-primary);font-size:.78rem;text-align:right;">`
+                    : `<strong>${this._fmtVal(kr.atual, kr.unidade)}</strong>`;
+                return `<div style="padding:8px 0;border-top:1px solid rgba(255,255,255,.05);">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                        <span style="font-size:.82rem;flex:1;">${esc(kr.descricao)}
+                            <span style="font-size:.6rem;color:var(--text-dim);border:1px solid var(--border-color);border-radius:4px;padding:0 5px;margin-left:6px;">${this._METR[kr.metrica]||kr.metrica}</span></span>
+                        <span style="font-size:.78rem;white-space:nowrap;color:var(--text-dim);">${atualHtml} <span style="opacity:.6;">/ ${this._fmtVal(kr.meta, kr.unidade)}</span></span>
+                        <span style="font-size:.78rem;font-weight:700;color:${this._barCor(kr.progresso)};width:42px;text-align:right;">${kr.progresso}%</span>
+                    </div>${this._bar(kr.progresso)}</div>`;
+            }).join('') || `<div style="font-size:.78rem;color:var(--text-dim);padding:6px 0;">Sem resultados-chave ainda.</div>`;
+            return `<div class="summary-card" style="margin-bottom:14px;">
+                <div style="display:flex;justify-content:space-between;align-items:start;gap:10px;margin-bottom:8px;">
+                    <div style="flex:1;">
+                        <div style="font-size:1rem;font-weight:700;">${esc(o.titulo)}</div>
+                        <div style="font-size:.7rem;color:var(--text-dim);margin-top:2px;">${[o.periodo,o.responsavel].filter(Boolean).map(esc).join(' · ')||'sem período/responsável'}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        <div style="font-size:1.2rem;font-weight:800;color:${this._barCor(o.progresso)};">${o.progresso}%</div>
+                        <button onclick="mf.excluirObjetivo('${o.id}')" title="Excluir objetivo" style="background:none;border:none;color:#f06292;cursor:pointer;font-size:.7rem;">excluir</button>
+                    </div>
+                </div>
+                ${this._bar(o.progresso)}
+                <div style="margin-top:8px;">${krs}</div>
+                <div style="margin-top:10px;">
+                    <button class="btn secondary" style="font-size:.74rem;padding:5px 12px;" onclick="mf._krForm('${o.id}')">+ Resultado-chave</button>
+                    <div id="mf-krform-${o.id}" style="display:none;margin-top:10px;padding:12px;background:rgba(255,255,255,.03);border-radius:8px;">
+                        <div style="display:grid;grid-template-columns:1fr;gap:8px;">
+                            <input id="mf-kr-desc-${o.id}" placeholder="Descrição do resultado-chave *" class="mf-inp">
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                                <select id="mf-kr-metr-${o.id}" class="mf-inp" onchange="mf._krMetrHint('${o.id}')">
+                                    ${Object.entries(this._METR).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}
+                                </select>
+                                <select id="mf-kr-dir-${o.id}" class="mf-inp"><option value="subir">Maior é melhor</option><option value="descer">Menor é melhor</option></select>
+                                <input id="mf-kr-base-${o.id}" type="number" step="any" placeholder="Baseline (hoje)" class="mf-inp">
+                                <input id="mf-kr-meta-${o.id}" type="number" step="any" placeholder="Meta *" class="mf-inp">
+                                <input id="mf-kr-un-${o.id}" placeholder="Unidade (%, R$, h...)" class="mf-inp">
+                                <input id="mf-kr-val-${o.id}" type="number" step="any" placeholder="Valor atual (se manual)" class="mf-inp">
+                            </div>
+                            <button class="btn" style="font-size:.78rem;" onclick="mf.salvarKr('${o.id}')">Salvar resultado-chave</button>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+
+        pan.innerHTML = `
+            <div class="summary-card" style="margin-bottom:18px;">
+                <div class="s-label" style="margin-bottom:12px;">📊 KPIs ESTRATÉGICOS — DESEMPENHO vs META</div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">${cards}</div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <div class="s-label">🎯 OKRs — OBJETIVOS E RESULTADOS-CHAVE</div>
+                <button class="btn" style="font-size:.76rem;padding:6px 14px;" onclick="mf._objForm()">+ Novo Objetivo</button>
+            </div>
+            <div id="mf-objform" style="display:none;" class="summary-card">
+                <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px;">
+                    <input id="mf-obj-tit" placeholder="Objetivo (ex: Tornar a qualidade classe mundial) *" class="mf-inp">
+                    <input id="mf-obj-per" placeholder="Período (ex: 2026-T2)" class="mf-inp">
+                    <input id="mf-obj-resp" placeholder="Responsável" class="mf-inp">
+                </div>
+                <button class="btn" style="font-size:.78rem;" onclick="mf.salvarObjetivo()">Criar objetivo</button>
+            </div>
+            ${okrSemTabela ? `<div class="summary-card" style="color:#ffca28;">Módulo de OKRs ainda não inicializado — rode <strong>mes_okr.sql</strong> no Supabase e recarregue.</div>`
+                : (objHtml || `<div class="summary-card" style="color:var(--text-dim);">Nenhum objetivo ainda. Clique em “+ Novo Objetivo”.</div>`)}
+            <style>.mf-inp{padding:7px 10px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;}</style>`;
+    },
+    _objForm() { const f = $('mf-objform'); f.style.display = f.style.display === 'none' ? 'block' : 'none'; },
+    _krForm(id) { const f = $('mf-krform-' + id); f.style.display = f.style.display === 'none' ? 'block' : 'none'; },
+    _krMetrHint(id) {  // ao escolher métrica do sistema, esconde "valor manual" (vem automático)
+        const manual = $('mf-kr-metr-' + id).value === 'manual';
+        $('mf-kr-val-' + id).style.display = manual ? 'block' : 'none';
+    },
+    async salvarObjetivo() {
+        const titulo = $('mf-obj-tit').value.trim();
+        if (!titulo) return toast('Informe o objetivo.', 'erro');
+        const r = await api.post('/api/mf/okrs', { titulo, periodo: $('mf-obj-per').value.trim(), responsavel: $('mf-obj-resp').value.trim() });
+        toast(r?.ok ? 'Objetivo criado.' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderEstrat();
+    },
+    async salvarKr(id) {
+        const desc = $('mf-kr-desc-' + id).value.trim();
+        const meta = $('mf-kr-meta-' + id).value;
+        if (!desc || meta === '') return toast('Descrição e meta são obrigatórios.', 'erro');
+        const metrica = $('mf-kr-metr-' + id).value;
+        const r = await api.post('/api/mf/okrs/' + id + '/kr', {
+            descricao: desc, metrica, direcao: $('mf-kr-dir-' + id).value,
+            baseline: $('mf-kr-base-' + id).value || 0, meta, unidade: $('mf-kr-un-' + id).value.trim(),
+            valor_manual: metrica === 'manual' ? ($('mf-kr-val-' + id).value || 0) : null,
+        });
+        toast(r?.ok ? 'Resultado-chave salvo.' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderEstrat();
+    },
+    async salvarKrValor(id, val) {
+        const r = await api.put('/api/mf/kr/' + id, { valor_manual: parseFloat(val) || 0 });
+        toast(r?.ok ? 'Valor atualizado.' : 'Erro.', r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderEstrat();
+    },
+    async excluirObjetivo(id) {
+        if (!confirm('Excluir este objetivo e todos os seus resultados-chave?')) return;
+        const r = await api.del('/api/mf/okrs/' + id);
+        toast(r?.ok ? 'Objetivo excluído.' : 'Erro.', r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderEstrat();
     },
 
     // ═══ CEP — CONTROLE ESTATÍSTICO DE PROCESSO ════════════════════════════════

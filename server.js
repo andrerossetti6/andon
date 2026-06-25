@@ -2035,6 +2035,89 @@ app.post('/api/mf/refresh', auth, mfEscrita, async (_req, res) => {
     res.json({ ok: true });
 });
 
+// ── KPIs estratégicos + OKRs ──────────────────────────────────
+// métricas atuais do sistema (insumo dos KPIs e dos OKRs)
+async function mfMetricas() {
+    const [oee, cnq, qual, rnc, cep, cil, mtbf, mttr, ap] = await Promise.all([
+        supabase.from('vw_oee').select('oee'),
+        supabase.from('vw_cnq_resumo').select('custo_total').single(),
+        supabase.from('vw_qualidade_resumo').select('total_ncs').single(),
+        supabase.from('vw_rnc_resumo').select('fechadas,fechadas_eficazes').single(),
+        supabase.from('vw_cep_capabilidade').select('cpk'),
+        supabase.from('vw_cil_cumprimento').select('pct_cumprimento'),
+        supabase.from('vw_mtbf').select('mtbf_horas'),
+        supabase.from('vw_mttr').select('mttr_min'),
+        supabase.from('apontamento').select('qtd_boa,qtd_refugo,qtd_retrabalho'),
+    ]);
+    const avg = (arr, k) => { const v = (arr || []).map(x => x[k]).filter(x => x != null); return v.length ? Math.round(v.reduce((s, x) => s + Number(x), 0) / v.length * 10) / 10 : null; };
+    const oeeVals = (oee.data || []).map(o => o.oee).filter(v => v != null);
+    const cepVals = (cep.data || []).map(c => c.cpk).filter(v => v != null);
+    const boa = (ap.data || []).reduce((s, r) => s + Number(r.qtd_boa || 0), 0);
+    const totalProd = (ap.data || []).reduce((s, r) => s + Number(r.qtd_boa || 0) + Number(r.qtd_refugo || 0) + Number(r.qtd_retrabalho || 0), 0);
+    return {
+        oee:           oeeVals.length ? Math.round(oeeVals.reduce((s, v) => s + v, 0) / oeeVals.length * 10) / 10 : null,
+        cnq:           cnq.data?.custo_total ?? 0,
+        fpy:           totalProd > 0 ? Math.round(boa / totalProd * 1000) / 10 : null,
+        ncs:           qual.data?.total_ncs ?? 0,
+        cpk_ok:        cepVals.length ? Math.round(cepVals.filter(c => c >= 1.33).length / cepVals.length * 1000) / 10 : null,  // % capaz
+        rnc_eficacia:  rnc.data?.fechadas ? Math.round(rnc.data.fechadas_eficazes / rnc.data.fechadas * 1000) / 10 : null,
+        cil:           avg(cil.data, 'pct_cumprimento'),
+        mtbf:          avg(mtbf.data, 'mtbf_horas'),
+        mttr:          avg(mttr.data, 'mttr_min'),
+    };
+}
+app.get('/api/mf/metricas', auth, async (_q, res) => {
+    try { res.json({ metricas: await mfMetricas(), metas: await mfMetas() }); }
+    catch (e) { res.status(503).json({ erro: 'Indicadores incompletos — rode os SQLs pendentes. ' + e.message }); }
+});
+
+app.get('/api/mf/okrs', auth, async (_q, res) => {
+    const obj = await supabase.from('okr_objetivo').select('*, okr_resultado(*)').order('criado_em', { ascending: false });
+    if (obj.error && /schema cache|does not exist/i.test(obj.error.message || '')) return res.status(503).json({ erro: 'OKRs ainda não criados. Rode mes_okr.sql.' });
+    if (obj.error) return res.status(500).json({ erro: obj.error.message });
+    const m = await mfMetricas().catch(() => ({}));
+    const progresso = (kr) => {
+        const atual = kr.metrica === 'manual' ? (kr.valor_manual ?? kr.baseline) : (m[kr.metrica] ?? kr.baseline);
+        const base = Number(kr.baseline), meta = Number(kr.meta), a = Number(atual);
+        let p;
+        if (meta === base) p = (kr.direcao === 'subir' ? a >= meta : a <= meta) ? 100 : 0;
+        else p = kr.direcao === 'subir' ? (a - base) / (meta - base) : (base - a) / (base - meta);
+        return { atual, progresso: Math.max(0, Math.min(100, Math.round(p * 100))) };
+    };
+    (obj.data || []).forEach(o => (o.okr_resultado || []).forEach(kr => Object.assign(kr, progresso(kr))));
+    // progresso do objetivo = média dos KRs
+    (obj.data || []).forEach(o => { const krs = o.okr_resultado || []; o.progresso = krs.length ? Math.round(krs.reduce((s, k) => s + k.progresso, 0) / krs.length) : 0; });
+    res.json(obj.data || []);
+});
+app.post('/api/mf/okrs', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {};
+    if (!b.titulo) return res.status(400).json({ erro: 'titulo obrigatório' });
+    const { data, error } = await supabase.from('okr_objetivo').insert({ titulo: b.titulo, descricao: b.descricao || null, periodo: b.periodo || null, responsavel: b.responsavel || null }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, objetivo: data });
+});
+app.post('/api/mf/okrs/:id/kr', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {};
+    if (!b.descricao || b.meta === undefined) return res.status(400).json({ erro: 'descricao e meta obrigatórios' });
+    const row = { objetivo_id: req.params.id, descricao: b.descricao, metrica: b.metrica || 'manual', unidade: b.unidade || null,
+        direcao: b.direcao || 'subir', baseline: Number(b.baseline) || 0, meta: Number(b.meta), valor_manual: b.valor_manual != null ? Number(b.valor_manual) : null };
+    const { data, error } = await supabase.from('okr_resultado').insert(row).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, kr: data });
+});
+app.put('/api/mf/kr/:id', auth, mfEscrita, async (req, res) => {
+    const upd = {};
+    ['valor_manual','meta','baseline','descricao','direcao'].forEach(f => { if (req.body[f] !== undefined) upd[f] = req.body[f]; });
+    const { error } = await supabase.from('okr_resultado').update(upd).eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+app.delete('/api/mf/okrs/:id', auth, mfEscrita, async (req, res) => {
+    const { error } = await supabase.from('okr_objetivo').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
 // ── Fallback para SPA ─────────────────────────────────────────
 app.get('/{*path}', (_req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
