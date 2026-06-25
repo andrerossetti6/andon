@@ -1127,26 +1127,57 @@ const mf = {
         <div id="mf-om-lista"><div style="color:var(--text-dim);padding:12px;">Carregando...</div></div>`;
         await this._listarOms();
     },
+    _OM_COLS: [
+        { st: 'aberta',      lbl: 'ABERTA',       cor: '#ffca28' },
+        { st: 'planejada',   lbl: 'PLANEJADA',    cor: '#26c6da' },
+        { st: 'em_execucao', lbl: 'EM EXECUÇÃO',  cor: '#7c4dff' },
+        { st: 'concluida',   lbl: 'CONCLUÍDA',    cor: '#26a69a' },
+    ],
+    _PRIO_COR: { urgente:'#ff5252', alta:'#f06292', media:'#ffca28', baixa:'#8b949e' },
     async _listarOms() {
         const wrap = $('mf-om-lista'); if (!wrap) return;
         const oms = await api.get('/api/mf/oms');
         if (oms === null) { wrap.innerHTML = `<div class="summary-card" style="padding:20px;color:#f06292;">TPM indisponível — rode mes_tpm.sql.</div>`; return; }
-        if (!oms.length) { wrap.innerHTML = `<div class="summary-card" style="text-align:center;padding:24px;color:var(--text-dim);">Nenhuma ordem de manutenção.</div>`; return; }
-        const corS = { aberta:'#ffca28', planejada:'#26c6da', em_execucao:'#7c4dff', concluida:'#26a69a', cancelada:'#8b949e' };
-        wrap.innerHTML = `<div class="s-label" style="margin:6px 0 12px;">ORDENS (${oms.length})</div>` + oms.map(o => `
-            <div class="summary-card" style="margin-bottom:10px;">
-                <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
-                    <div><span style="font-weight:700;color:var(--indigo-primary);">${esc(o.maquina?.codigo||'')}</span>
-                        <span style="font-size:.72rem;color:var(--text-dim);"> · ${o.tipo} · ${o.prioridade}${o.executor?.nome?` · ${esc(o.executor.nome)}`:''}</span></div>
-                    <span style="font-size:.72rem;font-weight:700;color:${corS[o.status]};">${o.status.replace('_',' ').toUpperCase()}${o.tempo_reparo_min!=null?` · ${o.tempo_reparo_min} min`:''}</span>
+        this._oms = oms;
+        const card = o => `<div class="mf-om-card" draggable="true" ondragstart="mf._omDragStart(event,'${o.id}')"
+            style="background:var(--bg-card);border:1px solid var(--border-color);border-left:3px solid ${this._PRIO_COR[o.prioridade]||'#8b949e'};border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:grab;">
+            <div style="display:flex;justify-content:space-between;gap:6px;margin-bottom:4px;">
+                <span style="font-weight:700;color:var(--indigo-primary);font-size:.84rem;">${esc(o.maquina?.codigo||'—')}</span>
+                <span style="font-size:.6rem;font-weight:700;color:${this._PRIO_COR[o.prioridade]};text-transform:uppercase;">${o.prioridade}</span>
+            </div>
+            <div style="font-size:.8rem;color:#ddd;margin-bottom:4px;">${esc((o.descricao||'').slice(0,60))}</div>
+            <div style="font-size:.66rem;color:var(--text-dim);">${o.tipo}${o.executor?.nome?` · ${esc(o.executor.nome)}`:''}${o.tempo_reparo_min!=null?` · ⏱ ${o.tempo_reparo_min}min`:''}</div>
+            ${o.causa?`<div style="font-size:.64rem;color:var(--text-dim);margin-top:3px;">causa: ${esc((o.causa||'').slice(0,40))}</div>`:''}
+        </div>`;
+        const colunas = this._OM_COLS.map(c => {
+            const lista = oms.filter(o => o.status === c.st);
+            return `<div style="flex:1;min-width:200px;">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid ${c.cor};">
+                    <span style="font-size:.7rem;font-weight:700;color:${c.cor};letter-spacing:.05em;">${c.lbl}</span>
+                    <span style="font-size:.66rem;color:var(--text-dim);background:${c.cor}22;border-radius:10px;padding:0 7px;">${lista.length}</span>
                 </div>
-                <div style="font-size:.84rem;color:#ccc;margin-bottom:8px;">${esc(o.descricao)}${o.causa?`<div style="font-size:.74rem;color:var(--text-dim);">causa: ${esc(o.causa)} · ação: ${esc(o.acao_realizada||'')}</div>`:''}</div>
-                <div style="display:flex;gap:6px;">
-                    ${o.status==='aberta'||o.status==='planejada' ? `<button class="btn secondary" style="font-size:.74rem;" onclick="mf.iniciarOm('${o.id}')">▶ Iniciar</button>` : ''}
-                    ${o.status==='em_execucao' ? `<button class="btn primary" style="font-size:.74rem;" onclick="mf.concluirOm('${o.id}')">✓ Concluir</button>` : ''}
+                <div class="mf-om-col" data-status="${c.st}" ondragover="event.preventDefault();this.style.background='rgba(255,255,255,.03)'" ondragleave="this.style.background=''" ondrop="mf._omDrop(event,'${c.st}')"
+                    style="min-height:120px;border-radius:8px;padding:4px;transition:background .15s;">
+                    ${lista.map(card).join('') || `<div style="font-size:.7rem;color:var(--text-dim);text-align:center;padding:14px;">—</div>`}
                 </div>
-            </div>`).join('');
+            </div>`;
+        }).join('');
+        wrap.innerHTML = `<div style="font-size:.72rem;color:var(--text-dim);margin-bottom:10px;">Arraste os cartões entre as colunas para mudar o status. Soltar em "Concluída" pede a causa e a ação.</div>
+            <div style="display:flex;gap:14px;overflow-x:auto;align-items:flex-start;">${colunas}</div>`;
     },
+    _omDragStart(ev, id) { ev.dataTransfer.setData('text/plain', id); ev.dataTransfer.effectAllowed = 'move'; },
+    async _omDrop(ev, novoStatus) {
+        ev.preventDefault();
+        const col = ev.currentTarget; if (col) col.style.background = '';
+        const id = ev.dataTransfer.getData('text/plain'); if (!id) return;
+        const o = (this._oms || []).find(x => x.id === id);
+        if (!o || o.status === novoStatus) return;
+        if (novoStatus === 'concluida') return this.concluirOm(id);        // pede causa+ação
+        if (novoStatus === 'em_execucao' && !o.iniciada_em) { const r = await api.put('/api/mf/oms/' + id, { iniciar: true }); return this._aposMover(r); }
+        const r = await api.put('/api/mf/oms/' + id, { status: novoStatus });
+        this._aposMover(r);
+    },
+    _aposMover(r) { if (!r?.ok) return toast('Erro ao mover: ' + (r?.erro||''), 'erro'); toast('OM atualizada.'); this._listarOms(); },
     async abrirOm(maqIdModal, etiqId) {
         const fromModal = !!maqIdModal;
         const maq = fromModal ? maqIdModal : $('mf-omn-maq').value;
