@@ -199,8 +199,9 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['painel','estrat','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','fio','gene','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','wip','estrat','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','fio','gene','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'painel') this.renderPainel();
+        if (name === 'wip')    this.renderWip();
         if (name === 'estrat') this.renderEstrat();
         if (name === 'apont')  this.renderApont();
         if (name === 'ncs')    this.renderNcs();
@@ -867,7 +868,8 @@ const mf = {
     async renderPainel() {
         const pan = $('mf-pan-painel');
         pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando painel...</div>`;
-        const [kpi, al, metas] = await Promise.all([api.get('/api/mf/painel'), api.get('/api/mf/alertas'), api.get('/api/mf/metas')]);
+        const [kpi, al, etapas, wip] = await Promise.all([api.get('/api/mf/painel'), api.get('/api/mf/alertas'), api.get('/api/mf/etapas-processo'), api.get('/api/mf/wip')]);
+        const wipMap = {}; if (wip?.board) wip.board.forEach(b => { wipMap[b.etapa_id] = b; });
         if (!kpi) { pan.innerHTML = `<div class="summary-card" style="padding:24px;color:#f06292;">Painel indisponível — rode os SQLs pendentes (mes_metas.sql).</div>`; return; }
         const brl = n => 'R$ ' + Number(n||0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         const card = (cor, val, lbl, aba) => `<div onclick="${aba?`mf.tab('${aba}')`:''}" style="background:${cor}14;border:1px solid ${cor}3a;border-radius:12px;padding:16px 20px;text-align:center;flex:1;min-width:130px;${aba?'cursor:pointer;':''}">
@@ -887,26 +889,177 @@ const mf = {
             <span style="font-size:.62rem;font-weight:700;color:${corSev[a.sev]};border:1px solid ${corSev[a.sev]}55;border-radius:4px;padding:1px 6px;">${a.modulo}</span>
             <span style="font-size:.82rem;">${esc(a.msg)}</span></div>`).join('')
             : `<div style="text-align:center;padding:20px;color:#26a69a;">✓ Nenhum alerta — tudo dentro das metas.</div>`;
-        const metasHtml = (metas || []).map(m => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);">
-            <span style="font-size:.8rem;">${esc(m.descricao||m.chave)}</span>
-            <input type="number" step="0.01" value="${m.valor}" id="mf-meta-${m.chave}" onchange="mf.salvarMeta('${m.chave}')"
-                style="width:90px;padding:4px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.8rem;text-align:right;"></div>`).join('');
         pan.innerHTML = `
             <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;">${kpis}</div>
-            <div class="summary-card" style="margin-bottom:18px;">
+            ${this._fluxoHTML(etapas, wipMap)}
+            <div class="summary-card">
                 <div class="s-label" style="margin-bottom:12px;">⚠ ALERTAS — O QUE EXIGE AÇÃO ${alertas.length?`(${alertas.length})`:''}</div>
                 ${alertasHtml}
-            </div>
-            <div class="summary-card">
-                <div class="s-label" style="margin-bottom:8px;">🎯 METAS</div>
-                ${metasHtml || '<div style="color:var(--text-dim);">Rode mes_metas.sql para configurar metas.</div>'}
             </div>`;
     },
+
+    // ═══ BPM — FLUXO DO PROCESSO (editável) ════════════════════════════════════
+    _etBtn: 'background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:.62rem;padding:0 2px;line-height:1;',
+    _fluxoHTML(etapas, wipMap) {
+        if (!Array.isArray(etapas)) return `<div class="summary-card" style="margin-bottom:18px;">
+            <div class="s-label" style="margin-bottom:8px;">🔀 FLUXO DO PROCESSO</div>
+            <div style="color:#ffca28;">Fluxo não inicializado — rode <strong>mes_fluxo.sql</strong> no Supabase e recarregue.</div></div>`;
+        const n = etapas.length;
+        const boxes = etapas.map((e, i) => {
+            const w = (wipMap || {})[e.id];
+            const cor = w?.gargalo ? '#f06292' : (e.cor || '#26c6da');
+            const seta = i < n - 1 ? `<div style="display:flex;align-items:center;color:var(--text-dim);font-size:1.25rem;padding:0 1px;">→</div>` : '';
+            const wipBadge = w ? `<div onclick="mf.tab('wip')" title="Abrir Kanban WIP" style="cursor:pointer;font-size:.6rem;text-align:center;margin-top:4px;color:${w.gargalo ? '#f06292' : 'var(--text-dim)'};">
+                WIP ${w.ops}${w.qtd_wip ? ` · ${Number(w.qtd_wip).toLocaleString('pt-BR')}` : ''}${w.gargalo ? ' ⚠' : ''}</div>` : '';
+            return `<div style="display:flex;align-items:center;">
+                <div style="background:${cor}14;border:1px solid ${cor}55;border-radius:10px;padding:8px 10px 10px;min-width:120px;">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px;">
+                        <span style="font-size:.6rem;font-weight:700;color:${cor};background:${cor}22;border-radius:4px;padding:1px 5px;">${i + 1}</span>
+                        <span style="display:flex;gap:2px;">
+                            ${i > 0 ? `<button title="Mover para a esquerda" onclick="mf.moverEtapa('${e.id}',-1)" style="${this._etBtn}">◀</button>` : ''}
+                            ${i < n - 1 ? `<button title="Mover para a direita" onclick="mf.moverEtapa('${e.id}',1)" style="${this._etBtn}">▶</button>` : ''}
+                            <button title="Remover etapa" onclick="mf.removerEtapa('${e.id}')" style="${this._etBtn}color:#f06292;">✕</button>
+                        </span>
+                    </div>
+                    <input value="${esc(e.nome)}" onchange="mf.renomearEtapa('${e.id}', this.value)" title="Clique para renomear"
+                        style="width:100%;background:transparent;border:none;border-bottom:1px solid ${cor}33;color:var(--text-primary);font-size:.82rem;font-weight:600;padding:2px 0;text-align:center;">
+                    ${wipBadge}
+                </div>${seta}</div>`;
+        }).join('');
+        return `<div class="summary-card" style="margin-bottom:18px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+                <div class="s-label">🔀 FLUXO DO PROCESSO ${n ? `(${n} etapas)` : ''}</div>
+                <div style="display:flex;gap:6px;">
+                    <input id="mf-etapa-nova" placeholder="Nova etapa" onkeydown="if(event.key==='Enter')mf.addEtapa()"
+                        style="padding:5px 9px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.78rem;width:150px;">
+                    <button class="btn" style="font-size:.74rem;padding:5px 12px;" onclick="mf.addEtapa()">+ Adicionar</button>
+                </div>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px 1px;">${boxes || '<span style="color:var(--text-dim);">Nenhuma etapa. Adicione a primeira acima.</span>'}</div>
+        </div>`;
+    },
+    async addEtapa() {
+        const inp = $('mf-etapa-nova'); const nome = (inp?.value || '').trim();
+        if (!nome) return toast('Informe o nome da etapa.', 'erro');
+        const r = await api.post('/api/mf/etapas-processo', { nome });
+        toast(r?.ok ? 'Etapa adicionada.' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderPainel();
+    },
+    async renomearEtapa(id, nome) {
+        nome = (nome || '').trim(); if (!nome) return this.renderPainel();
+        const r = await api.put('/api/mf/etapas-processo/' + id, { nome });
+        if (!r?.ok) { toast(r?.erro || 'Erro ao renomear.', 'erro'); this.renderPainel(); }
+    },
+    async removerEtapa(id) {
+        if (!confirm('Remover esta etapa do fluxo?')) return;
+        const r = await api.del('/api/mf/etapas-processo/' + id);
+        toast(r?.ok ? 'Etapa removida.' : 'Erro.', r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderPainel();
+    },
+    async moverEtapa(id, dir) {
+        const etapas = await api.get('/api/mf/etapas-processo');
+        if (!Array.isArray(etapas)) return;
+        const i = etapas.findIndex(e => e.id === id), j = i + dir;
+        if (i < 0 || j < 0 || j >= etapas.length) return;
+        const a = etapas[i], b = etapas[j];  // troca a ordem com a vizinha
+        await Promise.all([
+            api.put('/api/mf/etapas-processo/' + a.id, { ordem: b.ordem }),
+            api.put('/api/mf/etapas-processo/' + b.id, { ordem: a.ordem }),
+        ]);
+        this.renderPainel();
+    },
+
+    // ═══ WIP — KANBAN DE PRODUÇÃO (a OP avança pelo fluxo) ══════════════════════
+    _wipBtn: 'background:none;border:1px solid var(--border-color);border-radius:5px;cursor:pointer;color:var(--text-dim);font-size:.7rem;padding:3px 6px;line-height:1;',
+    _tempoDesde(iso) {
+        if (!iso) return '';
+        const ms = Date.now() - new Date(iso).getTime();
+        const h = ms / 3.6e6;
+        if (h < 1) return Math.max(1, Math.round(ms / 6e4)) + 'min';
+        if (h < 48) return Math.round(h) + 'h';
+        return Math.round(h / 24) + 'd';
+    },
+    async renderWip() {
+        const pan = $('mf-pan-wip');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando Kanban...</div>`;
+        const d = await api.get('/api/mf/wip');
+        if (!d || d.erro || !Array.isArray(d.board)) {
+            pan.innerHTML = `<div class="summary-card" style="padding:24px;color:#ffca28;">WIP não inicializado — rode <strong>mes_wip.sql</strong> no Supabase e recarregue.</div>`;
+            return;
+        }
+        const disp = d.disponiveis || [];
+        const iniciar = `<div class="summary-card" style="margin-bottom:16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <span class="s-label" style="margin:0;">▶ COLOCAR OP NO FLUXO</span>
+            <select id="mf-wip-op" style="padding:6px 10px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;min-width:200px;">
+                ${disp.length ? disp.map(o => `<option value="${o.id}" data-qtd="${o.qtd_planejada}">${esc(o.numero)} — ${Number(o.qtd_planejada).toLocaleString('pt-BR')} ${esc(o.unidade)}</option>`).join('') : '<option value="">Nenhuma OP disponível</option>'}
+            </select>
+            <button class="btn" style="font-size:.78rem;" onclick="mf.iniciarWip()" ${disp.length ? '' : 'disabled'}>Entrar na 1ª etapa</button>
+            <span style="margin-left:auto;font-size:.78rem;color:var(--text-dim);">Lead time médio (etapas concluídas): <strong style="color:#26c6da;">${d.lead_total_horas ? d.lead_total_horas + ' h' : '—'}</strong></span>
+        </div>`;
+        const cols = d.board.map(col => {
+            const corG = col.gargalo ? '#f06292' : (col.cor || '#26c6da');
+            const cards = col.cards.map(c => `<div style="background:var(--bg-card);border:1px solid var(--border-color);border-left:3px solid ${corG};border-radius:8px;padding:8px 10px;margin-bottom:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+                    <strong style="font-size:.82rem;">${esc(c.numero)}</strong>
+                    <span style="font-size:.64rem;color:var(--text-dim);">há ${this._tempoDesde(c.entrou_em)}</span>
+                </div>
+                ${c.produto ? `<div style="font-size:.66rem;color:var(--text-dim);margin:2px 0;">${esc(c.produto)}</div>` : ''}
+                <div style="font-size:.74rem;margin:3px 0 6px;">${Number(c.qtd).toLocaleString('pt-BR')} ${esc(c.unidade)}</div>
+                <div style="display:flex;gap:4px;">
+                    <button title="Voltar (retrabalho)" onclick="mf.voltarWip('${c.movimento_id}')" style="${this._wipBtn}">◀</button>
+                    <button title="Avançar para a próxima etapa" onclick="mf.avancarWip('${c.movimento_id}')" style="${this._wipBtn}flex:1;background:${corG}22;color:${corG};border-color:${corG}55;font-weight:600;">Avançar ▸</button>
+                    <button title="Retirar do fluxo" onclick="mf.removerWip('${c.movimento_id}')" style="${this._wipBtn}color:#f06292;">✕</button>
+                </div>
+            </div>`).join('') || `<div style="font-size:.72rem;color:var(--text-dim);text-align:center;padding:14px 0;">— vazio —</div>`;
+            return `<div style="min-width:200px;max-width:240px;flex:1;background:${corG}0c;border:1px solid ${corG}33;border-radius:10px;padding:10px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                    <strong style="font-size:.82rem;color:${corG};">${col.ordem}. ${esc(col.nome)}</strong>
+                    ${col.gargalo ? '<span style="font-size:.58rem;font-weight:700;color:#f06292;background:#f0629222;border-radius:4px;padding:1px 5px;">GARGALO</span>' : ''}
+                </div>
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:.66rem;color:var(--text-dim);margin-bottom:8px;">
+                    <span><strong style="color:var(--text-primary);">${col.ops}</strong> OP · ${Number(col.qtd_wip).toLocaleString('pt-BR')}</span>
+                    <span title="Limite de WIP (vazio = sem limite)">lim <input type="number" min="0" value="${col.limite_wip != null ? col.limite_wip : ''}" onchange="mf.salvarLimiteWip('${col.etapa_id}', this.value)" style="width:42px;padding:1px 4px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:4px;color:var(--text-primary);font-size:.66rem;text-align:center;"></span>
+                </div>
+                ${cards}
+                ${col.lead_horas != null ? `<div style="font-size:.6rem;color:var(--text-dim);text-align:center;margin-top:6px;">⏱ ${col.lead_horas}h médio aqui</div>` : ''}
+            </div>`;
+        }).join('<div style="display:flex;align-items:center;color:var(--text-dim);font-size:1.1rem;padding:0 1px;">→</div>');
+        pan.innerHTML = iniciar + `<div style="display:flex;align-items:stretch;gap:3px;overflow-x:auto;padding-bottom:8px;">${cols}</div>`;
+    },
+    async iniciarWip() {
+        const sel = $('mf-wip-op'); const op_id = sel?.value;
+        if (!op_id) return toast('Selecione uma OP.', 'erro');
+        const r = await api.post('/api/mf/wip/iniciar', { op_id, qtd: sel.selectedOptions[0]?.dataset.qtd });
+        toast(r?.ok ? 'OP entrou no fluxo.' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderWip();
+    },
+    async avancarWip(id) {
+        const r = await api.post('/api/mf/wip/avancar', { movimento_id: id });
+        toast(r?.ok ? (r.concluida ? 'OP concluída! 🎉' : 'Avançou para ' + r.proxima) : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderWip();
+    },
+    async voltarWip(id) {
+        const r = await api.post('/api/mf/wip/voltar', { movimento_id: id });
+        toast(r?.ok ? 'Voltou para ' + r.anterior + ' (retrabalho)' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderWip();
+    },
+    async removerWip(id) {
+        if (!confirm('Retirar esta OP do fluxo?')) return;
+        const r = await api.del('/api/mf/wip/' + id);
+        toast(r?.ok ? 'Retirada do fluxo.' : 'Erro.', r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderWip();
+    },
+    async salvarLimiteWip(etapaId, val) {
+        const r = await api.put('/api/mf/etapas-processo/' + etapaId, { limite_wip: val === '' ? null : parseInt(val) });
+        if (!r?.ok) toast(r?.erro || 'Erro ao salvar limite.', 'erro'); else this.renderWip();
+    },
+    _metasAberto: false,
+    _metasToggle() { this._metasAberto = !this._metasAberto; const b = $('mf-metas-box'); if (b) b.style.display = this._metasAberto ? 'block' : 'none'; },
     async salvarMeta(chave) {
         const v = parseFloat($('mf-meta-' + chave).value);
         const r = await api.put('/api/mf/metas/' + chave, { valor: v });
         toast(r?.ok ? 'Meta salva.' : 'Erro ao salvar meta.', r?.ok ? 'ok' : 'erro');
-        if (r?.ok) this.renderPainel();
+        if (r?.ok) this.renderEstrat();  // recalcula os KPIs com o novo alvo (caixa de metas permanece aberta via _metasAberto)
     },
 
     // ═══ ESTRATÉGICO — KPIs (vs meta) + OKRs ═══════════════════════════════════
@@ -936,7 +1089,7 @@ const mf = {
     async renderEstrat() {
         const pan = $('mf-pan-estrat');
         pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando painel estratégico...</div>`;
-        const [met, okrs] = await Promise.all([api.get('/api/mf/metricas'), api.get('/api/mf/okrs')]);
+        const [met, okrs, metasArr] = await Promise.all([api.get('/api/mf/metricas'), api.get('/api/mf/okrs'), api.get('/api/mf/metas')]);
         if (!met) { pan.innerHTML = `<div class="summary-card" style="padding:24px;color:#f06292;">Indicadores indisponíveis — rode os SQLs pendentes (indicadores/TPM/metas).</div>`; return; }
         const M = met.metricas || {}, metas = met.metas || {};
 
@@ -1025,6 +1178,16 @@ const mf = {
             </div>
             ${okrSemTabela ? `<div class="summary-card" style="color:#ffca28;">Módulo de OKRs ainda não inicializado — rode <strong>mes_okr.sql</strong> no Supabase e recarregue.</div>`
                 : (objHtml || `<div class="summary-card" style="color:var(--text-dim);">Nenhum objetivo ainda. Clique em “+ Novo Objetivo”.</div>`)}
+            <div style="margin-top:18px;">
+                <button class="btn secondary" style="font-size:.76rem;" onclick="mf._metasToggle()">⚙ Ajustar metas dos indicadores</button>
+                <div id="mf-metas-box" class="summary-card" style="display:${this._metasAberto ? 'block' : 'none'};margin-top:10px;">
+                    <div class="s-label" style="margin-bottom:8px;">🎯 METAS (alvos dos KPIs e alertas)</div>
+                    ${(Array.isArray(metasArr) ? metasArr : []).map(m => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);">
+                        <span style="font-size:.8rem;">${esc(m.descricao || m.chave)}</span>
+                        <input type="number" step="0.01" value="${m.valor}" id="mf-meta-${m.chave}" onchange="mf.salvarMeta('${m.chave}')"
+                            style="width:90px;padding:4px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.8rem;text-align:right;"></div>`).join('') || '<div style="color:var(--text-dim);">Rode mes_metas.sql para configurar metas.</div>'}
+                </div>
+            </div>
             <style>.mf-inp{padding:7px 10px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;}</style>`;
     },
     _objForm() { const f = $('mf-objform'); f.style.display = f.style.display === 'none' ? 'block' : 'none'; },
