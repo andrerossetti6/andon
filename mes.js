@@ -252,6 +252,7 @@ const mf = {
         const c = this._cad;
         // estado otimista (mostra na hora, mesmo offline)
         this._abertas.unshift({ id, datahora_inicio: new Date().toISOString(), qtd_boa:0, qtd_refugo:0, qtd_retrabalho:0,
+            op_id: opId, operador_id: operId,
             op: { numero: c.ops.find(o=>o.id===opId)?.numero || 'OP' },
             maquina: { codigo: c.maquinas.find(m=>m.id===maqId)?.codigo || '' },
             operador: { nome: c.operadores.find(o=>o.id===operId)?.nome || '' },
@@ -285,6 +286,7 @@ const mf = {
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn secondary" style="font-size:.78rem;" onclick="mf.salvarQtd('${a.id}')">💾 Salvar qtd</button>
                     <button class="btn secondary" style="font-size:.78rem;" onclick="mf.formParada('${a.id}')">⏸ Registrar parada</button>
+                    <button class="btn secondary" style="font-size:.78rem;" onclick="mf.formMedicao('${a.id}')">📏 Medir</button>
                     <button class="btn secondary" style="font-size:.78rem;border-color:rgba(240,98,146,.4);color:#f06292;" onclick="mf.formNc('${a.id}')">⚠ Registrar NC</button>
                     <button class="btn primary" style="font-size:.78rem;margin-left:auto;" onclick="mf.fecharSessao('${a.id}')">✓ Fechar sessão</button>
                 </div>
@@ -332,6 +334,46 @@ const mf = {
         this._fecharModal(); this.renderSessoes();
         await fila.enfileirar('POST', '/api/mf/paradas', { id, apontamento_id: apId, motivo_id, observacao });
         toast(navigator.onLine ? 'Parada registrada.' : 'Parada na fila (offline).', navigator.onLine ? 'ok' : 'aviso');
+    },
+
+    // ── Medição (CEP) na sessão ──
+    formMedicao(apId) {
+        const a = this._abertas.find(x => x.id === apId);
+        const op = a && this._cad.ops.find(o => o.id === a.op_id);
+        const prod = op && this._cad.produtos.find(p => p.id === op.produto_id);
+        this._modal(`
+            <div class="s-label" style="margin-bottom:6px;">📏 MEDIÇÃO — CEP</div>
+            <p style="font-size:.74rem;color:var(--text-dim);margin-bottom:12px;">Sessão ${esc(a?.op?.numero||'')}${prod?` · ${esc(prod.codigo)} (alvo gram. ${prod.gramatura_alvo??'—'}${prod.gramatura_tol?'±'+prod.gramatura_tol:''} · larg. ${prod.largura_alvo??'—'}${prod.largura_tol?'±'+prod.largura_tol:''})`:''}</p>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:8px;">
+                <div><span class="mf-label">VARIÁVEL</span><select id="mf-ms-tipo" class="mf-input" onchange="mf._medAviso()"><option value="gramatura">gramatura (g/m²)</option><option value="largura">largura (cm)</option></select></div>
+                <div><span class="mf-label">VALOR MEDIDO</span><input id="mf-ms-val" type="number" step="0.01" class="mf-input" oninput="mf._medAviso()"></div>
+            </div>
+            <div id="mf-ms-aviso" style="font-size:.74rem;margin-bottom:14px;min-height:16px;"></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button class="btn secondary" onclick="mf._fecharModal()">Cancelar</button>
+                <button class="btn primary" onclick="mf.salvarMedicao2('${apId}')">Registrar medição</button>
+            </div>`);
+        this._medProd = prod || null;
+    },
+    _medAviso() {
+        const el = $('mf-ms-aviso'); const p = this._medProd; if (!el) return;
+        const v = parseFloat($('mf-ms-val').value); const tipo = $('mf-ms-tipo').value;
+        if (!p || isNaN(v)) { el.textContent = ''; return; }
+        const alvo = tipo === 'gramatura' ? p.gramatura_alvo : p.largura_alvo;
+        const tol  = tipo === 'gramatura' ? p.gramatura_tol  : p.largura_tol;
+        if (alvo == null || !tol) { el.innerHTML = '<span style="color:var(--text-dim);">defina alvo+tolerância do produto p/ ver fora de especificação</span>'; return; }
+        const fora = v < (alvo - tol) || v > (alvo + tol);
+        el.innerHTML = fora ? `<span style="color:#f06292;font-weight:700;">⚠ FORA da especificação (${(alvo-tol)}–${(alvo+tol)})</span>` : `<span style="color:#26a69a;">✓ dentro da especificação</span>`;
+    },
+    async salvarMedicao2(apId) {
+        const v = parseFloat($('mf-ms-val').value);
+        if (isNaN(v)) return toast('Informe o valor medido.', 'erro');
+        const a = this._abertas.find(x => x.id === apId);
+        const op = a && this._cad.ops.find(o => o.id === a.op_id);
+        if (!op?.produto_id) return toast('OP sem produto vinculado.', 'erro');
+        const r = await api.post('/api/mf/medicao', { apontamento_id: apId, produto_id: op.produto_id, operador_id: a.operador_id || null, tipo: $('mf-ms-tipo').value, valor: v });
+        if (!r?.ok) return toast('Erro: ' + (r?.erro || ''), 'erro');
+        this._fecharModal(); toast('Medição registrada (alimenta o CEP).');
     },
 
     // ── NC com foto ──
