@@ -493,20 +493,56 @@ const mf = {
             ['#26a69a', r.fechadas_eficazes||0, 'FECHADAS (EFICAZES)'],
         ].map(([c,n,l]) => `<div style="background:${c}18;border:1px solid ${c}44;border-radius:10px;padding:12px 18px;text-align:center;flex:1;min-width:110px;">
             <div style="font-size:1.5rem;font-weight:800;color:${c};">${n}</div><div style="font-size:.62rem;color:${c};letter-spacing:.05em;">${l}</div></div>`).join('');
-        const corS = { aberta:'#26c6da', em_analise:'#ffca28', em_acao:'#7c4dff', verificacao:'#ff9800', fechada:'#26a69a', cancelada:'#8b949e' };
-        const lista = this._rncs.length ? this._rncs.map(x => {
+        // Kanban por estágio do CAPA
+        const cols = [
+            { st:'aberta',      lbl:'ABERTA',      cor:'#26c6da' },
+            { st:'em_analise',  lbl:'ANÁLISE',     cor:'#ffca28' },
+            { st:'em_acao',     lbl:'AÇÃO',        cor:'#7c4dff' },
+            { st:'verificacao', lbl:'VERIFICAÇÃO', cor:'#ff9800' },
+            { st:'fechada',     lbl:'FECHADA',     cor:'#26a69a' },
+        ];
+        const prioCor = this._PRIO_COR || { critica:'#ff5252', alta:'#f06292', media:'#ffca28', baixa:'#8b949e' };
+        const card = x => {
             const atrasada = x.prazo && new Date(x.prazo) < new Date() && !['fechada','cancelada'].includes(x.status);
-            return `<div class="summary-card" style="margin-bottom:10px;cursor:pointer;border-left:3px solid ${corS[x.status]};" onclick="mf.abrirRnc('${x.id}')">
-                <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
-                    <div><span style="font-weight:600;">${esc(x.titulo)}</span> <span style="font-size:.7rem;color:var(--text-dim);">${x.maquina?.codigo?'· '+esc(x.maquina.codigo):''} ${x.responsavel?.nome?'· '+esc(x.responsavel.nome):''}</span></div>
-                    <span style="font-size:.72rem;font-weight:700;color:${corS[x.status]};">${this._ESTAGIOS[x.status]}${x.eficaz===false?' (ineficaz)':''}</span>
+            return `<div class="mf-rnc-card" draggable="true" ondragstart="mf._rncDragStart(event,'${x.id}')" onclick="mf.abrirRnc('${x.id}')"
+                style="background:var(--bg-card);border:1px solid var(--border-color);border-left:3px solid ${prioCor[x.prioridade]||'#8b949e'};border-radius:8px;padding:9px 11px;margin-bottom:8px;cursor:pointer;">
+                <div style="font-size:.8rem;font-weight:600;margin-bottom:3px;">${esc((x.titulo||'').slice(0,46))}</div>
+                <div style="font-size:.66rem;color:var(--text-dim);">${x.maquina?.codigo?esc(x.maquina.codigo)+' · ':''}${x.prioridade}${x.responsavel?.nome?' · '+esc(x.responsavel.nome):''}</div>
+                ${x.prazo?`<div style="font-size:.64rem;color:${atrasada?'#f06292':'var(--text-dim)'};font-weight:${atrasada?'700':'400'};margin-top:2px;">${atrasada?'⚠ ATRASADA · ':''}prazo ${new Date(x.prazo).toLocaleDateString('pt-BR')}</div>`:''}
+                ${x.eficaz===false?`<div style="font-size:.62rem;color:#f06292;margin-top:2px;">↩ ação ineficaz — reaberta</div>`:''}
+            </div>`;
+        };
+        const board = cols.map(c => {
+            const lista = this._rncs.filter(x => x.status === c.st);
+            return `<div style="flex:1;min-width:185px;">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid ${c.cor};">
+                    <span style="font-size:.68rem;font-weight:700;color:${c.cor};letter-spacing:.04em;">${c.lbl}</span>
+                    <span style="font-size:.64rem;color:var(--text-dim);background:${c.cor}22;border-radius:10px;padding:0 7px;">${lista.length}</span>
                 </div>
-                <div style="font-size:.72rem;color:var(--text-dim);margin-top:4px;">prioridade ${x.prioridade}${x.prazo?` · prazo ${new Date(x.prazo).toLocaleDateString('pt-BR')}${atrasada?' <span style="color:#f06292;font-weight:700;">ATRASADA</span>':''}`:''}</div>
-            </div>`; }).join('') : `<div class="summary-card" style="text-align:center;padding:24px;color:var(--text-dim);">Nenhuma RNC. Elas abrem sozinhas quando um gatilho dispara, ou crie manualmente.</div>`;
+                <div class="mf-rnc-col" data-status="${c.st}" ondragover="event.preventDefault();this.style.background='rgba(255,255,255,.03)'" ondragleave="this.style.background=''" ondrop="mf._rncDrop(event,'${c.st}')"
+                    style="min-height:120px;border-radius:8px;padding:4px;transition:background .15s;">
+                    ${lista.map(card).join('') || `<div style="font-size:.7rem;color:var(--text-dim);text-align:center;padding:14px;">—</div>`}
+                </div>
+            </div>`;
+        }).join('');
         pan.innerHTML = `
             <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">${kpis}</div>
-            <div style="margin-bottom:12px;"><button class="btn secondary" style="font-size:.78rem;" onclick="mf.novaRnc()">+ Nova RNC manual</button></div>
-            ${lista}`;
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                <span style="font-size:.72rem;color:var(--text-dim);">Clique num cartão para tocar o CAPA. Arraste para o próximo estágio (pede os dados do passo).</span>
+                <button class="btn secondary" style="font-size:.78rem;" onclick="mf.novaRnc()">+ Nova RNC</button>
+            </div>
+            ${this._rncs.length ? `<div style="display:flex;gap:12px;overflow-x:auto;align-items:flex-start;">${board}</div>`
+                : `<div class="summary-card" style="text-align:center;padding:24px;color:var(--text-dim);">Nenhuma RNC. Elas abrem sozinhas quando um gatilho dispara, ou crie manualmente.</div>`}`;
+    },
+    _rncDragStart(ev, id) { ev.dataTransfer.setData('text/plain', id); ev.stopPropagation(); },
+    _rncDrop(ev, novoStatus) {
+        ev.preventDefault();
+        const col = ev.currentTarget; if (col) col.style.background = '';
+        const id = ev.dataTransfer.getData('text/plain'); if (!id) return;
+        const x = (this._rncs || []).find(r => r.id === id);
+        if (!x || x.status === novoStatus) return;
+        // cada transição exige os dados do passo → abre o fluxo (que avança a partir do estágio atual)
+        this.abrirRnc(id);
     },
     novaRnc() {
         const defOpt = this._cad.defeitos.map(x => `<option value="${x.id}">${esc(x.codigo)} — ${esc(x.descricao)}</option>`).join('');
