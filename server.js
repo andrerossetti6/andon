@@ -1658,7 +1658,7 @@ app.get('/api/mf/etiquetas', auth, async (req, res) => {
         .select('*, maquina:maquina_id(codigo,nome), operador:operador_id(nome)')
         .order('aberta_em', { ascending: false });
     if (req.query.status) q = q.eq('status', req.query.status);
-    else q = q.neq('status', 'resolvida');
+    else if (req.query.todas !== '1') q = q.neq('status', 'resolvida');   // ?todas=1 inclui resolvidas (Kanban)
     const { data, error } = await q.limit(200);
     if (error) return res.status(500).json({ erro: error.message });
     for (const e of (data || [])) e.foto_url = await mfFotoUrl(e.foto_url);  // assina (bucket privado)

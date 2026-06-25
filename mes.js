@@ -1102,23 +1102,53 @@ const mf = {
     },
     async _listarEtiquetas() {
         const wrap = $('mf-et-lista'); if (!wrap) return;
-        const ets = await api.get('/api/mf/etiquetas');
+        const ets = await api.get('/api/mf/etiquetas?todas=1');
         if (ets === null) { wrap.innerHTML = `<div class="summary-card" style="padding:20px;color:#f06292;">TPM indisponível — rode mes_tpm.sql.</div>`; return; }
-        if (!ets.length) { wrap.innerHTML = `<div class="summary-card" style="text-align:center;padding:24px;color:var(--text-dim);">Nenhuma etiqueta aberta.</div>`; return; }
+        this._etiquetas = ets;
         const corG = { baixa:'#8b949e', media:'#ffca28', alta:'#f06292' };
-        wrap.innerHTML = `<div class="s-label" style="margin:6px 0 12px;">ETIQUETAS ABERTAS (${ets.length})</div>` + ets.map(e => `
-            <div class="summary-card" style="margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
-                <div style="display:flex;align-items:center;gap:12px;">
-                    ${e.foto_url ? `<img src="${e.foto_url}" style="width:44px;height:44px;object-fit:cover;border-radius:6px;cursor:pointer;" onclick="window.open().document.write('<img src=\\'' + this.src + '\\'>')">` : ''}
-                    <div><div style="font-weight:600;">${esc(e.maquina?.codigo||'')} <span style="font-size:.7rem;color:${corG[e.gravidade]};">● ${e.gravidade}</span> <span style="font-size:.72rem;color:var(--text-dim);">${e.tipo.replace('_',' ')}</span></div>
-                    <div style="font-size:.82rem;color:#ccc;">${esc(e.descricao)}</div>
-                    <div style="font-size:.68rem;color:var(--text-dim);">${esc(e.operador?.nome||'')} · ${new Date(e.aberta_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}${e.status==='em_tratativa'?' · <span style="color:#26c6da;">em tratativa</span>':''}</div></div>
+        const cols = [
+            { st:'aberta',       lbl:'ABERTA',       cor:'#ffca28' },
+            { st:'em_tratativa', lbl:'EM TRATATIVA', cor:'#26c6da' },
+            { st:'resolvida',    lbl:'RESOLVIDA',    cor:'#26a69a' },
+        ];
+        const card = e => `<div class="mf-et-card" draggable="true" ondragstart="mf._etDragStart(event,'${e.id}')"
+            style="background:var(--bg-card);border:1px solid var(--border-color);border-left:3px solid ${corG[e.gravidade]};border-radius:8px;padding:9px 11px;margin-bottom:8px;cursor:grab;">
+            <div style="display:flex;gap:8px;">
+                ${e.foto_url ? `<img src="${e.foto_url}" style="width:38px;height:38px;object-fit:cover;border-radius:5px;flex-shrink:0;cursor:pointer;" draggable="false" onclick="event.stopPropagation();window.open().document.write('<img src=\\'' + this.src + '\\'>')">` : ''}
+                <div style="min-width:0;">
+                    <div style="font-weight:600;font-size:.8rem;">${esc(e.maquina?.codigo||'—')} <span style="font-size:.62rem;color:${corG[e.gravidade]};">● ${e.gravidade}</span></div>
+                    <div style="font-size:.74rem;color:#ddd;">${esc((e.descricao||'').slice(0,52))}</div>
+                    <div style="font-size:.62rem;color:var(--text-dim);">${e.tipo.replace('_',' ')}${e.operador?.nome?' · '+esc(e.operador.nome):''}</div>
                 </div>
-                <div style="display:flex;gap:6px;">
-                    ${e.status==='aberta' ? `<button class="btn secondary" style="font-size:.74rem;" onclick="mf.gerarOmDeEtiqueta('${e.id}','${e.maquina_id}','${esc(e.descricao).replace(/'/g,"\\'")}')">Gerar OM</button>` : ''}
-                    <button class="btn secondary" style="font-size:.74rem;color:#26a69a;border-color:rgba(38,166,154,.4);" onclick="mf.resolverEtiqueta('${e.id}')">✓ Resolver</button>
+            </div>
+            ${e.status==='aberta' ? `<button class="btn secondary" style="font-size:.66rem;margin-top:6px;padding:3px 8px;" onclick="event.stopPropagation();mf.gerarOmDeEtiqueta('${e.id}','${e.maquina_id}','${esc(e.descricao).replace(/'/g,"\\'")}')">🔧 Gerar OM</button>` : ''}
+        </div>`;
+        const board = cols.map(c => {
+            const lista = ets.filter(e => e.status === c.st);
+            return `<div style="flex:1;min-width:200px;">
+                <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid ${c.cor};">
+                    <span style="font-size:.7rem;font-weight:700;color:${c.cor};letter-spacing:.04em;">${c.lbl}</span>
+                    <span style="font-size:.64rem;color:var(--text-dim);background:${c.cor}22;border-radius:10px;padding:0 7px;">${lista.length}</span>
                 </div>
-            </div>`).join('');
+                <div class="mf-et-col" data-status="${c.st}" ondragover="event.preventDefault();this.style.background='rgba(255,255,255,.03)'" ondragleave="this.style.background=''" ondrop="mf._etDrop(event,'${c.st}')"
+                    style="min-height:120px;border-radius:8px;padding:4px;transition:background .15s;">
+                    ${lista.map(card).join('') || `<div style="font-size:.7rem;color:var(--text-dim);text-align:center;padding:14px;">—</div>`}
+                </div>
+            </div>`;
+        }).join('');
+        wrap.innerHTML = `<div style="font-size:.72rem;color:var(--text-dim);margin:4px 0 10px;">Arraste a etiqueta entre as colunas. "Gerar OM" cria a ordem de manutenção e move para Em Tratativa.</div>
+            <div style="display:flex;gap:12px;overflow-x:auto;align-items:flex-start;">${board}</div>`;
+    },
+    _etDragStart(ev, id) { ev.dataTransfer.setData('text/plain', id); },
+    async _etDrop(ev, novoStatus) {
+        ev.preventDefault();
+        const col = ev.currentTarget; if (col) col.style.background = '';
+        const id = ev.dataTransfer.getData('text/plain'); if (!id) return;
+        const e = (this._etiquetas || []).find(x => x.id === id);
+        if (!e || e.status === novoStatus) return;
+        const r = await api.put('/api/mf/etiquetas/' + id, { status: novoStatus });
+        if (!r?.ok) return toast('Erro: ' + (r?.erro||''), 'erro');
+        toast(novoStatus === 'resolvida' ? 'Etiqueta resolvida.' : 'Etiqueta movida.'); this._listarEtiquetas();
     },
     async salvarEtiqueta() {
         const desc = $('mf-et-desc').value.trim();
