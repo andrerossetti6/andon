@@ -94,6 +94,7 @@ const fila = {
             const restam = (await this.pendentes()).length;
             // itens enfileirados DURANTE este flush não entraram no snapshot acima — reprocessa enquanto há progresso
             if (restam > 0 && removidos > 0 && !erro && navigator.onLine) this.flush();
+            else if (restam === 0 && navigator.onLine && removidos > 0) { mf._reconciliar(); mf._aoSincronizar(); }
             else if (restam === 0 && navigator.onLine) mf._reconciliar();
         }
     },
@@ -206,6 +207,7 @@ const mf = {
         ['painel','wip','prazo','flxt','capac','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','rastreio','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'painel') this.renderPainel();
         if (name === 'wip')    this.renderWip();
+        this._abaAtiva = name;
         if (name === 'prazo')  this.renderPrazo();
         if (name === 'flxt')   this.renderFluxoTempo();
         if (name === 'capac')  this.renderCapacidade();
@@ -240,6 +242,21 @@ const mf = {
             <span style="font-size:.78rem;flex:1;">${e.ordem}. ${esc(e.nome)} <span style="color:var(--text-dim);">(${e.maquinas} máq)</span></span>
             <input type="number" min="0" step="0.1" value="${e.seg_padrao != null ? e.seg_padrao : ''}" placeholder="seg/pç" onchange="mf.salvarTempo('${e.etapa_id}', this.value)"
                 style="width:90px;padding:4px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.8rem;text-align:right;"></div>`).join('');
+        pan.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+                <div class="s-label">🏭 CAPACIDADE × DEMANDA — dá pra entregar?</div>
+                <span style="font-size:.82rem;color:var(--text-dim);">horas/dia por máquina: <input type="number" min="1" max="24" value="${horas}" onchange="mf._capacHoras=+this.value;mf.renderCapacidade()" style="width:56px;padding:4px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;text-align:right;"></span>
+            </div>
+            <div id="mf-capac-result">${this._capacResultadoHTML(d, horas)}</div>
+            <div class="summary-card">
+                <div class="s-label" style="margin-bottom:6px;">⚙ TEMPOS PADRÃO POR ETAPA (segundos por peça)${semPadrao ? ` <span style="color:#ffca28;font-size:.7rem;">— ${semPadrao} sem definir</span>` : ''}</div>
+                <div style="font-size:.74rem;color:var(--text-dim);margin-bottom:10px;">É a base de tudo: capacidade, lead time e OEE de verdade. Comece com uma estimativa por etapa e refine com o tempo.</div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;">${tpGrid}</div>
+            </div>`;
+    },
+    _capacResultadoHTML(d, horas) {
+        const brl = n => Number(n || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+        const g = d.gargalo, semPadrao = d.etapas.filter(e => e.sem_padrao).length;
         const maxH = Math.max(1, ...d.etapas.map(e => e.horas_necessarias));
         const barras = d.etapas.map(e => {
             const garg = g && e.nome === g.nome, cor = e.sem_padrao ? '#8b949e' : (garg ? '#f06292' : '#26a69a');
@@ -253,28 +270,20 @@ const mf = {
                 <div style="height:9px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden;"><div style="height:100%;width:${Math.max(2, w)}%;background:${cor};transition:width .4s;"></div></div>
             </div>`;
         }).join('');
-        pan.innerHTML = `
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
-                <div class="s-label">🏭 CAPACIDADE × DEMANDA — dá pra entregar?</div>
-                <span style="font-size:.82rem;color:var(--text-dim);">horas/dia por máquina: <input type="number" min="1" max="24" value="${horas}" onchange="mf._capacHoras=+this.value;mf.renderCapacidade()" style="width:56px;padding:4px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;text-align:right;"></span>
-            </div>
-            ${g ? `<div class="summary-card" style="margin-bottom:14px;border-left:3px solid #f06292;">
+        return `${g ? `<div class="summary-card" style="margin-bottom:14px;border-left:3px solid #f06292;">
                 <div style="font-size:.92rem;line-height:1.5;">Restrição: <strong style="color:#f06292;">${esc(g.nome)}</strong> — com ${g.maquinas} máquina(s) a ${horas}h/dia, leva <strong>${g.dias_para_zerar} dias</strong> para zerar o backlog (${brl(g.horas_necessarias)}h de trabalho). É aqui que se ganha ou perde a entrega.</div>
             </div>` : (semPadrao === d.etapas.length ? `<div class="summary-card" style="margin-bottom:14px;color:#ffca28;">Defina os tempos padrão abaixo para o cálculo de capacidade aparecer.</div>` : '')}
             <div class="summary-card" style="margin-bottom:16px;">
                 <div class="s-label" style="margin-bottom:12px;">CARGA POR ETAPA (horas de backlog)${d.ops_ativas ? ` · ${d.ops_ativas} OPs ativas` : ''}</div>
                 ${barras}
-            </div>
-            <div class="summary-card">
-                <div class="s-label" style="margin-bottom:6px;">⚙ TEMPOS PADRÃO POR ETAPA (segundos por peça)${semPadrao ? ` <span style="color:#ffca28;font-size:.7rem;">— ${semPadrao} sem definir</span>` : ''}</div>
-                <div style="font-size:.74rem;color:var(--text-dim);margin-bottom:10px;">É a base de tudo: capacidade, lead time e OEE de verdade. Comece com uma estimativa por etapa e refine com o tempo.</div>
-                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;">${tpGrid}</div>
             </div>`;
     },
     async salvarTempo(etapaId, v) {
         const r = await api.put('/api/mf/tempos', { etapa_id: etapaId, seg_por_unidade: parseFloat(v) || 0 });
-        toast(r?.ok ? 'Tempo padrão salvo.' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
-        if (r?.ok) this.renderCapacidade();
+        if (!r?.ok) return toast(r?.erro || 'Erro ao salvar.', 'erro');
+        toast('Tempo padrão salvo.', 'ok');
+        const d = await api.get('/api/mf/capacidade?horas=' + (this._capacHoras || 8));  // atualiza só o resultado, mantém o foco no grid
+        const el = $('mf-capac-result'); if (el && d?.etapas) el.innerHTML = this._capacResultadoHTML(d, this._capacHoras || 8);
     },
 
     // ═══ FLUXO NO TEMPO (tendência) ════════════════════════════════════════════
@@ -520,14 +529,17 @@ const mf = {
     async renderApont() {
         const c = this._cad;
         const opt = (arr, val, lbl) => arr.map(x => `<option value="${x.id}">${esc(lbl(x))}</option>`).join('');
-        const etapas = (this._etapasFluxo = await api.get('/api/mf/etapas-processo')) || [];
+        const [etapasR, wip] = await Promise.all([api.get('/api/mf/etapas-processo'), api.get('/api/mf/wip')]);
+        const etapas = (this._etapasFluxo = etapasR) || [];
+        this._wipPorEtapa = {};  // OPs que estão em cada etapa (o operador trabalha o que está na estação dele)
+        if (wip?.board) wip.board.forEach(c => { this._wipPorEtapa[c.etapa_id] = (c.cards || []).map(k => ({ op_id: k.op_id, numero: k.numero, produto: k.produto })); });
         const etapaOpt = `<option value="">— sem etapa —</option>` + etapas.map(e => `<option value="${e.id}">${e.ordem}. ${esc(e.nome)}</option>`).join('');
         const novaSessao = `
         <div class="summary-card" style="margin-bottom:18px;">
             <div class="s-label" style="margin-bottom:14px;">+ NOVA SESSÃO DE APONTAMENTO</div>
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;">
-                <div><span class="mf-label">ORDEM DE PRODUÇÃO *</span>
-                    <select id="mf-op" class="mf-input">${c.ops.map(o => `<option value="${o.id}">${esc(o.numero)} — ${esc(o.produto?.descricao||'')}</option>`).join('')}</select></div>
+                <div><span class="mf-label">ORDEM DE PRODUÇÃO * <span id="mf-op-toggle" onclick="mf._apontTodasToggle()" style="color:#26c6da;cursor:pointer;font-weight:400;text-transform:none;letter-spacing:0;">· ver todas</span></span>
+                    <select id="mf-op" class="mf-input"></select></div>
                 <div><span class="mf-label">MÁQUINA *</span><select id="mf-maq" class="mf-input" onchange="mf._apontEtapaAuto()">${opt(c.maquinas,'id',m=>`${m.codigo} · ${m.nome}`)}</select></div>
                 <div><span class="mf-label">OPERADOR *</span><select id="mf-oper" class="mf-input">${opt(c.operadores,'id',o=>o.nome)}</select></div>
                 <div><span class="mf-label">TURNO *</span><select id="mf-turno" class="mf-input">${opt(c.turnos,'id',t=>`${t.codigo} — ${t.descricao||''}`)}</select></div>
@@ -561,9 +573,14 @@ const mf = {
                 sel.insertAdjacentHTML('afterend', `<div style="font-size:.68rem;color:#26c6da;margin-top:4px;">🖥 quiosque: ${esc(m.codigo)} <span style="color:var(--text-dim);cursor:pointer;text-decoration:underline;" onclick="localStorage.removeItem('mf_kiosk_maq');mf.renderApont()">sair</span></div>`); }
         }
         this._autoPreencher();  // turno pelo horário + operador lembrado + etapa pela máquina
+        this._apontOpsDaEtapa(); // mostra só as OPs da etapa da máquina
         api.get('/api/mf/adocao').then(a => { const el = $('mf-adocao'); if (el && a) el.innerHTML = `<span style="color:#26a69a;">●</span> Adoção hoje: <strong>${a.sessoes_hoje}</strong> sessões · <strong>${a.maquinas_hoje}/${a.maquinas_total}</strong> máquinas ativas · ${a.operadores_hoje} operadores`; });
         if (navigator.onLine) await this._reconciliar();
         this.renderSessoes();
+    },
+    _aoSincronizar() {  // a fila terminou de subir → atualiza a tela ativa para refletir o resultado
+        if (this._abaAtiva === 'wip') this.renderWip();
+        else if (this._abaAtiva === 'painel') this.renderPainel();
     },
     _turnoAtual() {  // turno cujo intervalo [início,fim) contém a hora atual (trata virada de meia-noite)
         const ts = this._cad.turnos || []; if (!ts.length) return null;
@@ -584,11 +601,26 @@ const mf = {
     },
     _maqEtAberto: false,
     _maqEtapaToggle() { this._maqEtAberto = !this._maqEtAberto; const b = $('mf-maqet'); if (b) b.style.display = this._maqEtAberto ? 'block' : 'none'; },
-    _apontEtapaAuto() {  // ao escolher a máquina, preenche a etapa do fluxo correspondente
+    _apontEtapaAuto() {  // ao escolher a máquina, preenche a etapa e filtra as OPs daquela etapa
         const m = (this._cad.maquinas || []).find(x => x.id === $('mf-maq')?.value);
         const et = $('mf-etapa');
         if (m && m.etapa_id && et) et.value = m.etapa_id;
+        this._apontOpsDaEtapa();
     },
+    _apontOpsDaEtapa() {  // dropdown de OP mostra só o que está na etapa da máquina (pull); "ver todas" cai pro catálogo
+        const sel = $('mf-op'); if (!sel) return;
+        const m = (this._cad.maquinas || []).find(x => x.id === $('mf-maq')?.value);
+        const etapaId = m?.etapa_id;
+        const todas = this._apontTodasOps || !etapaId;
+        const tg = $('mf-op-toggle'); if (tg) tg.textContent = todas ? (etapaId ? '· só desta etapa' : '') : '· ver todas';
+        const lista = todas
+            ? (this._cad.ops || []).map(o => ({ op_id: o.id, numero: o.numero, produto: o.produto?.descricao }))
+            : (this._wipPorEtapa?.[etapaId] || []);
+        sel.innerHTML = lista.length
+            ? lista.map(o => `<option value="${o.op_id}">${esc(o.numero)}${o.produto ? ' — ' + esc(o.produto) : ''}</option>`).join('')
+            : `<option value="">— nenhuma OP nesta etapa (jogue OPs no fluxo pela Fila) —</option>`;
+    },
+    _apontTodasToggle() { this._apontTodasOps = !this._apontTodasOps; this._apontOpsDaEtapa(); },
     async salvarMaqEtapa(maqId, etapaId) {
         const r = await api.put('/api/mf/maquinas/' + maqId, { etapa_id: etapaId || null });
         if (!r?.ok) return toast(r?.erro || 'Erro ao vincular.', 'erro');
