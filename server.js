@@ -1272,6 +1272,17 @@ app.put('/api/mf/apontamentos/:id', auth, mfEscrita, async (req, res) => {
     res.json({ ok: true, apontamento: data, avanco });
 });
 
+// indicador de adoção do apontamento (hoje): sessões, máquinas e operadores ativos
+app.get('/api/mf/adocao', auth, async (_q, res) => {
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    const [apsR, maqsR] = await Promise.all([
+        supabase.from('apontamento').select('maquina_id,operador_id').gte('datahora_inicio', hoje.toISOString()),
+        supabase.from('maquina').select('id').eq('ativo', true),
+    ]);
+    const aps = apsR.data || [], uniq = k => new Set(aps.map(a => a[k])).size;
+    res.json({ sessoes_hoje: aps.length, maquinas_hoje: uniq('maquina_id'), operadores_hoje: uniq('operador_id'), maquinas_total: (maqsR.data || []).length });
+});
+
 // ── Parada ────────────────────────────────────────────────────
 app.post('/api/mf/paradas', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};

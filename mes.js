@@ -496,7 +496,7 @@ const mf = {
                 </div>
             </div>
         </div>`;
-        $('mf-pan-apont').innerHTML = novaSessao + cfgMaq + `<div id="mf-sessoes"></div>`;
+        $('mf-pan-apont').innerHTML = `<div id="mf-adocao" style="font-size:.78rem;color:var(--text-dim);margin-bottom:12px;padding:8px 12px;background:rgba(38,166,154,.06);border:1px solid rgba(38,166,154,.2);border-radius:8px;">Carregando adoção...</div>` + novaSessao + cfgMaq + `<div id="mf-sessoes"></div>`;
         // modo quiosque: fixa a máquina deste tablet
         const kiosk = localStorage.getItem('mf_kiosk_maq');
         if (kiosk) {
@@ -505,9 +505,27 @@ const mf = {
             if (m && sel) { sel.value = m.id; sel.disabled = true;
                 sel.insertAdjacentHTML('afterend', `<div style="font-size:.68rem;color:#26c6da;margin-top:4px;">🖥 quiosque: ${esc(m.codigo)} <span style="color:var(--text-dim);cursor:pointer;text-decoration:underline;" onclick="localStorage.removeItem('mf_kiosk_maq');mf.renderApont()">sair</span></div>`); }
         }
-        this._apontEtapaAuto();  // pré-preenche a etapa pela máquina selecionada
+        this._autoPreencher();  // turno pelo horário + operador lembrado + etapa pela máquina
+        api.get('/api/mf/adocao').then(a => { const el = $('mf-adocao'); if (el && a) el.innerHTML = `<span style="color:#26a69a;">●</span> Adoção hoje: <strong>${a.sessoes_hoje}</strong> sessões · <strong>${a.maquinas_hoje}/${a.maquinas_total}</strong> máquinas ativas · ${a.operadores_hoje} operadores`; });
         if (navigator.onLine) await this._reconciliar();
         this.renderSessoes();
+    },
+    _turnoAtual() {  // turno cujo intervalo [início,fim) contém a hora atual (trata virada de meia-noite)
+        const ts = this._cad.turnos || []; if (!ts.length) return null;
+        const now = new Date(), hm = now.getHours() * 60 + now.getMinutes();
+        const toMin = s => { const [h, m] = String(s).split(':'); return (+h) * 60 + (+m); };
+        for (const t of ts) {
+            if (!t.hora_inicio || !t.hora_fim) continue;
+            const ini = toMin(t.hora_inicio), fim = toMin(t.hora_fim);
+            if (fim > ini ? (hm >= ini && hm < fim) : (hm >= ini || hm < fim)) return t;
+        }
+        return ts[0];
+    },
+    _autoPreencher() {
+        const t = this._turnoAtual(), selT = $('mf-turno'); if (t && selT) selT.value = t.id;
+        const lastOp = localStorage.getItem('mf_last_oper'), selO = $('mf-oper');
+        if (lastOp && selO && (this._cad.operadores || []).some(o => o.id === lastOp)) selO.value = lastOp;
+        this._apontEtapaAuto();
     },
     _maqEtAberto: false,
     _maqEtapaToggle() { this._maqEtAberto = !this._maqEtAberto; const b = $('mf-maqet'); if (b) b.style.display = this._maqEtAberto ? 'block' : 'none'; },
@@ -529,6 +547,7 @@ const mf = {
         const opId = $('mf-op').value, maqId = $('mf-maq').value, operId = $('mf-oper').value, turnoId = $('mf-turno').value;
         const etapaId = $('mf-etapa')?.value || null;
         if (!opId || !maqId || !operId || !turnoId) return toast('Preencha OP, máquina, operador e turno.', 'erro');
+        localStorage.setItem('mf_last_oper', operId);  // lembra o operador para a próxima sessão
         const id = this._uuid();
         const c = this._cad;
         const etapaNome = (this._etapasFluxo || []).find(e => e.id === etapaId)?.nome || '';
