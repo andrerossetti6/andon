@@ -2340,6 +2340,58 @@ app.get('/api/mf/fluxo-tempo', auth, async (req, res) => {
     res.json({ serie, etapas, gargalo, throughput_7d: Math.round(Object.values(tp7).reduce((s, v) => s + v, 0)), dias });
 });
 
+// ── Tempo padrão (seg/unidade por etapa, opcional por produto) ───────────────
+app.get('/api/mf/tempos', auth, async (_q, res) => {
+    const r = await supabase.from('tempo_padrao').select('id,etapa_id,produto_id,seg_por_unidade');
+    if (r.error && /schema cache|does not exist/i.test(r.error.message || '')) return res.status(503).json({ erro: 'Tempo padrão não inicializado. Rode mes_leva2.sql.' });
+    if (r.error) return res.status(500).json({ erro: r.error.message });
+    res.json(r.data || []);
+});
+app.put('/api/mf/tempos', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {};
+    if (!b.etapa_id) return res.status(400).json({ erro: 'etapa_id obrigatório' });
+    const seg = Number(b.seg_por_unidade) || 0, prod = b.produto_id || null;
+    let q = supabase.from('tempo_padrao').select('id').eq('etapa_id', b.etapa_id);
+    q = prod ? q.eq('produto_id', prod) : q.is('produto_id', null);
+    const { data: ex } = await q.limit(1);
+    const r = ex?.length
+        ? await supabase.from('tempo_padrao').update({ seg_por_unidade: seg }).eq('id', ex[0].id)
+        : await supabase.from('tempo_padrao').insert({ etapa_id: b.etapa_id, produto_id: prod, seg_por_unidade: seg });
+    if (r.error) return res.status(500).json({ erro: r.error.message });
+    res.json({ ok: true });
+});
+// Capacidade × demanda: por etapa, horas necessárias (backlog) vs disponíveis/dia
+app.get('/api/mf/capacidade', auth, async (req, res) => {
+    const horasDia = Math.min(24, Math.max(1, Number(req.query.horas) || 8));
+    const etapasR = await supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).order('ordem');
+    if (etapasR.error && /schema cache|does not exist|column/i.test(etapasR.error.message || '')) return res.status(503).json({ erro: 'Fluxo não inicializado.' });
+    if (etapasR.error) return res.status(500).json({ erro: etapasR.error.message });
+    const [maqsR, temposR, opsR] = await Promise.all([
+        supabase.from('maquina').select('id,etapa_id').eq('ativo', true),
+        supabase.from('tempo_padrao').select('etapa_id,produto_id,seg_por_unidade'),
+        supabase.from('ordem_producao').select('produto_id,qtd_planejada, etapa:etapa_atual_id(ordem)').not('status', 'in', '(concluida,cancelada)'),
+    ]);
+    if (temposR.error && /schema cache|does not exist/i.test(temposR.error.message || '')) return res.status(503).json({ erro: 'Tempo padrão não inicializado. Rode mes_leva2.sql.' });
+    const maqCount = {}; (maqsR.data || []).forEach(m => { if (m.etapa_id) maqCount[m.etapa_id] = (maqCount[m.etapa_id] || 0) + 1; });
+    const stdDef = {}, stdOv = {};
+    (temposR.data || []).forEach(t => { if (t.produto_id) stdOv[t.etapa_id + '|' + t.produto_id] = Number(t.seg_por_unidade); else stdDef[t.etapa_id] = Number(t.seg_por_unidade); });
+    const ops = opsR.data || [];
+    const etapas = (etapasR.data || []).map(e => {
+        const std = prod => stdOv[e.id + '|' + prod] ?? stdDef[e.id] ?? 0;
+        let req_seg = 0;
+        for (const o of ops) {
+            const ord = o.etapa?.ordem || 0;  // 0 = ainda não entrou no fluxo → precisa de todas as etapas
+            if (ord === 0 || ord <= e.ordem) req_seg += Number(o.qtd_planejada || 0) * std(o.produto_id);
+        }
+        const maquinas = maqCount[e.id] || 0, req_h = req_seg / 3600, disp = maquinas * horasDia;
+        const dias = disp > 0 && req_h > 0 ? Math.round(req_h / disp * 10) / 10 : (req_h > 0 ? null : 0);
+        return { etapa_id: e.id, nome: e.nome, ordem: e.ordem, maquinas, seg_padrao: stdDef[e.id] ?? null,
+            horas_necessarias: Math.round(req_h * 10) / 10, horas_disp_dia: disp, dias_para_zerar: dias, sem_padrao: stdDef[e.id] == null };
+    });
+    const gargalo = etapas.filter(e => e.dias_para_zerar != null).sort((a, b) => b.dias_para_zerar - a.dias_para_zerar)[0] || null;
+    res.json({ etapas, horasDia, gargalo, ops_ativas: ops.length });
+});
+
 // ── Rastreabilidade por código da peça: todo o histórico do código ───────────
 app.get('/api/mf/rastreio/:codigo', auth, async (req, res) => {
     const cod = String(req.params.codigo || '').trim();

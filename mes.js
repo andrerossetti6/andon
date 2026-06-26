@@ -199,11 +199,12 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['painel','wip','prazo','flxt','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','rastreio','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','wip','prazo','flxt','capac','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','rastreio','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'painel') this.renderPainel();
         if (name === 'wip')    this.renderWip();
         if (name === 'prazo')  this.renderPrazo();
         if (name === 'flxt')   this.renderFluxoTempo();
+        if (name === 'capac')  this.renderCapacidade();
         if (name === 'fila')   this.renderFila();
         if (name === 'estrat') this.renderEstrat();
         if (name === 'apont')  this.renderApont();
@@ -220,6 +221,56 @@ const mf = {
         if (name === 'tpm')    this.renderTpm();
         if (name === 'impops') this.renderImportOps();
         if (name === 'import') this.renderImport();
+    },
+
+    // ═══ CAPACIDADE × DEMANDA ═══════════════════════════════════════════════════
+    async renderCapacidade() {
+        const pan = $('mf-pan-capac');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando capacidade...</div>`;
+        const horas = this._capacHoras || 8;
+        const d = await api.get('/api/mf/capacidade?horas=' + horas);
+        if (!d || !Array.isArray(d.etapas)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Capacidade indisponível — rode <strong>mes_leva2.sql</strong> (cria o tempo padrão).</div>`; return; }
+        const brl = n => Number(n || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+        const semPadrao = d.etapas.filter(e => e.sem_padrao).length, g = d.gargalo;
+        const tpGrid = d.etapas.map(e => `<div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:.78rem;flex:1;">${e.ordem}. ${esc(e.nome)} <span style="color:var(--text-dim);">(${e.maquinas} máq)</span></span>
+            <input type="number" min="0" step="0.1" value="${e.seg_padrao != null ? e.seg_padrao : ''}" placeholder="seg/pç" onchange="mf.salvarTempo('${e.etapa_id}', this.value)"
+                style="width:90px;padding:4px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.8rem;text-align:right;"></div>`).join('');
+        const maxH = Math.max(1, ...d.etapas.map(e => e.horas_necessarias));
+        const barras = d.etapas.map(e => {
+            const garg = g && e.nome === g.nome, cor = e.sem_padrao ? '#8b949e' : (garg ? '#f06292' : '#26a69a');
+            const w = Math.round(e.horas_necessarias / maxH * 100);
+            const diasTxt = e.sem_padrao ? '<span style="color:#ffca28;">sem tempo padrão</span>' : (e.maquinas === 0 ? '<span style="color:#ffca28;">sem máquina</span>' : (e.dias_para_zerar != null ? `<strong>${e.dias_para_zerar} dias</strong> p/ zerar` : '—'));
+            return `<div style="margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;font-size:.76rem;margin-bottom:3px;gap:8px;">
+                    <span>${e.ordem}. ${esc(e.nome)} ${garg ? '<span style="color:#f06292;font-weight:700;font-size:.6rem;">● RESTRIÇÃO</span>' : ''}</span>
+                    <span style="color:var(--text-dim);white-space:nowrap;">${brl(e.horas_necessarias)}h backlog · ${brl(e.horas_disp_dia)}h/dia · ${diasTxt}</span>
+                </div>
+                <div style="height:9px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden;"><div style="height:100%;width:${Math.max(2, w)}%;background:${cor};transition:width .4s;"></div></div>
+            </div>`;
+        }).join('');
+        pan.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+                <div class="s-label">🏭 CAPACIDADE × DEMANDA — dá pra entregar?</div>
+                <span style="font-size:.82rem;color:var(--text-dim);">horas/dia por máquina: <input type="number" min="1" max="24" value="${horas}" onchange="mf._capacHoras=+this.value;mf.renderCapacidade()" style="width:56px;padding:4px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;text-align:right;"></span>
+            </div>
+            ${g ? `<div class="summary-card" style="margin-bottom:14px;border-left:3px solid #f06292;">
+                <div style="font-size:.92rem;line-height:1.5;">Restrição: <strong style="color:#f06292;">${esc(g.nome)}</strong> — com ${g.maquinas} máquina(s) a ${horas}h/dia, leva <strong>${g.dias_para_zerar} dias</strong> para zerar o backlog (${brl(g.horas_necessarias)}h de trabalho). É aqui que se ganha ou perde a entrega.</div>
+            </div>` : (semPadrao === d.etapas.length ? `<div class="summary-card" style="margin-bottom:14px;color:#ffca28;">Defina os tempos padrão abaixo para o cálculo de capacidade aparecer.</div>` : '')}
+            <div class="summary-card" style="margin-bottom:16px;">
+                <div class="s-label" style="margin-bottom:12px;">CARGA POR ETAPA (horas de backlog)${d.ops_ativas ? ` · ${d.ops_ativas} OPs ativas` : ''}</div>
+                ${barras}
+            </div>
+            <div class="summary-card">
+                <div class="s-label" style="margin-bottom:6px;">⚙ TEMPOS PADRÃO POR ETAPA (segundos por peça)${semPadrao ? ` <span style="color:#ffca28;font-size:.7rem;">— ${semPadrao} sem definir</span>` : ''}</div>
+                <div style="font-size:.74rem;color:var(--text-dim);margin-bottom:10px;">É a base de tudo: capacidade, lead time e OEE de verdade. Comece com uma estimativa por etapa e refine com o tempo.</div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;">${tpGrid}</div>
+            </div>`;
+    },
+    async salvarTempo(etapaId, v) {
+        const r = await api.put('/api/mf/tempos', { etapa_id: etapaId, seg_por_unidade: parseFloat(v) || 0 });
+        toast(r?.ok ? 'Tempo padrão salvo.' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderCapacidade();
     },
 
     // ═══ FLUXO NO TEMPO (tendência) ════════════════════════════════════════════
@@ -1359,7 +1410,7 @@ const mf = {
             </select>
             <button class="btn" style="font-size:.78rem;" onclick="mf.iniciarWip()" ${disp.length ? '' : 'disabled'}>Entrar na 1ª etapa</button>
             <span style="margin-left:auto;font-size:.76rem;color:var(--text-dim);">⏱ Lead real médio: <strong style="color:#26c6da;">${d.lead_total_horas ? d.lead_total_horas + ' h' : '—'}</strong>
-                &nbsp;·&nbsp; ⌛ Lead estimado (Little): <strong style="color:#7c4dff;">${d.lead_little_total ? d.lead_little_total + ' dias' : '—'}</strong></span>
+                &nbsp;·&nbsp; <span title="Estimativa grosseira por WIP÷vazão (Lei de Little). Para o cálculo real de prazo use Capacidade × Demanda.">⌛ Lead aprox. (Little): <strong style="color:#7c4dff;">${d.lead_little_total ? d.lead_little_total + ' dias' : '—'}</strong></span></span>
         </div>`;
         const cols = d.board.map(col => {
             const corG = col.gargalo ? '#f06292' : (col.cor || '#26c6da');
