@@ -2329,6 +2329,32 @@ app.get('/api/mf/fluxo-tempo', auth, async (req, res) => {
     res.json({ serie, etapas, gargalo, throughput_7d: Math.round(Object.values(tp7).reduce((s, v) => s + v, 0)), dias });
 });
 
+// ── Rastreabilidade por código da peça: todo o histórico do código ───────────
+app.get('/api/mf/rastreio/:codigo', auth, async (req, res) => {
+    const cod = String(req.params.codigo || '').trim();
+    if (!cod) return res.status(400).json({ erro: 'código obrigatório' });
+    let produto = (await supabase.from('produto').select('*').eq('codigo', cod).limit(1)).data?.[0];
+    let viaOp = null;
+    if (!produto) {  // se não for código de produto, tenta como número de OP
+        const op = (await supabase.from('ordem_producao').select('produto_id,numero').eq('numero', cod).limit(1)).data?.[0];
+        if (op) { produto = (await supabase.from('produto').select('*').eq('id', op.produto_id).limit(1)).data?.[0]; viaOp = op.numero; }
+    }
+    if (!produto) return res.json({ encontrado: false, codigo: cod });
+    const ops = (await supabase.from('ordem_producao').select('id,numero,qtd_planejada,unidade,status,data_abertura,data_prevista,origem, etapa:etapa_atual_id(nome,ordem)').eq('produto_id', produto.id).order('numero')).data || [];
+    const opIds = ops.map(o => o.id);
+    let aps = [], ncs = [], paradas = [], consumo = [];
+    if (opIds.length) {
+        aps = (await supabase.from('apontamento').select('id,op_id,datahora_inicio,datahora_fim,qtd_boa,qtd_refugo,qtd_retrabalho, maquina:maquina_id(codigo,nome), operador:operador_id(nome), turno:turno_id(codigo), etapa:etapa_id(nome,ordem)').in('op_id', opIds).order('datahora_inicio')).data || [];
+        const apIds = aps.map(a => a.id);
+        if (apIds.length) {
+            ncs = (await supabase.from('nao_conformidade').select('id,apontamento_id,qtd_afetada,disposicao,severidade_aplicada,datahora, defeito:defeito_id(codigo,descricao,categoria)').in('apontamento_id', apIds).order('datahora')).data || [];
+            paradas = (await supabase.from('parada').select('id,apontamento_id,datahora_inicio,datahora_fim, motivo:motivo_id(descricao)').in('apontamento_id', apIds)).data || [];
+            consumo = (await supabase.from('consumo_fio').select('apontamento_id,qtd_consumida_kg, lote:lote_fio_id(codigo,fornecedor)').in('apontamento_id', apIds)).data || [];
+        }
+    }
+    res.json({ encontrado: true, viaOp, produto, ops, aps, ncs, paradas, consumo });
+});
+
 // ── Importar Ordens de Produção do ERP (relatório em blocos) ──
 function _opErpData(s) { const m = String(s || '').match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : null; }  // dd/mm/yyyy → ISO
 function _opErpStatus(s) {

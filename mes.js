@@ -199,7 +199,7 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['painel','wip','prazo','flxt','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','fio','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','wip','prazo','flxt','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','rastreio','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'painel') this.renderPainel();
         if (name === 'wip')    this.renderWip();
         if (name === 'prazo')  this.renderPrazo();
@@ -214,7 +214,7 @@ const mf = {
         if (name === 'cep')    this.renderCep();
         if (name === 'cil')    this.renderCil();
         if (name === 'cad')    this.renderCadTpm();
-        if (name === 'fio')    this.renderFio();
+        if (name === 'rastreio') this.renderRastreio();
         if (name === 'etiq')   this.renderEtiquetas();
         if (name === 'oms')    this.renderOms();
         if (name === 'tpm')    this.renderTpm();
@@ -1037,6 +1037,70 @@ const mf = {
         const r = await api.post('/api/mf/checklist-execucao', { checklist_id: clId, maquina_id: $('mf-ce-maq').value, operador_id: $('mf-ce-oper').value, turno_id: $('mf-ce-turno').value, resultados });
         if (!r?.ok) return toast('Erro: ' + (r?.erro||''), 'erro');
         this._fecharModal(); toast(`Execução salva (${r.status}).`);
+    },
+
+    // ═══ RASTREABILIDADE por código da peça ════════════════════════════════════
+    _rcard(cor, val, lbl) { return `<div style="background:${cor}14;border:1px solid ${cor}3a;border-radius:12px;padding:14px 18px;flex:1;min-width:130px;text-align:center;"><div style="font-size:1.5rem;font-weight:800;color:${cor};">${val}</div><div style="font-size:.62rem;color:${cor};letter-spacing:.04em;">${lbl}</div></div>`; },
+    renderRastreio() {
+        $('mf-pan-rastreio').innerHTML = `
+            <div class="summary-card" style="margin-bottom:16px;">
+                <div class="s-label" style="margin-bottom:10px;">🔎 RASTREABILIDADE POR CÓDIGO DA PEÇA</div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                    <input id="mf-rastreio-cod" placeholder="Digite o código (ex: 12303)" onkeydown="if(event.key==='Enter')mf.buscarRastreio()"
+                        style="flex:1;min-width:200px;padding:9px 12px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:8px;color:var(--text-primary);font-size:.9rem;">
+                    <button class="btn primary" onclick="mf.buscarRastreio()">Buscar histórico</button>
+                </div>
+                <div style="font-size:.74rem;color:var(--text-dim);margin-top:8px;">Traz tudo o que o código passou: produto, ordens de produção, apontamentos (máquina/operador/etapa), não conformidades, paradas e fio consumido.</div>
+            </div>
+            <div id="mf-rastreio-res"></div>`;
+        setTimeout(() => $('mf-rastreio-cod')?.focus(), 50);
+    },
+    async buscarRastreio() {
+        const cod = ($('mf-rastreio-cod')?.value || '').trim();
+        if (!cod) return toast('Digite um código.', 'erro');
+        const res = $('mf-rastreio-res');
+        res.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Buscando ${esc(cod)}...</div>`;
+        const d = await api.get('/api/mf/rastreio/' + encodeURIComponent(cod));
+        if (!d) { res.innerHTML = `<div class="summary-card" style="color:#f06292;">Erro na busca.</div>`; return; }
+        if (!d.encontrado) { res.innerHTML = `<div class="summary-card" style="color:#ffca28;">Código <strong>${esc(cod)}</strong> não encontrado (nem como produto nem como nº de OP).</div>`; return; }
+        const p = d.produto, brl = n => Number(n || 0).toLocaleString('pt-BR');
+        const dt = s => s ? new Date(s).toLocaleDateString('pt-BR') : '—', dth = s => s ? new Date(s).toLocaleString('pt-BR') : '—';
+        const grp = (arr, k) => arr.reduce((m, x) => ((m[x[k]] = m[x[k]] || []).push(x), m), {});
+        const ncByAp = grp(d.ncs, 'apontamento_id'), parByAp = grp(d.paradas, 'apontamento_id'), conByAp = grp(d.consumo, 'apontamento_id'), apByOp = grp(d.aps, 'op_id');
+        const totalBoa = d.aps.reduce((s, a) => s + Number(a.qtd_boa || 0), 0);
+        let html = `
+            <div class="summary-card" style="margin-bottom:14px;">
+                <div style="font-size:1.1rem;font-weight:700;">${esc(p.codigo)} — ${esc(p.descricao)}</div>
+                <div style="font-size:.8rem;color:var(--text-dim);margin-top:4px;">${[p.cor, p.marca, p.tamanho].filter(Boolean).map(esc).join(' · ') || 'sem atributos'} · unidade ${esc(p.unidade_medida || '')}${p.custo_unitario ? ` · custo R$ ${brl(p.custo_unitario)}` : ''}${d.viaOp ? ` · <span style="color:#26c6da;">via OP ${esc(d.viaOp)}</span>` : ''}</div>
+            </div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+                ${this._rcard('#26c6da', d.ops.length, 'ORDENS DE PRODUÇÃO')}
+                ${this._rcard('#26a69a', d.aps.length, 'APONTAMENTOS')}
+                ${this._rcard('#66bb6a', brl(totalBoa) + ' ' + esc(p.unidade_medida || ''), 'PRODUZIDO (BOA)')}
+                ${this._rcard(d.ncs.length ? '#f06292' : '#8b949e', d.ncs.length, 'NÃO CONFORMIDADES')}
+            </div>`;
+        if (!d.ops.length) html += `<div class="summary-card" style="color:var(--text-dim);">Nenhuma OP para este código ainda.</div>`;
+        html += d.ops.map(o => {
+            const stCor = this._filaStatusCor(o.status);
+            const sessoes = (apByOp[o.id] || []).map(a => {
+                const ncs = ncByAp[a.id] || [], par = parByAp[a.id] || [], con = conByAp[a.id] || [];
+                return `<div style="padding:8px 10px;border-top:1px solid rgba(255,255,255,.05);font-size:.8rem;">
+                    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;">
+                        <span>${a.etapa ? `<strong style="color:#26c6da;">${a.etapa.ordem}. ${esc(a.etapa.nome)}</strong> · ` : ''}${esc(a.maquina?.codigo || '')} · ${esc(a.operador?.nome || '')} · turno ${esc(a.turno?.codigo || '')}</span>
+                        <span style="color:var(--text-dim);">${dth(a.datahora_inicio)}${a.datahora_fim ? ' → ' + new Date(a.datahora_fim).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : ' (aberta)'}</span>
+                    </div>
+                    <div style="margin-top:3px;color:var(--text-dim);">boa ${brl(a.qtd_boa)} · refugo ${brl(a.qtd_refugo)} · retrab ${brl(a.qtd_retrabalho)}${con.length ? ` · fio: ${con.map(c => esc(c.lote?.codigo || '') + ' ' + brl(c.qtd_consumida_kg) + 'kg').join(', ')}` : ''}</div>
+                    ${ncs.map(n => `<div style="margin-top:3px;color:#f06292;">⚠ NC: ${esc(n.defeito?.descricao || '?')} (sev ${n.severidade_aplicada}) · ${brl(n.qtd_afetada)} · ${esc(n.disposicao)} · ${dt(n.datahora)}</div>`).join('')}
+                    ${par.map(x => `<div style="margin-top:3px;color:#ffca28;">⏸ parada: ${esc(x.motivo?.descricao || '?')} (${dth(x.datahora_inicio)})</div>`).join('')}
+                </div>`;
+            }).join('') || `<div style="padding:8px 10px;color:var(--text-dim);font-size:.78rem;">Sem apontamentos nesta OP.</div>`;
+            return `<div class="summary-card" style="margin-bottom:12px;padding:0;overflow:hidden;">
+                <div style="padding:10px 12px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center;background:rgba(255,255,255,.02);">
+                    <span><strong>OP ${esc(o.numero)}</strong> <span style="color:var(--text-dim);font-size:.8rem;">· ${brl(o.qtd_planejada)} ${esc(o.unidade || '')} · ${o.etapa ? `fluxo: ${o.etapa.ordem}. ${esc(o.etapa.nome)}` : 'fora do fluxo'}</span></span>
+                    <span style="font-size:.68rem;color:${stCor};border:1px solid ${stCor}55;border-radius:4px;padding:1px 7px;">${esc(o.status)}</span>
+                </div>${sessoes}</div>`;
+        }).join('');
+        res.innerHTML = html;
     },
 
     // ═══ RASTREABILIDADE (fase 4) ══════════════════════════════════════════════
