@@ -75,22 +75,26 @@ const fila = {
     async flush() {
         if (this._enviando || !navigator.onLine) return;
         this._enviando = true;
+        let removidos = 0, erro = false;
         try {
             const ops = (await this.pendentes()).sort((a, b) => a.seq - b.seq);
             for (const op of ops) {
                 let r;
                 try { r = await fetch(op.url, { method: op.metodo, headers: api._h(), body: JSON.stringify({ ...op.payload, sincronizado_em: new Date().toISOString() }) }); }
-                catch { break; } // rede caiu — para e tenta no próximo 'online'
-                if (r.status === 401) { mf._expirou(); break; }
-                if (!r.ok) { toast('Um item da fila falhou no servidor — verifique.', 'erro'); break; }
+                catch { erro = true; break; } // rede caiu — para e tenta no próximo 'online'
+                if (r.status === 401) { mf._expirou(); erro = true; break; }
+                if (!r.ok) { toast('Um item da fila falhou no servidor — verifique.', 'erro'); erro = true; break; }
                 await this._remover(op.seq);
+                removidos++;
                 mf._atualizarBadge();
             }
         } finally {
             this._enviando = false;
             mf._atualizarBadge();
             const restam = (await this.pendentes()).length;
-            if (restam === 0 && navigator.onLine) mf._reconciliar();
+            // itens enfileirados DURANTE este flush não entraram no snapshot acima — reprocessa enquanto há progresso
+            if (restam > 0 && removidos > 0 && !erro && navigator.onLine) this.flush();
+            else if (restam === 0 && navigator.onLine) mf._reconciliar();
         }
     },
 };
