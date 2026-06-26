@@ -1193,6 +1193,16 @@ app.get('/api/mf/ops', auth, async (req, res) => {
     res.json(data || []);
 });
 
+// atualiza campos de uma OP (prioridade, status, datas)
+app.put('/api/mf/ops/:id', auth, mfEscrita, async (req, res) => {
+    const upd = {};
+    ['prioridade', 'status', 'data_prevista', 'data_abertura'].forEach(f => { if (req.body[f] !== undefined) upd[f] = req.body[f]; });
+    if (upd.prioridade !== undefined) upd.prioridade = Number(upd.prioridade) || 0;
+    const { error } = await supabase.from('ordem_producao').update(upd).eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
 // ── Cadastros (escrita genérica, admin) ───────────────────────
 const MF_CADASTROS = { produto:'codigo', maquina:'codigo', operador:'matricula', turno:'codigo', motivo_parada:'codigo', catalogo_defeito:'codigo' };
 app.post('/api/mf/cadastro/:tabela', auth, mfEscrita, async (req, res) => {

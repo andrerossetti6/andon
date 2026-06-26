@@ -237,7 +237,7 @@ const mf = {
                     <div style="flex:1;min-width:160px;"><span class="mf-label">BUSCAR (nº ou produto)</span><input id="mf-fila-q" class="mf-input" oninput="mf._filaTabela()" placeholder="ex: 17801 ou joelheira"></div>
                     <div><span class="mf-label">STATUS</span><select id="mf-fila-st" class="mf-input" onchange="mf._filaTabela()">${sts.map(s => `<option value="${s}">${s || 'todos'}</option>`).join('')}</select></div>
                     <div><span class="mf-label">FLUXO</span><select id="mf-fila-fl" class="mf-input" onchange="mf._filaTabela()"><option value="">todas</option><option value="fora">fora do fluxo</option><option value="no">no fluxo</option></select></div>
-                    <div><span class="mf-label">ORDENAR</span><select id="mf-fila-or" class="mf-input" onchange="mf._filaTabela()"><option value="prev">por previsão</option><option value="num">por número</option><option value="qtd">maior qtd</option></select></div>
+                    <div><span class="mf-label">ORDENAR</span><select id="mf-fila-or" class="mf-input" onchange="mf._filaTabela()"><option value="seq">sequência sugerida</option><option value="prev">por previsão</option><option value="num">por número</option><option value="qtd">maior qtd</option></select></div>
                 </div>
             </div>
             <div id="mf-fila-bar" style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;"></div>
@@ -254,7 +254,7 @@ const mf = {
     },
     _filaTabela() {
         const q = ($('mf-fila-q')?.value || '').trim().toLowerCase();
-        const st = $('mf-fila-st')?.value || '', fl = $('mf-fila-fl')?.value || '', or = $('mf-fila-or')?.value || 'prev';
+        const st = $('mf-fila-st')?.value || '', fl = $('mf-fila-fl')?.value || '', or = $('mf-fila-or')?.value || 'seq';
         let lista = (this._fila || []).filter(o => {
             if (st && o.status !== st) return false;
             if (fl === 'fora' && o.etapa_atual_id) return false;
@@ -262,23 +262,34 @@ const mf = {
             if (q) { const hay = (o.numero + ' ' + (o.produto?.descricao || '') + ' ' + (o.produto?.codigo || '') + ' ' + (o.produto?.marca || '')).toLowerCase(); if (!hay.includes(q)) return false; }
             return true;
         });
+        const prev = o => String(o.data_prevista || o.data_abertura || '9999-12-31');
         lista.sort((a, b) => {
             if (or === 'num') return String(a.numero).localeCompare(String(b.numero), undefined, { numeric: true });
             if (or === 'qtd') return Number(b.qtd_planejada) - Number(a.qtd_planejada);
-            return String(a.data_prevista || a.data_abertura || '9999').localeCompare(String(b.data_prevista || b.data_abertura || '9999'));
+            if (or === 'prev') return prev(a).localeCompare(prev(b));
+            // sequência sugerida: prioridade (desc) → previsão/EDD (asc) → número
+            const pa = Number(a.prioridade || 0), pb = Number(b.prioridade || 0);
+            if (pa !== pb) return pb - pa;
+            const dp = prev(a).localeCompare(prev(b));
+            return dp || String(a.numero).localeCompare(String(b.numero), undefined, { numeric: true });
         });
         this._filaVisiveis = lista.map(o => o.id);
         const brl = n => Number(n || 0).toLocaleString('pt-BR');
         const dt = s => s ? new Date(s).toLocaleDateString('pt-BR') : '—';
-        const linhas = lista.slice(0, 400).map(o => {
+        const PR = { 0: ['normal', 'transparent'], 1: ['alta', '#ffca28'], 2: ['urgente', '#f06292'] };
+        const linhas = lista.slice(0, 400).map((o, i) => {
             const cor = this._filaStatusCor(o.status);
             const foraFluxo = !o.etapa_atual_id && !['concluida', 'cancelada'].includes(o.status);
             const pos = o.etapa ? `${o.etapa.ordem}. ${esc(o.etapa.nome)}` : '<span style="color:var(--text-dim);">fora do fluxo</span>';
-            return `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+            const p = Number(o.prioridade || 0);
+            return `<tr style="border-bottom:1px solid rgba(255,255,255,.04);border-left:3px solid ${PR[p][1]};">
                 <td style="padding:6px 8px;">${foraFluxo ? `<input type="checkbox" ${this._filaSel.has(o.id) ? 'checked' : ''} onchange="mf._filaToggle('${o.id}')">` : ''}</td>
+                <td style="padding:6px 8px;color:var(--text-dim);text-align:right;">${or === 'seq' ? i + 1 : '·'}</td>
                 <td style="padding:6px 8px;font-weight:600;">${esc(o.numero)}</td>
                 <td style="padding:6px 8px;">${esc(o.produto?.descricao || '?')}<span style="color:var(--text-dim);font-size:.72rem;"> ${esc(o.produto?.codigo || '')}${o.produto?.tamanho ? ` · ${esc(o.produto.tamanho)}` : ''}${o.produto?.marca ? ` · ${esc(o.produto.marca)}` : ''}</span></td>
                 <td style="padding:6px 8px;text-align:right;white-space:nowrap;">${brl(o.qtd_planejada)} ${esc(o.unidade || '')}</td>
+                <td style="padding:6px 8px;"><select onchange="mf.salvarPrioridade('${o.id}', this.value)" style="font-size:.7rem;padding:2px 4px;background:var(--bg-card);border:1px solid ${PR[p][1] === 'transparent' ? 'var(--border-color)' : PR[p][1]};border-radius:5px;color:${PR[p][1] === 'transparent' ? 'var(--text-dim)' : PR[p][1]};">
+                    <option value="0" ${p === 0 ? 'selected' : ''}>normal</option><option value="1" ${p === 1 ? 'selected' : ''}>alta</option><option value="2" ${p === 2 ? 'selected' : ''}>urgente</option></select></td>
                 <td style="padding:6px 8px;"><span style="font-size:.66rem;color:${cor};border:1px solid ${cor}55;border-radius:4px;padding:1px 6px;">${esc(o.status)}</span></td>
                 <td style="padding:6px 8px;white-space:nowrap;">${dt(o.data_prevista)}</td>
                 <td style="padding:6px 8px;">${pos}</td>
@@ -289,9 +300,9 @@ const mf = {
                 <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
                     <thead><tr style="position:sticky;top:0;background:var(--bg-card);z-index:1;text-align:left;color:var(--text-dim);font-size:.64rem;letter-spacing:.04em;">
                         <th style="padding:8px;"><input type="checkbox" onchange="mf._filaToggleAll(this.checked)" title="selecionar visíveis (fora do fluxo)"></th>
-                        <th style="padding:8px;">Nº OP</th><th style="padding:8px;">PRODUTO</th><th style="padding:8px;text-align:right;">QTD</th><th style="padding:8px;">STATUS</th><th style="padding:8px;">PREVISÃO</th><th style="padding:8px;">POSIÇÃO NO FLUXO</th>
+                        <th style="padding:8px;text-align:right;">#</th><th style="padding:8px;">Nº OP</th><th style="padding:8px;">PRODUTO</th><th style="padding:8px;text-align:right;">QTD</th><th style="padding:8px;">PRIO</th><th style="padding:8px;">STATUS</th><th style="padding:8px;">PREVISÃO</th><th style="padding:8px;">POSIÇÃO NO FLUXO</th>
                     </tr></thead>
-                    <tbody>${linhas || '<tr><td colspan="7" style="padding:20px;text-align:center;color:var(--text-dim);">Nenhuma OP com esses filtros.</td></tr>'}</tbody>
+                    <tbody>${linhas || '<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--text-dim);">Nenhuma OP com esses filtros.</td></tr>'}</tbody>
                 </table>
             </div>${lista.length > 400 ? `<div style="font-size:.72rem;color:var(--text-dim);margin-top:6px;">Mostrando as primeiras 400 de ${lista.length}. Refine os filtros.</div>` : ''}`;
         this._filaBarra();
@@ -300,6 +311,12 @@ const mf = {
     _filaToggleAll(on) {
         (this._filaVisiveis || []).forEach(id => { const o = this._fila.find(x => x.id === id); if (o && !o.etapa_atual_id && !['concluida', 'cancelada'].includes(o.status)) { if (on) this._filaSel.add(id); else this._filaSel.delete(id); } });
         this._filaTabela();
+    },
+    async salvarPrioridade(id, v) {
+        const o = (this._fila || []).find(x => x.id === id); if (o) o.prioridade = Number(v);  // atualiza local
+        this._filaTabela();  // re-ordena na hora (a OP pula para a posição certa)
+        const r = await api.put('/api/mf/ops/' + id, { prioridade: Number(v) });
+        if (!r?.ok) toast(r?.erro || 'Erro ao salvar prioridade.', 'erro');
     },
     async filaJogarFluxo() {
         const ids = [...this._filaSel]; if (!ids.length) return;
