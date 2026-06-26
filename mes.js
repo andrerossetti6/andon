@@ -199,10 +199,11 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['painel','wip','prazo','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','fio','gene','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','wip','prazo','flxt','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','fio','gene','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'painel') this.renderPainel();
         if (name === 'wip')    this.renderWip();
         if (name === 'prazo')  this.renderPrazo();
+        if (name === 'flxt')   this.renderFluxoTempo();
         if (name === 'fila')   this.renderFila();
         if (name === 'estrat') this.renderEstrat();
         if (name === 'apont')  this.renderApont();
@@ -220,6 +221,60 @@ const mf = {
         if (name === 'tpm')    this.renderTpm();
         if (name === 'impops') this.renderImportOps();
         if (name === 'import') this.renderImport();
+    },
+
+    // ═══ FLUXO NO TEMPO (tendência) ════════════════════════════════════════════
+    async renderFluxoTempo() {
+        const pan = $('mf-pan-flxt');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando tendência...</div>`;
+        const dias = this._flxtDias || 14;
+        const d = await api.get('/api/mf/fluxo-tempo?dias=' + dias);
+        if (!d || !Array.isArray(d.serie)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Fluxo não inicializado — rode os SQLs do WIP.</div>`; return; }
+        const brl = n => Number(n || 0).toLocaleString('pt-BR');
+        const wipTot = d.etapas.reduce((s, e) => s + e.wip_ops, 0), wipQtd = d.etapas.reduce((s, e) => s + e.wip_qtd, 0);
+        const card = (cor, val, lbl, sub) => `<div style="background:${cor}14;border:1px solid ${cor}3a;border-radius:12px;padding:14px 18px;flex:1;min-width:150px;">
+            <div style="font-size:1.6rem;font-weight:800;color:${cor};">${val}</div><div style="font-size:.62rem;color:${cor};letter-spacing:.04em;">${lbl}</div>${sub ? `<div style="font-size:.66rem;color:var(--text-dim);margin-top:2px;">${sub}</div>` : ''}</div>`;
+        const maxQ = Math.max(1, ...d.serie.map(s => s.qtd));
+        const barras = d.serie.map(s => {
+            const h = Math.round(s.qtd / maxQ * 100), dd = s.dia.slice(8, 10) + '/' + s.dia.slice(5, 7);
+            return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:13px;">
+                <div style="font-size:.54rem;color:var(--text-dim);height:10px;">${s.qtd || ''}</div>
+                <div style="width:72%;height:88px;display:flex;align-items:flex-end;"><div style="width:100%;height:${h}%;background:#26c6da;border-radius:3px 3px 0 0;min-height:${s.qtd ? 2 : 0}px;" title="${dd}: ${s.qtd}"></div></div>
+                <div style="font-size:.52rem;color:var(--text-dim);">${dd}</div>
+            </div>`;
+        }).join('');
+        const maxWip = Math.max(1, ...d.etapas.map(e => e.wip_qtd));
+        const etapasHtml = d.etapas.map(e => {
+            const garg = d.gargalo && e.nome === d.gargalo.nome, cor = garg ? '#f06292' : '#26a69a';
+            const w = Math.round(e.wip_qtd / maxWip * 100);
+            return `<div style="margin-bottom:9px;">
+                <div style="display:flex;justify-content:space-between;font-size:.74rem;margin-bottom:3px;gap:8px;">
+                    <span>${e.ordem}. ${esc(e.nome)} ${garg ? '<span style="color:#f06292;font-weight:700;font-size:.6rem;">● GARGALO</span>' : ''}</span>
+                    <span style="color:var(--text-dim);white-space:nowrap;">${e.wip_ops} OP · ${brl(e.wip_qtd)}${e.throughput_dia ? ` | ${e.throughput_dia}/d` : ''}${e.dias_fila != null ? ` · fila ${e.dias_fila}d` : ''}${e.lead_horas != null ? ` · ${e.lead_horas}h` : ''}</span>
+                </div>
+                <div style="height:8px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden;"><div style="height:100%;width:${Math.max(2, w)}%;background:${cor};transition:width .4s;"></div></div>
+            </div>`;
+        }).join('');
+        pan.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+                <div class="s-label">📈 FLUXO NO TEMPO</div>
+                <select onchange="mf._flxtDias=+this.value;mf.renderFluxoTempo()" style="padding:5px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.8rem;">
+                    ${[7, 14, 30].map(n => `<option value="${n}" ${dias === n ? 'selected' : ''}>últimos ${n} dias</option>`).join('')}
+                </select>
+            </div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+                ${card('#26c6da', brl(d.throughput_7d), 'PRODUZIDO (7 DIAS)', 'soma da qtd boa')}
+                ${card('#7c4dff', wipTot, 'WIP ATUAL (OPs)', brl(wipQtd) + ' pç em processo')}
+                ${card(d.gargalo ? '#f06292' : '#26a69a', d.gargalo ? esc(d.gargalo.nome) : '—', 'GARGALO', d.gargalo && d.gargalo.dias_fila != null ? d.gargalo.dias_fila + ' dias de fila' : 'sem acúmulo')}
+            </div>
+            <div class="summary-card" style="margin-bottom:16px;">
+                <div class="s-label" style="margin-bottom:14px;">PRODUÇÃO POR DIA (qtd boa) — ${dias} dias</div>
+                <div style="display:flex;align-items:flex-end;gap:2px;">${barras}</div>
+            </div>
+            <div class="summary-card">
+                <div class="s-label" style="margin-bottom:12px;">WIP POR ETAPA (gargalo em vermelho)</div>
+                ${etapasHtml || '<div style="color:var(--text-dim);">Sem OPs no fluxo no momento.</div>'}
+            </div>`;
     },
 
     // ═══ PRAZO & RISCO DE ENTREGA ══════════════════════════════════════════════

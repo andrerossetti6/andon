@@ -2286,6 +2286,49 @@ app.delete('/api/mf/wip/:op_id', auth, mfEscrita, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── Fluxo no tempo: throughput/lead por dia + WIP/gargalo por etapa ──────────
+app.get('/api/mf/fluxo-tempo', auth, async (req, res) => {
+    const dias = Math.min(60, Math.max(7, Number(req.query.dias) || 14));
+    const desde = new Date(Date.now() - dias * 864e5).toISOString();
+    const etapasR = await supabase.from('etapa_processo').select('id,nome,ordem,limite_wip').eq('ativo', true).order('ordem');
+    if (etapasR.error && /schema cache|does not exist|column/i.test(etapasR.error.message || '')) return res.status(503).json({ erro: 'Fluxo não inicializado. Rode mes_wip_unificado.sql.' });
+    if (etapasR.error) return res.status(500).json({ erro: etapasR.error.message });
+    const [apsR, opsR, ltR] = await Promise.all([
+        supabase.from('apontamento').select('etapa_id,datahora_inicio,datahora_fim,qtd_boa').not('datahora_fim', 'is', null).gte('datahora_fim', desde),
+        supabase.from('ordem_producao').select('etapa_atual_id,qtd_planejada').not('status', 'in', '(concluida,cancelada)').not('etapa_atual_id', 'is', null),
+        supabase.from('vw_wip_leadtime').select('*'),
+    ]);
+    const aps = apsR.data || [];
+    // série diária (throughput + lead time médio)
+    const byDay = {};
+    for (const a of aps) {
+        const d = (a.datahora_fim || '').slice(0, 10); if (!d) continue;
+        (byDay[d] = byDay[d] || { qtd: 0, sessoes: 0, leadSum: 0 });
+        byDay[d].qtd += Number(a.qtd_boa || 0); byDay[d].sessoes++;
+        byDay[d].leadSum += (new Date(a.datahora_fim) - new Date(a.datahora_inicio)) / 3.6e6;
+    }
+    const serie = [];
+    for (let i = dias - 1; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10); const b = byDay[d];
+        serie.push({ dia: d, qtd: b ? Math.round(b.qtd) : 0, sessoes: b ? b.sessoes : 0, lead_h: b && b.sessoes ? Math.round(b.leadSum / b.sessoes * 10) / 10 : 0 });
+    }
+    // por etapa: WIP atual + throughput 7d + lead + dias de fila (Little)
+    const ltMap = Object.fromEntries((ltR.data || []).map(r => [r.etapa_id, r]));
+    const desde7 = Date.now() - 7 * 864e5, tp7 = {};
+    for (const a of aps) if (new Date(a.datahora_fim).getTime() >= desde7) tp7[a.etapa_id] = (tp7[a.etapa_id] || 0) + Number(a.qtd_boa || 0);
+    const wipByEtapa = {};
+    (opsR.data || []).forEach(o => { (wipByEtapa[o.etapa_atual_id] = wipByEtapa[o.etapa_atual_id] || { ops: 0, qtd: 0 }); wipByEtapa[o.etapa_atual_id].ops++; wipByEtapa[o.etapa_atual_id].qtd += Number(o.qtd_planejada || 0); });
+    const etapas = (etapasR.data || []).map(e => {
+        const w = wipByEtapa[e.id] || { ops: 0, qtd: 0 };
+        const thr = (tp7[e.id] || 0) / 7;
+        const dias_fila = thr > 0 && w.qtd > 0 ? Math.round(w.qtd / thr * 10) / 10 : null;
+        return { nome: e.nome, ordem: e.ordem, wip_ops: w.ops, wip_qtd: w.qtd, throughput_dia: Math.round(thr * 10) / 10, lead_horas: ltMap[e.id]?.horas_medias ?? null, dias_fila };
+    });
+    const gargalo = etapas.filter(e => e.dias_fila != null).sort((a, b) => b.dias_fila - a.dias_fila)[0]
+        || etapas.filter(e => e.wip_ops > 0).sort((a, b) => b.wip_qtd - a.wip_qtd)[0] || null;
+    res.json({ serie, etapas, gargalo, throughput_7d: Math.round(Object.values(tp7).reduce((s, v) => s + v, 0)), dias });
+});
+
 // ── Importar Ordens de Produção do ERP (relatório em blocos) ──
 function _opErpData(s) { const m = String(s || '').match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : null; }  // dd/mm/yyyy → ISO
 function _opErpStatus(s) {
