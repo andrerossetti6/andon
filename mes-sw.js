@@ -1,6 +1,6 @@
 // Service Worker do MES Malha Forte — carrega a app offline (shell cacheado).
 // As escritas offline são tratadas pela fila IndexedDB no mes.js, não aqui.
-const CACHE = 'mf-shell-v9';
+const CACHE = 'mf-shell-v10';
 const SHELL = [
   '/mes.html',
   '/mes.js',

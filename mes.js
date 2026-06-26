@@ -199,7 +199,7 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['painel','wip','prazo','flxt','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','fio','gene','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','wip','prazo','flxt','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','fio','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'painel') this.renderPainel();
         if (name === 'wip')    this.renderWip();
         if (name === 'prazo')  this.renderPrazo();
@@ -215,7 +215,6 @@ const mf = {
         if (name === 'cil')    this.renderCil();
         if (name === 'cad')    this.renderCadTpm();
         if (name === 'fio')    this.renderFio();
-        if (name === 'gene')   this.renderGenealogia();
         if (name === 'etiq')   this.renderEtiquetas();
         if (name === 'oms')    this.renderOms();
         if (name === 'tpm')    this.renderTpm();
