@@ -1166,6 +1166,15 @@ async function mfLista(res, tabela, cols, orderCol) {
 }
 app.get('/api/mf/produtos',  auth, (_q, res) => mfLista(res, 'produto', '*', 'codigo'));
 app.get('/api/mf/maquinas',  auth, (_q, res) => mfLista(res, 'maquina', '*', 'codigo'));
+// vincula a máquina a uma etapa do fluxo (para o apontamento preencher a etapa sozinho)
+app.put('/api/mf/maquinas/:id', auth, mfEscrita, async (req, res) => {
+    const upd = {};
+    ['etapa_id', 'nome', 'ativo'].forEach(f => { if (req.body[f] !== undefined) upd[f] = req.body[f]; });
+    if (upd.etapa_id === '') upd.etapa_id = null;
+    const { error } = await supabase.from('maquina').update(upd).eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
 app.get('/api/mf/operadores',auth, (_q, res) => mfLista(res, 'operador', '*', 'nome'));
 app.get('/api/mf/turnos',    auth, (_q, res) => mfLista(res, 'turno', '*', 'codigo'));
 app.get('/api/mf/motivos',   auth, (_q, res) => mfLista(res, 'motivo_parada', '*', 'descricao'));

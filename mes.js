@@ -320,14 +320,30 @@ const mf = {
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;">
                 <div><span class="mf-label">ORDEM DE PRODUÇÃO *</span>
                     <select id="mf-op" class="mf-input">${c.ops.map(o => `<option value="${o.id}">${esc(o.numero)} — ${esc(o.produto?.descricao||'')}</option>`).join('')}</select></div>
-                <div><span class="mf-label">MÁQUINA *</span><select id="mf-maq" class="mf-input">${opt(c.maquinas,'id',m=>`${m.codigo} · ${m.nome}`)}</select></div>
+                <div><span class="mf-label">MÁQUINA *</span><select id="mf-maq" class="mf-input" onchange="mf._apontEtapaAuto()">${opt(c.maquinas,'id',m=>`${m.codigo} · ${m.nome}`)}</select></div>
                 <div><span class="mf-label">OPERADOR *</span><select id="mf-oper" class="mf-input">${opt(c.operadores,'id',o=>o.nome)}</select></div>
                 <div><span class="mf-label">TURNO *</span><select id="mf-turno" class="mf-input">${opt(c.turnos,'id',t=>`${t.codigo} — ${t.descricao||''}`)}</select></div>
                 <div><span class="mf-label">ETAPA DO FLUXO</span><select id="mf-etapa" class="mf-input">${etapaOpt}</select></div>
             </div>
             <button class="btn primary" style="margin-top:14px;" onclick="mf.iniciarSessao()">▶ Iniciar Sessão</button>
         </div>`;
-        $('mf-pan-apont').innerHTML = novaSessao + `<div id="mf-sessoes"></div>`;
+        // configuração: vincular cada máquina a uma etapa (o apontamento preenche a etapa sozinho)
+        const cfgMaq = `
+        <div class="summary-card" style="margin-bottom:18px;">
+            <button class="btn secondary" style="font-size:.78rem;" onclick="mf._maqEtapaToggle()">⚙ Vincular máquinas às etapas</button>
+            <div id="mf-maqet" style="display:${this._maqEtAberto ? 'block' : 'none'};margin-top:12px;">
+                <div style="font-size:.76rem;color:var(--text-dim);margin-bottom:10px;">Defina a etapa de cada máquina. Depois, ao escolher a máquina no apontamento, a etapa do fluxo vem automática.</div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;">
+                    ${c.maquinas.map(m => `<div style="display:flex;align-items:center;gap:8px;">
+                        <span style="font-size:.8rem;flex:1;">${esc(m.codigo)} · ${esc(m.nome)}</span>
+                        <select onchange="mf.salvarMaqEtapa('${m.id}', this.value)" class="mf-input" style="width:140px;">
+                            <option value="">— etapa —</option>
+                            ${etapas.map(e => `<option value="${e.id}" ${m.etapa_id === e.id ? 'selected' : ''}>${e.ordem}. ${esc(e.nome)}</option>`).join('')}
+                        </select></div>`).join('') || '<span style="color:var(--text-dim);font-size:.8rem;">Nenhuma máquina cadastrada.</span>'}
+                </div>
+            </div>
+        </div>`;
+        $('mf-pan-apont').innerHTML = novaSessao + cfgMaq + `<div id="mf-sessoes"></div>`;
         // modo quiosque: fixa a máquina deste tablet
         const kiosk = localStorage.getItem('mf_kiosk_maq');
         if (kiosk) {
@@ -336,8 +352,24 @@ const mf = {
             if (m && sel) { sel.value = m.id; sel.disabled = true;
                 sel.insertAdjacentHTML('afterend', `<div style="font-size:.68rem;color:#26c6da;margin-top:4px;">🖥 quiosque: ${esc(m.codigo)} <span style="color:var(--text-dim);cursor:pointer;text-decoration:underline;" onclick="localStorage.removeItem('mf_kiosk_maq');mf.renderApont()">sair</span></div>`); }
         }
+        this._apontEtapaAuto();  // pré-preenche a etapa pela máquina selecionada
         if (navigator.onLine) await this._reconciliar();
         this.renderSessoes();
+    },
+    _maqEtAberto: false,
+    _maqEtapaToggle() { this._maqEtAberto = !this._maqEtAberto; const b = $('mf-maqet'); if (b) b.style.display = this._maqEtAberto ? 'block' : 'none'; },
+    _apontEtapaAuto() {  // ao escolher a máquina, preenche a etapa do fluxo correspondente
+        const m = (this._cad.maquinas || []).find(x => x.id === $('mf-maq')?.value);
+        const et = $('mf-etapa');
+        if (m && m.etapa_id && et) et.value = m.etapa_id;
+    },
+    async salvarMaqEtapa(maqId, etapaId) {
+        const r = await api.put('/api/mf/maquinas/' + maqId, { etapa_id: etapaId || null });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao vincular.', 'erro');
+        const m = (this._cad.maquinas || []).find(x => x.id === maqId); if (m) m.etapa_id = etapaId || null;  // atualiza cache local
+        await fila.salvarEstado('cadastros', this._cad).catch(() => {});
+        toast('Máquina vinculada à etapa.', 'ok');
+        this._apontEtapaAuto();
     },
 
     async iniciarSessao() {
