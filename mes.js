@@ -2192,13 +2192,12 @@ const mf = {
                 if (m0) {
                     cur.prod_codigo = m0[1];
                     const partes = m0[2].split(/\s*[|/]\s*/).map(s => s.trim()).filter(Boolean);  // separador | ou /
-                    cur.descricao = partes[0] || m0[2].trim();
                     const iTam = partes.findIndex(p => /\btam[\s.]/i.test(p));   // a parte com "TAM." é o tamanho
                     if (iTam >= 0) { const mt = partes[iTam].match(/tam[\s.]+([^\s|/-]+)/i); cur.tamanho = mt ? mt[1] : null; }
-                    const attrs = partes.slice(1).filter((_, i) => (i + 1) !== iTam);  // restantes = cor/marca (ordem varia no ERP)
-                    cur.cor = attrs[0] || null;
-                    cur.marca = attrs[1] || null;
-                } else { cur.descricao = head; }
+                    // descrição = NOME COMPLETO (todas as partes, menos a de tamanho) — os campos do ERP são inconsistentes p/ separar cor/marca
+                    cur.descricao = partes.filter((_, i) => i !== iTam).join(' · ') || m0[2].trim();
+                    cur.cor = null; cur.marca = null;
+                } else { cur.descricao = (head || '').replace(/\s*[|/]\s*/g, ' · ').trim(); }
                 continue;
             }
             if (cur) { const ms = joined.match(/^status\s*:?\s*(.+)$/i); if (ms && !cur.status) cur.status = ms[1].trim(); }
