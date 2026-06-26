@@ -199,9 +199,10 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['painel','wip','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','fio','gene','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','wip','prazo','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','fio','gene','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (name === 'painel') this.renderPainel();
         if (name === 'wip')    this.renderWip();
+        if (name === 'prazo')  this.renderPrazo();
         if (name === 'fila')   this.renderFila();
         if (name === 'estrat') this.renderEstrat();
         if (name === 'apont')  this.renderApont();
@@ -219,6 +220,87 @@ const mf = {
         if (name === 'tpm')    this.renderTpm();
         if (name === 'impops') this.renderImportOps();
         if (name === 'import') this.renderImport();
+    },
+
+    // ═══ PRAZO & RISCO DE ENTREGA ══════════════════════════════════════════════
+    _riscoOp(o, hoje, leadDias, totalEtapas) {
+        if (['concluida', 'cancelada'].includes(o.status)) return { nivel: 'done' };
+        const prev = o.data_prevista ? new Date(o.data_prevista) : null;
+        const etapaOrdem = o.etapa?.ordem || 0;
+        const restanteFrac = o.etapa_atual_id ? Math.max(0.1, (totalEtapas - etapaOrdem + 1) / totalEtapas) : 1;  // fora do fluxo = falta tudo
+        const diasRestantes = leadDias * restanteFrac;
+        if (!prev) return { nivel: 'verde', label: 'sem previsão', dias: null };
+        const diasAteprazo = Math.round((prev - hoje) / 864e5);
+        if (diasAteprazo < 0) return { nivel: 'vermelho', label: 'atrasada', dias: diasAteprazo };
+        const folga = Math.round(diasAteprazo - diasRestantes);
+        if (folga < 0) return { nivel: 'vermelho', label: 'vai atrasar', dias: diasAteprazo, folga };
+        if (folga <= leadDias * 0.5) return { nivel: 'amarelo', label: 'aperta', dias: diasAteprazo, folga };
+        return { nivel: 'verde', label: 'no prazo', dias: diasAteprazo, folga };
+    },
+    async renderPrazo() {
+        const pan = $('mf-pan-prazo');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando prazos...</div>`;
+        const [ops, etapas] = await Promise.all([api.get('/api/mf/ops'), api.get('/api/mf/etapas-processo')]);
+        if (!Array.isArray(ops)) { pan.innerHTML = `<div class="summary-card" style="color:#f06292;">Não foi possível carregar as OPs.</div>`; return; }
+        this._prazoOps = ops; this._prazoEtapas = (Array.isArray(etapas) && etapas.length) || 8;
+        pan.innerHTML = `
+            <div class="summary-card" style="margin-bottom:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <span class="s-label" style="margin:0;">⏱ LEAD TIME ESTIMADO POR OP</span>
+                <input id="mf-prazo-lead" type="number" min="0.5" step="0.5" value="${this._prazoLead || 7}" onchange="mf._prazoCalc()" style="width:70px;padding:5px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.85rem;text-align:right;"> dias
+                <span style="font-size:.74rem;color:var(--text-dim);">tempo que uma OP leva para atravessar o fluxo inteiro — ajuste para a sua realidade</span>
+            </div>
+            <div id="mf-prazo-cards" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;"></div>
+            <div id="mf-prazo-tab"></div>`;
+        this._prazoCalc();
+    },
+    _prazoCalc() {
+        const leadDias = parseFloat($('mf-prazo-lead')?.value) || 7; this._prazoLead = leadDias;
+        const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+        const total = this._prazoEtapas;
+        const ops = (this._prazoOps || []).map(o => ({ o, r: this._riscoOp(o, hoje, leadDias, total) }));
+        const ativos = ops.filter(x => x.r.nivel !== 'done');
+        const cont = { vermelho: 0, amarelo: 0, verde: 0 }, qtd = { vermelho: 0, amarelo: 0, verde: 0 };
+        ativos.forEach(x => { cont[x.r.nivel]++; qtd[x.r.nivel] += Number(x.o.qtd_planejada || 0); });
+        const done = ops.length - ativos.length;
+        const card = (cor, emoji, n, lbl, q) => `<div style="background:${cor}14;border:1px solid ${cor}3a;border-radius:12px;padding:14px 18px;flex:1;min-width:150px;">
+            <div style="font-size:1.7rem;font-weight:800;color:${cor};">${emoji} ${n}</div><div style="font-size:.62rem;color:${cor};letter-spacing:.04em;">${lbl}</div>
+            <div style="font-size:.66rem;color:var(--text-dim);margin-top:2px;">${Number(q).toLocaleString('pt-BR')} pç</div></div>`;
+        $('mf-prazo-cards').innerHTML =
+            card('#f06292', '🔴', cont.vermelho, 'ATRASADAS / VÃO ATRASAR', qtd.vermelho) +
+            card('#ffca28', '🟡', cont.amarelo, 'EM RISCO (APERTA)', qtd.amarelo) +
+            card('#26a69a', '🟢', cont.verde, 'NO PRAZO', qtd.verde) +
+            `<div style="background:#7c4dff14;border:1px solid #7c4dff3a;border-radius:12px;padding:14px 18px;flex:1;min-width:120px;"><div style="font-size:1.7rem;font-weight:800;color:#7c4dff;">✓ ${done}</div><div style="font-size:.62rem;color:#7c4dff;">CONCLUÍDAS / CANCELADAS</div></div>`;
+        const rank = { vermelho: 0, amarelo: 1, verde: 2 };
+        ativos.sort((a, b) => (rank[a.r.nivel] - rank[b.r.nivel]) || ((a.r.dias ?? 9999) - (b.r.dias ?? 9999)));
+        const dt = s => s ? new Date(s).toLocaleDateString('pt-BR') : '—';
+        const cores = { vermelho: '#f06292', amarelo: '#ffca28', verde: '#26a69a' }, emoji = { vermelho: '🔴', amarelo: '🟡', verde: '🟢' };
+        const linhas = ativos.slice(0, 400).map(({ o, r }) => {
+            const cor = cores[r.nivel];
+            const diasTxt = r.dias == null ? '—' : (r.dias < 0 ? `<span style="color:#f06292;">${r.dias}d</span>` : `${r.dias}d` + (r.folga != null ? ` <span style="color:var(--text-dim);">(folga ${r.folga})</span>` : ''));
+            const pos = o.etapa ? `${o.etapa.ordem}/${this._prazoEtapas} ${esc(o.etapa.nome)}` : '<span style="color:var(--text-dim);">fora do fluxo</span>';
+            return `<tr style="border-bottom:1px solid rgba(255,255,255,.04);border-left:3px solid ${cor};">
+                <td style="padding:6px 8px;white-space:nowrap;">${emoji[r.nivel]} <span style="font-size:.66rem;color:${cor};">${r.label}</span></td>
+                <td style="padding:6px 8px;font-weight:600;">${esc(o.numero)}</td>
+                <td style="padding:6px 8px;">${esc(o.produto?.descricao || '?')}<span style="color:var(--text-dim);font-size:.72rem;"> ${esc(o.produto?.tamanho || '')}</span></td>
+                <td style="padding:6px 8px;text-align:right;white-space:nowrap;">${Number(o.qtd_planejada || 0).toLocaleString('pt-BR')} ${esc(o.unidade || '')}</td>
+                <td style="padding:6px 8px;white-space:nowrap;">${dt(o.data_prevista)}</td>
+                <td style="padding:6px 8px;white-space:nowrap;">${diasTxt}</td>
+                <td style="padding:6px 8px;">${pos}</td>
+                <td style="padding:6px 8px;">${Number(o.prioridade || 0) < 2 ? `<button onclick="mf.prazoUrgente('${o.id}')" style="background:none;border:1px solid #f0629255;color:#f06292;border-radius:5px;font-size:.66rem;padding:2px 7px;cursor:pointer;">▲ urgente</button>` : '<span style="font-size:.62rem;color:#f06292;">● urgente</span>'}</td>
+            </tr>`;
+        }).join('');
+        $('mf-prazo-tab').innerHTML = `<div class="summary-card" style="padding:0;overflow:auto;max-height:60vh;">
+            <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                <thead><tr style="position:sticky;top:0;background:var(--bg-card);z-index:1;text-align:left;color:var(--text-dim);font-size:.64rem;letter-spacing:.04em;">
+                    <th style="padding:8px;">RISCO</th><th style="padding:8px;">Nº OP</th><th style="padding:8px;">PRODUTO</th><th style="padding:8px;text-align:right;">QTD</th><th style="padding:8px;">PREVISÃO</th><th style="padding:8px;">PRAZO</th><th style="padding:8px;">POSIÇÃO</th><th style="padding:8px;"></th>
+                </tr></thead><tbody>${linhas || '<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-dim);">Nenhuma OP ativa.</td></tr>'}</tbody>
+            </table></div>`;
+    },
+    async prazoUrgente(id) {
+        const o = (this._prazoOps || []).find(x => x.id === id); if (o) o.prioridade = 2;
+        const r = await api.put('/api/mf/ops/' + id, { prioridade: 2 });
+        toast(r?.ok ? 'Marcada como urgente (vai ao topo da Fila).' : 'Erro.', r?.ok ? 'ok' : 'erro');
+        this._prazoCalc();
     },
 
     // ═══ FILA / BACKLOG DE OPs ═════════════════════════════════════════════════
