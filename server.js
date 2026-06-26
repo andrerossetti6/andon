@@ -1172,10 +1172,15 @@ app.get('/api/mf/motivos',   auth, (_q, res) => mfLista(res, 'motivo_parada', '*
 app.get('/api/mf/defeitos',  auth, (_q, res) => mfLista(res, 'catalogo_defeito', '*', 'descricao'));
 
 app.get('/api/mf/ops', auth, async (req, res) => {
-    let q = supabase.from('ordem_producao').select('*, produto:produto_id(codigo,descricao,unidade_medida)').order('criado_em', { ascending: false });
+    let q = supabase.from('ordem_producao').select('*, produto:produto_id(codigo,descricao,unidade_medida,marca,cor,tamanho), etapa:etapa_atual_id(nome,ordem)').limit(1000);
     if (req.query.status) q = q.eq('status', req.query.status);
-    const { data, error } = await q.limit(500);
-    if (error) return res.status(500).json({ erro: error.message });
+    const { data, error } = await q;
+    if (error) {
+        // fallback se as colunas novas (etapa_atual) ainda não existirem
+        const r2 = await supabase.from('ordem_producao').select('*, produto:produto_id(codigo,descricao,unidade_medida)').order('criado_em', { ascending: false }).limit(1000);
+        if (r2.error) return res.status(500).json({ erro: r2.error.message });
+        return res.json(r2.data || []);
+    }
     res.json(data || []);
 });
 
@@ -2222,6 +2227,19 @@ app.post('/api/mf/wip/iniciar', auth, mfEscrita, async (req, res) => {
     const { error } = await supabase.from('ordem_producao').update({ etapa_atual_id: etapaId, etapa_desde: new Date().toISOString() }).eq('id', op_id);
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true });
+});
+// entra com várias OPs de uma vez (na 1ª etapa, ou etapa_id informado) — só as que estão fora do fluxo
+app.post('/api/mf/wip/iniciar-lote', auth, mfEscrita, async (req, res) => {
+    const ids = Array.isArray(req.body?.op_ids) ? req.body.op_ids : [];
+    if (!ids.length) return res.status(400).json({ erro: 'op_ids obrigatório' });
+    let etapaId = req.body.etapa_id;
+    if (!etapaId) { const { data: e } = await supabase.from('etapa_processo').select('id').eq('ativo', true).order('ordem').limit(1); etapaId = e?.[0]?.id; }
+    if (!etapaId) return res.status(400).json({ erro: 'Nenhuma etapa cadastrada.' });
+    const { data, error } = await supabase.from('ordem_producao')
+        .update({ etapa_atual_id: etapaId, etapa_desde: new Date().toISOString() })
+        .in('id', ids).is('etapa_atual_id', null).not('status', 'in', '(concluida,cancelada)').select('id');
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, inseridas: (data || []).length });
 });
 // avança a OP para a próxima etapa (move o ponteiro)
 app.post('/api/mf/wip/avancar', auth, mfEscrita, async (req, res) => {
