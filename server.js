@@ -27,6 +27,19 @@ async function fetchAllRows(tabela, importacaoId, pageSize = 1000) {
     return all;
 }
 
+// paginação genérica (sem filtro de importacao) — evita o teto de 1000 do PostgREST
+async function fetchAllSelect(tabela, cols, tweak = q => q, pageSize = 1000) {
+    let all = [], from = 0;
+    for (;;) {
+        const { data, error } = await tweak(supabase.from(tabela).select(cols).range(from, from + pageSize - 1));
+        if (error) throw error;
+        all = all.concat(data || []);
+        if (!data || data.length < pageSize) break;
+        from += pageSize;
+    }
+    return all;
+}
+
 // Insere rows em batches com rollback automático se algum falhar
 async function batchInsert(tabela, importacaoTabela, importacaoId, rows, batchSize = 200) {
     for (let i = 0; i < rows.length; i += batchSize) {
@@ -340,12 +353,15 @@ app.get('/api/op', auth, async (req, res) => {
 // dados_op ({id, dados:{'N. OP','Ref','Descrição','Cor','Tam','Marca','Qtd','Status'}}).
 // Fonte única da carteira de OP. NÃO toca em dados_op nem no /api/op (import legado).
 app.get('/api/op-unificado', auth, async (req, res) => {
-    const [{ data: ops, error: e1 }, { data: prods, error: e2 }] = await Promise.all([
-        supabase.from('ordem_producao').select('id,numero,produto_id,qtd_planejada,unidade,status,data_abertura,data_prevista').neq('status', 'cancelada'),
-        supabase.from('produto').select('id,codigo,descricao,cor,marca,tamanho'),
-    ]);
-    if (e1) return res.status(500).json({ erro: e1.message });
-    if (e2) return res.status(500).json({ erro: e2.message });
+    let ops, prods;
+    try {
+        // paginado (sem teto de 1000) e exclui canceladas E concluídas — só carteira ATIVA p/ planejamento
+        [ops, prods] = await Promise.all([
+            fetchAllSelect('ordem_producao', 'id,numero,produto_id,qtd_planejada,unidade,status,data_abertura,data_prevista',
+                q => q.neq('status', 'cancelada').neq('status', 'concluida')),
+            fetchAllSelect('produto', 'id,codigo,descricao,cor,marca,tamanho'),
+        ]);
+    } catch (e) { return res.status(500).json({ erro: e.message }); }
     const pById = new Map((prods || []).map(p => [p.id, p]));
     const rows = (ops || []).map(o => {
         const p = pById.get(o.produto_id) || {};

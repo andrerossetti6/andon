@@ -1082,7 +1082,9 @@ const cockpit = {
         const qtdCarteira = cart.reduce((s, o) => s + (Number(o.dados?.Qtd) || 0), 0);
         const emProd = cart.filter(o => /produ/i.test(o.dados?.Status || '')).length;
         const andonAbertos = (Array.isArray(andon) ? andon : []).filter(a => a.status && a.status !== 'resolvido').length;
-        const oee = ind && (ind.oee_medio ?? ind.oee);
+        // /api/mf/indicadores devolve oee como ARRAY (uma linha por máquina da vw_oee) — média das válidas
+        const oeeArr = Array.isArray(ind?.oee) ? ind.oee.map(r => Number(r.oee)).filter(v => Number.isFinite(v)) : [];
+        const oee = oeeArr.length ? oeeArr.reduce((a, b) => a + b, 0) / oeeArr.length : null;
         const oeeTxt = (oee != null && oee > 0) ? (Math.round(oee * 10) / 10) + '%' : '<span style="color:var(--text-dim);font-size:.8rem;">aguardando apontamento</span>';
         const nProdMes = Array.isArray(prods) ? prods.length : 0;
         // ── PLANEJAMENTO (SIGS, em memória) ──
