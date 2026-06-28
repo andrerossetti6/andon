@@ -2521,6 +2521,35 @@ app.post('/api/mf/importar-ops', auth, mfEscrita, async (req, res) => {
     res.json({ ok: true, inseridas, produtos_criados, ignoradas: existentes.length, erros });
 });
 
+// ── Andon: chamado em tempo real do chão ──────────────────────
+app.post('/api/mf/andon', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {};
+    if (!b.tipo) return res.status(400).json({ erro: 'tipo obrigatório' });
+    const row = { tipo: b.tipo, etapa_id: b.etapa_id || null, maquina_id: b.maquina_id || null, operador_id: b.operador_id || null, op_id: b.op_id || null, descricao: b.descricao || null };
+    if (b.id) row.id = b.id;
+    const { data, error } = await supabase.from('chamado_andon').upsert(row).select().single();
+    if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'Andon não inicializado. Rode mes_andon.sql.' });
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, chamado: data });
+});
+app.get('/api/mf/andon', auth, async (_q, res) => {
+    const { data, error } = await supabase.from('chamado_andon')
+        .select('*, etapa:etapa_id(nome,ordem), maquina:maquina_id(codigo), operador:operador_id(nome), op:op_id(numero)')
+        .neq('status', 'resolvido').order('aberto_em');
+    if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'Andon não inicializado. Rode mes_andon.sql.' });
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json(data || []);
+});
+app.put('/api/mf/andon/:id', auth, mfEscrita, async (req, res) => {
+    const acao = req.body?.acao, upd = {};
+    if (acao === 'atender') { upd.status = 'atendido'; upd.atendido_em = new Date().toISOString(); upd.atendido_por = req.body?.por || null; }
+    else if (acao === 'resolver') { upd.status = 'resolvido'; upd.resolvido_em = new Date().toISOString(); }
+    else return res.status(400).json({ erro: 'ação inválida (atender|resolver)' });
+    const { error } = await supabase.from('chamado_andon').update(upd).eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
 // ── Fallback para SPA ─────────────────────────────────────────
 app.get('/{*path}', (_req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));

@@ -204,10 +204,13 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['painel','wip','prazo','flxt','capac','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','rastreio','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','wip','prazo','flxt','capac','andon','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','rastreio','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        if (this._andonTimer && name !== 'andon') { clearInterval(this._andonTimer); this._andonTimer = null; }
         if (name === 'painel') this.renderPainel();
         if (name === 'wip')    this.renderWip();
         this._abaAtiva = name;
+        this._atualizarAndonBadge().catch(() => {});  // mantém o badge de chamados atualizado
+        if (name === 'andon')  this.renderAndon();
         if (name === 'prazo')  this.renderPrazo();
         if (name === 'flxt')   this.renderFluxoTempo();
         if (name === 'capac')  this.renderCapacidade();
@@ -525,6 +528,71 @@ const mf = {
         if (r?.ok) { this._filaSel = new Set(); this.renderFila(); }
     },
 
+    // ═══ ANDON — chamado em tempo real ═════════════════════════════════════════
+    formAndon(apId) {
+        const a = this._abertas.find(x => x.id === apId) || {};
+        const tipos = [['ajuda', '🙋 Preciso de ajuda'], ['parada', '⛔ Linha parada'], ['qualidade', '⚠ Problema de qualidade'], ['material', '📦 Falta material']];
+        this._modal(`
+            <div class="s-label" style="margin-bottom:14px;color:#ff5252;">🆘 CHAMADO ANDON${a.etapa_nome ? ` · ${esc(a.etapa_nome)}` : ''}</div>
+            <div id="mf-andon-tipo" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;">
+                ${tipos.map((t, i) => `<label style="display:flex;align-items:center;gap:8px;padding:9px 11px;border:1px solid var(--border-color);border-radius:8px;cursor:pointer;font-size:.86rem;"><input type="radio" name="andtipo" value="${t[0]}" ${i === 0 ? 'checked' : ''}> ${t[1]}</label>`).join('')}
+            </div>
+            <span class="mf-label">DETALHE (opcional)</span><input id="mf-andon-desc" class="mf-input" placeholder="o que está acontecendo" style="margin-bottom:16px;">
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button class="btn secondary" onclick="mf._fecharModal()">Cancelar</button>
+                <button class="btn primary" style="background:#ff5252;border-color:#ff5252;" onclick="mf.salvarAndon('${apId}')">🆘 Chamar</button>
+            </div>`);
+    },
+    async salvarAndon(apId) {
+        const a = this._abertas.find(x => x.id === apId) || {};
+        const tipo = document.querySelector('#mf-andon-tipo input:checked')?.value || 'ajuda';
+        const desc = $('mf-andon-desc')?.value || null;
+        this._fecharModal();
+        const r = await api.post('/api/mf/andon', { tipo, descricao: desc, op_id: a.op_id || null, operador_id: a.operador_id || null, etapa_id: a.etapa_id || null });
+        toast(r?.ok ? '🆘 Chamado aberto — supervisor avisado.' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
+        this._atualizarAndonBadge();
+    },
+    async renderAndon() {
+        const pan = $('mf-pan-andon');
+        if (!pan.innerHTML) pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando chamados...</div>`;
+        const lista = await api.get('/api/mf/andon');
+        if (!Array.isArray(lista)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Andon não inicializado — rode <strong>mes_andon.sql</strong> e recarregue.</div>`; return; }
+        this._atualizarAndonBadge(lista.length);
+        const TIPO = { ajuda: ['🙋', 'Ajuda', '#26c6da'], parada: ['⛔', 'Linha parada', '#f06292'], qualidade: ['⚠', 'Qualidade', '#ffca28'], material: ['📦', 'Material', '#7c4dff'] };
+        const min = iso => Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+        const cards = lista.map(c => {
+            const [emo, lbl, cor] = TIPO[c.tipo] || ['🆘', c.tipo, '#ff5252'];
+            const m = min(c.aberto_em), ec = m >= 15 ? '#f06292' : m >= 5 ? '#ffca28' : '#26a69a';
+            return `<div style="background:${cor}10;border:1px solid ${cor}44;border-left:4px solid ${ec};border-radius:10px;padding:12px 14px;min-width:230px;flex:1;max-width:330px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <strong style="color:${cor};">${emo} ${lbl}</strong>
+                    <span style="font-size:.72rem;color:${ec};font-weight:700;">há ${m} min</span>
+                </div>
+                <div style="font-size:.8rem;margin:5px 0;">${c.etapa ? `${c.etapa.ordem}. ${esc(c.etapa.nome)} · ` : ''}${esc(c.maquina?.codigo || '')} ${esc(c.operador?.nome || '')}${c.op ? ` · OP ${esc(c.op.numero)}` : ''}</div>
+                ${c.descricao ? `<div style="font-size:.78rem;color:var(--text-dim);margin-bottom:6px;">"${esc(c.descricao)}"</div>` : ''}
+                <div style="display:flex;gap:6px;margin-top:6px;">
+                    ${c.status === 'aberto' ? `<button class="btn secondary" style="font-size:.74rem;flex:1;" onclick="mf.acaoAndon('${c.id}','atender')">▶ Atender</button>` : `<span style="font-size:.72rem;color:#26a69a;flex:1;align-self:center;">● em atendimento${c.atendido_por ? ' (' + esc(c.atendido_por) + ')' : ''}</span>`}
+                    <button class="btn primary" style="font-size:.74rem;flex:1;" onclick="mf.acaoAndon('${c.id}','resolver')">✓ Resolver</button>
+                </div>
+            </div>`;
+        }).join('');
+        pan.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+                <div class="s-label">🆘 ANDON — CHAMADOS ABERTOS (${lista.length})</div>
+                <span style="font-size:.72rem;color:var(--text-dim);">atualiza sozinho · 🟢 &lt;5min · 🟡 &lt;15min · 🔴 +15min</span>
+            </div>
+            ${lista.length ? `<div style="display:flex;gap:12px;flex-wrap:wrap;">${cards}</div>` : `<div class="summary-card" style="text-align:center;padding:30px;color:#26a69a;">✓ Nenhum chamado aberto — chão tranquilo.</div>`}`;
+        if (!this._andonTimer) this._andonTimer = setInterval(() => { const p = $('mf-pan-andon'); if (p && p.style.display !== 'none') this.renderAndon(); }, 8000);
+    },
+    async acaoAndon(id, acao) {
+        const r = await api.put('/api/mf/andon/' + id, { acao, por: 'Supervisor' });
+        if (r?.ok) this.renderAndon(); else toast(r?.erro || 'Erro.', 'erro');
+    },
+    async _atualizarAndonBadge(n) {
+        if (n == null) { const l = await api.get('/api/mf/andon'); n = Array.isArray(l) ? l.length : 0; }
+        const b = $('mf-andon-badge'); if (b) { b.textContent = n; b.style.display = n > 0 ? 'inline-block' : 'none'; }
+    },
+
     // ═══ APONTAMENTO ═══════════════════════════════════════════════════════════
     async renderApont() {
         const c = this._cad;
@@ -676,6 +744,7 @@ const mf = {
                     <button class="btn secondary" style="font-size:.78rem;" onclick="mf.formParada('${a.id}')">⏸ Registrar parada</button>
                     <button class="btn secondary" style="font-size:.78rem;" onclick="mf.formMedicao('${a.id}')">📏 Medir</button>
                     <button class="btn secondary" style="font-size:.78rem;border-color:rgba(240,98,146,.4);color:#f06292;" onclick="mf.formNc('${a.id}')">⚠ Registrar NC</button>
+                    <button class="btn secondary" style="font-size:.78rem;border-color:rgba(255,82,82,.5);color:#ff5252;" onclick="mf.formAndon('${a.id}')">🆘 Andon</button>
                     ${a.etapa_id?`<label style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--text-dim);margin-left:auto;cursor:pointer;" title="Ao fechar, move a OP para a próxima etapa do fluxo"><input type="checkbox" id="mf-av-${a.id}" checked> avançar no fluxo</label>`:''}
                     <button class="btn primary" style="font-size:.78rem;${a.etapa_id?'':'margin-left:auto;'}" onclick="mf.fecharSessao('${a.id}')">✓ Fechar sessão</button>
                 </div>
