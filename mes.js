@@ -204,13 +204,14 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['painel','wip','prazo','flxt','capac','andon','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','cil','cad','rastreio','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','wip','prazo','flxt','capac','andon','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','setup','cil','cad','rastreio','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (this._andonTimer && name !== 'andon') { clearInterval(this._andonTimer); this._andonTimer = null; }
         if (name === 'painel') this.renderPainel();
         if (name === 'wip')    this.renderWip();
         this._abaAtiva = name;
         this._atualizarAndonBadge().catch(() => {});  // mantém o badge de chamados atualizado
         if (name === 'andon')  this.renderAndon();
+        if (name === 'setup')  this.renderSetup();
         if (name === 'prazo')  this.renderPrazo();
         if (name === 'flxt')   this.renderFluxoTempo();
         if (name === 'capac')  this.renderCapacidade();
@@ -591,6 +592,47 @@ const mf = {
     async _atualizarAndonBadge(n) {
         if (n == null) { const l = await api.get('/api/mf/andon'); n = Array.isArray(l) ? l.length : 0; }
         const b = $('mf-andon-badge'); if (b) { b.textContent = n; b.style.display = n > 0 ? 'inline-block' : 'none'; }
+    },
+
+    // ═══ SETUP / SMED ══════════════════════════════════════════════════════════
+    async renderSetup() {
+        const pan = $('mf-pan-setup');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando setup...</div>`;
+        const dias = this._setupDias || 14;
+        const d = await api.get('/api/mf/setup?dias=' + dias);
+        if (!d || d.erro) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Setup indisponível${d?.erro ? ' — ' + esc(d.erro) : ''}.</div>`; return; }
+        const card = (cor, val, lbl) => `<div style="background:${cor}14;border:1px solid ${cor}3a;border-radius:12px;padding:14px 18px;flex:1;min-width:140px;"><div style="font-size:1.6rem;font-weight:800;color:${cor};">${val}</div><div style="font-size:.62rem;color:${cor};letter-spacing:.04em;">${lbl}</div></div>`;
+        const maxM = Math.max(1, ...d.serie.map(s => s.min));
+        const barras = d.serie.map(s => {
+            const h = Math.round(s.min / maxM * 100), dd = s.dia.slice(8, 10) + '/' + s.dia.slice(5, 7);
+            return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:13px;">
+                <div style="font-size:.54rem;color:var(--text-dim);height:10px;">${s.min || ''}</div>
+                <div style="width:72%;height:80px;display:flex;align-items:flex-end;"><div style="width:100%;height:${h}%;background:#ffa726;border-radius:3px 3px 0 0;min-height:${s.min ? 2 : 0}px;" title="${dd}: ${s.min} min"></div></div>
+                <div style="font-size:.52rem;color:var(--text-dim);">${dd}</div></div>`;
+        }).join('');
+        const offs = d.offensores.map((o, i) => `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+            <td style="padding:6px 8px;color:var(--text-dim);">${i + 1}</td><td style="padding:6px 8px;font-weight:600;">${esc(o.maquina)}</td>
+            <td style="padding:6px 8px;text-align:right;">${o.min} min</td><td style="padding:6px 8px;text-align:right;">${o.trocas}</td>
+            <td style="padding:6px 8px;text-align:right;">${o.media} min/troca</td></tr>`).join('');
+        pan.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+                <div class="s-label">🔧 SETUP / SMED — tempo de troca de artigo</div>
+                <select onchange="mf._setupDias=+this.value;mf.renderSetup()" style="padding:5px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.8rem;">
+                    ${[7, 14, 30].map(n => `<option value="${n}" ${dias === n ? 'selected' : ''}>últimos ${n} dias</option>`).join('')}</select>
+            </div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+                ${card('#ffa726', d.total_min >= 60 ? (d.total_min / 60).toFixed(1) + ' h' : d.total_min + ' min', 'TEMPO TOTAL DE SETUP')}
+                ${card('#26c6da', d.trocas, 'Nº DE TROCAS')}
+                ${card('#7c4dff', d.media_min + ' min', 'MÉDIA POR TROCA')}
+            </div>
+            <div class="summary-card" style="margin-bottom:16px;">
+                <div class="s-label" style="margin-bottom:14px;">SETUP POR DIA (minutos) — ${dias} dias</div>
+                <div style="display:flex;align-items:flex-end;gap:2px;">${barras}</div>
+            </div>
+            <div class="summary-card">
+                <div class="s-label" style="margin-bottom:8px;">ONDE ESTÁ O SETUP (top máquinas) — é aqui que o SMED ataca</div>
+                ${d.offensores.length ? `<table style="width:100%;border-collapse:collapse;font-size:.82rem;"><thead><tr style="text-align:left;color:var(--text-dim);font-size:.64rem;"><th style="padding:6px 8px;">#</th><th style="padding:6px 8px;">MÁQUINA</th><th style="padding:6px 8px;text-align:right;">TEMPO</th><th style="padding:6px 8px;text-align:right;">TROCAS</th><th style="padding:6px 8px;text-align:right;">MÉDIA</th></tr></thead><tbody>${offs}</tbody></table>` : '<div style="color:var(--text-dim);padding:6px;">Sem trocas registradas no período. Registre a parada de setup (motivo "Troca de artigo") para medir.</div>'}
+            </div>`;
     },
 
     // ═══ APONTAMENTO ═══════════════════════════════════════════════════════════

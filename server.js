@@ -2521,6 +2521,26 @@ app.post('/api/mf/importar-ops', auth, mfEscrita, async (req, res) => {
     res.json({ ok: true, inseridas, produtos_criados, ignoradas: existentes.length, erros });
 });
 
+// ── Setup / SMED (#3): tempo de troca de artigo (paradas categoria 'setup') ──
+app.get('/api/mf/setup', auth, async (req, res) => {
+    const dias = Math.min(90, Math.max(7, Number(req.query.dias) || 14));
+    const desde = new Date(Date.now() - dias * 864e5).toISOString();
+    const { data, error } = await supabase.from('parada')
+        .select('datahora_inicio,duracao_segundos, motivo:motivo_id!inner(categoria), ap:apontamento_id(maquina:maquina_id(codigo), etapa:etapa_id(nome,ordem))')
+        .eq('motivo.categoria', 'setup').not('datahora_fim', 'is', null).gte('datahora_inicio', desde);
+    if (error) return res.status(500).json({ erro: error.message });
+    const ps = data || [], totalSeg = ps.reduce((s, p) => s + Number(p.duracao_segundos || 0), 0);
+    const byDay = {}, byMaq = {};
+    ps.forEach(p => {
+        const d = (p.datahora_inicio || '').slice(0, 10); byDay[d] = (byDay[d] || 0) + Number(p.duracao_segundos || 0);
+        const m = p.ap?.maquina?.codigo || '?'; (byMaq[m] = byMaq[m] || { seg: 0, n: 0 }); byMaq[m].seg += Number(p.duracao_segundos || 0); byMaq[m].n++;
+    });
+    const serie = [];
+    for (let i = dias - 1; i >= 0; i--) { const d = new Date(Date.now() - i * 864e5).toISOString().slice(0, 10); serie.push({ dia: d, min: Math.round((byDay[d] || 0) / 60) }); }
+    const offensores = Object.entries(byMaq).map(([k, v]) => ({ maquina: k, min: Math.round(v.seg / 60), trocas: v.n, media: Math.round(v.seg / v.n / 60 * 10) / 10 })).sort((a, b) => b.min - a.min).slice(0, 10);
+    res.json({ dias, total_min: Math.round(totalSeg / 60), trocas: ps.length, media_min: ps.length ? Math.round(totalSeg / ps.length / 60 * 10) / 10 : 0, serie, offensores });
+});
+
 // ── Andon: chamado em tempo real do chão ──────────────────────
 app.post('/api/mf/andon', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
