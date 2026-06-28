@@ -204,7 +204,7 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['painel','wip','prazo','flxt','capac','andon','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','setup','cil','cad','rastreio','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','wip','prazo','flxt','capac','andon','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','setup','cil','cad','rastreio','mat','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (this._andonTimer && name !== 'andon') { clearInterval(this._andonTimer); this._andonTimer = null; }
         if (name === 'painel') this.renderPainel();
         if (name === 'wip')    this.renderWip();
@@ -212,6 +212,7 @@ const mf = {
         this._atualizarAndonBadge().catch(() => {});  // mantém o badge de chamados atualizado
         if (name === 'andon')  this.renderAndon();
         if (name === 'setup')  this.renderSetup();
+        if (name === 'mat')    this.renderMateriais();
         if (name === 'prazo')  this.renderPrazo();
         if (name === 'flxt')   this.renderFluxoTempo();
         if (name === 'capac')  this.renderCapacidade();
@@ -635,6 +636,82 @@ const mf = {
             </div>`;
     },
 
+    // ═══ MATERIAIS (FIO) ═══════════════════════════════════════════════════════
+    async renderMateriais() {
+        const pan = $('mf-pan-mat');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando materiais...</div>`;
+        const lotes = await api.get('/api/mf/lotes-fio');
+        if (!Array.isArray(lotes)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Materiais indisponível — rode <strong>mes_rastreabilidade.sql</strong>.</div>`; return; }
+        this._lotesFio = lotes;
+        const brl = n => Number(n || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+        const baixa = l => Number(l.qtd_disponivel_kg) <= Math.max(20, Number(l.qtd_recebida_kg) * 0.15);
+        const totalDisp = lotes.reduce((s, l) => s + Number(l.qtd_disponivel_kg || 0), 0);
+        const emBaixa = lotes.filter(baixa).length;
+        const card = (cor, val, lbl) => `<div style="background:${cor}14;border:1px solid ${cor}3a;border-radius:12px;padding:14px 18px;flex:1;min-width:150px;"><div style="font-size:1.6rem;font-weight:800;color:${cor};">${val}</div><div style="font-size:.62rem;color:${cor};letter-spacing:.04em;">${lbl}</div></div>`;
+        const linhas = lotes.map(l => {
+            const b = baixa(l), pct = l.qtd_recebida_kg > 0 ? Math.round(l.qtd_disponivel_kg / l.qtd_recebida_kg * 100) : 0;
+            return `<tr style="border-bottom:1px solid rgba(255,255,255,.04);${b ? 'background:rgba(240,98,146,.06);' : ''}">
+                <td style="padding:6px 8px;font-weight:600;">${esc(l.codigo)}</td>
+                <td style="padding:6px 8px;">${esc(l.fornecedor || '—')}</td>
+                <td style="padding:6px 8px;color:var(--text-dim);">${esc(l.composicao || '')} ${esc(l.titulo_fio || '')} ${esc(l.cor || '')}</td>
+                <td style="padding:6px 8px;text-align:right;">${brl(l.qtd_recebida_kg)} kg</td>
+                <td style="padding:6px 8px;text-align:right;font-weight:700;color:${b ? '#f06292' : '#26a69a'};">${brl(l.qtd_disponivel_kg)} kg ${b ? '⚠' : ''}</td>
+                <td style="padding:6px 8px;text-align:right;color:var(--text-dim);">${pct}%</td></tr>`;
+        }).join('');
+        pan.innerHTML = `
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+                ${card('#26a69a', brl(totalDisp) + ' kg', 'FIO DISPONÍVEL')}
+                ${card('#26c6da', lotes.length, 'LOTES ATIVOS')}
+                ${card(emBaixa ? '#f06292' : '#8b949e', emBaixa, 'LOTES EM BAIXA')}
+            </div>
+            <div class="summary-card" style="margin-bottom:14px;">
+                <div class="s-label" style="margin-bottom:10px;">+ RECEBER LOTE DE FIO</div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;">
+                    <input id="mf-lf-cod" class="mf-input" placeholder="Código do lote *">
+                    <input id="mf-lf-forn" class="mf-input" placeholder="Fornecedor">
+                    <input id="mf-lf-comp" class="mf-input" placeholder="Composição (PV 67/33)">
+                    <input id="mf-lf-tit" class="mf-input" placeholder="Título (30/1)">
+                    <input id="mf-lf-cor" class="mf-input" placeholder="Cor">
+                    <input id="mf-lf-kg" type="number" min="0" step="0.1" class="mf-input" placeholder="kg recebidos *">
+                </div>
+                <button class="btn primary" style="margin-top:10px;font-size:.8rem;" onclick="mf.receberLoteFio()">Receber lote</button>
+            </div>
+            <div class="summary-card" style="padding:0;overflow:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                    <thead><tr style="text-align:left;color:var(--text-dim);font-size:.64rem;"><th style="padding:8px;">LOTE</th><th style="padding:8px;">FORNECEDOR</th><th style="padding:8px;">FIO</th><th style="padding:8px;text-align:right;">RECEBIDO</th><th style="padding:8px;text-align:right;">DISPONÍVEL</th><th style="padding:8px;text-align:right;">%</th></tr></thead>
+                    <tbody>${linhas || '<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--text-dim);">Nenhum lote de fio. Receba o primeiro acima.</td></tr>'}</tbody>
+                </table>
+            </div>
+            <style>.mf-input{padding:7px 10px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;}</style>`;
+    },
+    async receberLoteFio() {
+        const cod = $('mf-lf-cod').value.trim(), kg = parseFloat($('mf-lf-kg').value);
+        if (!cod || !(kg > 0)) return toast('Informe código e kg.', 'erro');
+        const r = await api.post('/api/mf/lotes-fio', { codigo: cod, fornecedor: $('mf-lf-forn').value.trim(), composicao: $('mf-lf-comp').value.trim(), titulo_fio: $('mf-lf-tit').value.trim(), cor: $('mf-lf-cor').value.trim(), qtd_recebida_kg: kg });
+        toast(r?.ok ? 'Lote recebido.' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderMateriais();
+    },
+    async formConsumoFio(apId) {
+        const lotes = (this._lotesFio && this._lotesFio.length) ? this._lotesFio : (await api.get('/api/mf/lotes-fio') || []);
+        this._lotesFio = lotes;
+        const opts = lotes.filter(l => Number(l.qtd_disponivel_kg) > 0).map(l => `<option value="${l.id}">${esc(l.codigo)} — ${esc(l.cor || l.titulo_fio || '')} (${Number(l.qtd_disponivel_kg).toLocaleString('pt-BR')} kg)</option>`).join('');
+        this._modal(`
+            <div class="s-label" style="margin-bottom:14px;">📦 CONSUMO DE FIO</div>
+            <span class="mf-label">LOTE</span><select id="mf-cf-lote" class="mf-input" style="margin-bottom:12px;">${opts || '<option value="">— sem lote disponível —</option>'}</select>
+            <span class="mf-label">KG CONSUMIDOS</span><input id="mf-cf-kg" type="number" min="0.001" step="0.001" class="mf-input" style="margin-bottom:16px;">
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button class="btn secondary" onclick="mf._fecharModal()">Cancelar</button>
+                <button class="btn primary" onclick="mf.salvarConsumoFio('${apId}')">Registrar consumo</button>
+            </div>`);
+    },
+    async salvarConsumoFio(apId) {
+        const lote = $('mf-cf-lote').value, kg = parseFloat($('mf-cf-kg').value);
+        if (!lote || !(kg > 0)) return toast('Selecione o lote e a quantidade.', 'erro');
+        const r = await api.post('/api/mf/consumo-fio', { apontamento_id: apId, lote_fio_id: lote, qtd_consumida_kg: kg });
+        if (!r?.ok) return toast(r?.erro || 'Erro.', 'erro');
+        this._fecharModal(); toast('Consumo registrado (baixou o estoque).');
+    },
+
     // ═══ APONTAMENTO ═══════════════════════════════════════════════════════════
     async renderApont() {
         const c = this._cad;
@@ -786,6 +863,7 @@ const mf = {
                     <button class="btn secondary" style="font-size:.78rem;" onclick="mf.formParada('${a.id}')">⏸ Registrar parada</button>
                     <button class="btn secondary" style="font-size:.78rem;" onclick="mf.formMedicao('${a.id}')">📏 Medir</button>
                     <button class="btn secondary" style="font-size:.78rem;border-color:rgba(240,98,146,.4);color:#f06292;" onclick="mf.formNc('${a.id}')">⚠ Registrar NC</button>
+                    <button class="btn secondary" style="font-size:.78rem;" onclick="mf.formConsumoFio('${a.id}')">📦 Fio</button>
                     <button class="btn secondary" style="font-size:.78rem;border-color:rgba(255,82,82,.5);color:#ff5252;" onclick="mf.formAndon('${a.id}')">🆘 Andon</button>
                     ${a.etapa_id?`<label style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--text-dim);margin-left:auto;cursor:pointer;" title="Ao fechar, move a OP para a próxima etapa do fluxo"><input type="checkbox" id="mf-av-${a.id}" checked> avançar no fluxo</label>`:''}
                     <button class="btn primary" style="font-size:.78rem;${a.etapa_id?'':'margin-left:auto;'}" onclick="mf.fecharSessao('${a.id}')">✓ Fechar sessão</button>
