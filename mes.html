@@ -203,8 +203,11 @@
     <style>
         .mf-tab{padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.8rem;font-weight:700;letter-spacing:.05em;cursor:pointer;}
         .mf-tab.active{color:var(--indigo-primary);border-bottom-color:var(--indigo-primary);}
-        .mf-input{width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.85rem;box-sizing:border-box;}
+        /* font-size:16px evita o zoom automático do iOS ao focar um campo no chão de fábrica (A4) */
+        .mf-input{width:100%;padding:10px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:16px;box-sizing:border-box;}
         .mf-label{font-size:.7rem;color:var(--text-dim);display:block;margin-bottom:4px;letter-spacing:.05em;}
+        /* alvos de toque maiores p/ uso com luva/tela suja (M9) — vale só nesta página do operador */
+        .btn{min-height:44px;}
     </style>
 
     <script src="https://cdn.jsdelivr.net/npm/papaparse@5/papaparse.min.js"></script>

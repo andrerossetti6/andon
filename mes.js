@@ -75,15 +75,15 @@ const fila = {
     async flush() {
         if (this._enviando || !navigator.onLine) return;
         this._enviando = true;
-        let removidos = 0, erro = false;
+        let removidos = 0, falhou = 0, parou = false;
         try {
             const ops = (await this.pendentes()).sort((a, b) => a.seq - b.seq);
             for (const op of ops) {
                 let r;
                 try { r = await fetch(op.url, { method: op.metodo, headers: api._h(), body: JSON.stringify({ ...op.payload, sincronizado_em: new Date().toISOString() }) }); }
-                catch { erro = true; break; } // rede caiu — para e tenta no próximo 'online'
-                if (r.status === 401) { mf._expirou(); erro = true; break; }
-                if (!r.ok) { toast('Um item da fila falhou no servidor — verifique.', 'erro'); erro = true; break; }
+                catch { parou = true; break; } // rede caiu — para e tenta no próximo 'online'
+                if (r.status === 401) { mf._expirou(); parou = true; break; }
+                if (!r.ok) { falhou++; continue; } // item rejeitado pelo servidor: PULA (não bloqueia o resto da fila), tenta de novo depois
                 await this._remover(op.seq);
                 removidos++;
                 mf._atualizarBadge();
@@ -91,9 +91,10 @@ const fila = {
         } finally {
             this._enviando = false;
             mf._atualizarBadge();
+            if (falhou > 0) toast(`${falhou} item(ns) da fila com erro no servidor — serão tentados de novo.`, 'erro');
             const restam = (await this.pendentes()).length;
-            // itens enfileirados DURANTE este flush não entraram no snapshot acima — reprocessa enquanto há progresso
-            if (restam > 0 && removidos > 0 && !erro && navigator.onLine) this.flush();
+            // reprocessa enquanto há PROGRESSO (itens enfileirados durante o flush) e ninguém mandou parar (rede/401)
+            if (restam > 0 && removidos > 0 && !parou && navigator.onLine) this.flush();
             else if (restam === 0 && navigator.onLine && removidos > 0) { mf._reconciliar(); mf._aoSincronizar(); }
             else if (restam === 0 && navigator.onLine) mf._reconciliar();
         }
@@ -143,6 +144,9 @@ const mf = {
 
     _uuid() { return (crypto.randomUUID ? crypto.randomUUID() : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random()*16|0; return (c==='x'?r:(r&0x3|0x8)).toString(16); })); },
 
+    // trava de duplo-toque: bloqueia repetição da mesma ação dentro de 1s (evita sessão/NC/parada duplicada)
+    _dup(chave) { const now = Date.now(); this._ts = this._ts || {}; if (this._ts[chave] && now - this._ts[chave] < 1000) return true; this._ts[chave] = now; return false; },
+
     async _atualizarBadge() {
         const el = $('mf-sync'); if (!el) return;
         let n = 0; try { n = (await fila.pendentes()).length; } catch {}
@@ -155,7 +159,13 @@ const mf = {
     async _reconciliar() {
         if (!navigator.onLine) return;
         const srv = await api.get('/api/mf/apontamentos?abertas=1');
-        if (srv) { this._abertas = srv; await fila.salvarEstado('abertas', srv); if (document.querySelector('#app-sidebar .active')?.dataset.mftab === 'apont') this.renderSessoes(); }
+        if (!srv) return;
+        // preserva sessões otimistas (criadas offline, ainda não confirmadas pelo servidor) — não descarta o que está na fila
+        const idsSrv = new Set(srv.map(s => s.id));
+        const otimistas = (this._abertas || []).filter(s => s._pendente && !idsSrv.has(s.id));
+        this._abertas = [...otimistas, ...srv];
+        await fila.salvarEstado('abertas', this._abertas);
+        if (document.querySelector('#app-sidebar .active')?.dataset.mftab === 'apont') this.renderSessoes();
     },
 
     _expirou() { localStorage.removeItem(TOKEN_KEY); toast('Sessão expirada — faça login.', 'erro'); this._mostrarLogin(); return null; },
@@ -954,6 +964,7 @@ const mf = {
         const opId = $('mf-op').value, maqId = $('mf-maq').value, operId = $('mf-oper').value, turnoId = $('mf-turno').value;
         const etapaId = $('mf-etapa')?.value || null;
         if (!opId || !maqId || !operId || !turnoId) return toast('Preencha OP, máquina, operador e turno.', 'erro');
+        if (this._dup('iniciar')) return;  // trava duplo-toque
         localStorage.setItem('mf_last_oper', operId);  // lembra o operador para a próxima sessão
         const id = this._uuid();
         const c = this._cad;
@@ -987,9 +998,9 @@ const mf = {
                     <span style="font-size:.72rem;color:var(--text-dim);">há ${dur} min${ncs?` · <span style="color:#f06292;">${ncs} NC</span>`:''}${paradas?` · <span style="color:#ffca28;">${paradas} parada aberta</span>`:''}${a._pendente?` · <span style="color:#ef6c00;">⏳ pendente</span>`:''}</span>
                 </div>
                 <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-bottom:12px;">
-                    <div><span class="mf-label">QTD BOA</span><input type="number" min="0" step="0.001" value="${a.qtd_boa||0}" id="mf-qb-${a.id}" class="mf-input"></div>
-                    <div><span class="mf-label">REFUGO</span><input type="number" min="0" step="0.001" value="${a.qtd_refugo||0}" id="mf-qr-${a.id}" class="mf-input"></div>
-                    <div><span class="mf-label">RETRABALHO</span><input type="number" min="0" step="0.001" value="${a.qtd_retrabalho||0}" id="mf-qt-${a.id}" class="mf-input"></div>
+                    <div><span class="mf-label">QTD BOA</span><input type="number" inputmode="decimal" min="0" step="0.001" value="${a.qtd_boa||0}" id="mf-qb-${a.id}" class="mf-input" oninput="mf._qtdInput('${a.id}')"></div>
+                    <div><span class="mf-label">REFUGO</span><input type="number" inputmode="decimal" min="0" step="0.001" value="${a.qtd_refugo||0}" id="mf-qr-${a.id}" class="mf-input" oninput="mf._qtdInput('${a.id}')"></div>
+                    <div><span class="mf-label">RETRABALHO</span><input type="number" inputmode="decimal" min="0" step="0.001" value="${a.qtd_retrabalho||0}" id="mf-qt-${a.id}" class="mf-input" oninput="mf._qtdInput('${a.id}')"></div>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
                     <button class="btn secondary" style="font-size:.78rem;" onclick="mf.salvarQtd('${a.id}')">💾 Salvar qtd</button>
@@ -1006,6 +1017,15 @@ const mf = {
         }).join('');
     },
 
+    // A7: mantém o que o operador digitou no objeto da sessão, pra não perder se a lista re-renderizar (parada/NC)
+    _qtdInput(id) {
+        const a = this._abertas.find(x => x.id === id); if (!a) return;
+        const qb = $('mf-qb-' + id), qr = $('mf-qr-' + id), qt = $('mf-qt-' + id);
+        if (qb) a.qtd_boa = parseFloat(qb.value) || 0;
+        if (qr) a.qtd_refugo = parseFloat(qr.value) || 0;
+        if (qt) a.qtd_retrabalho = parseFloat(qt.value) || 0;
+    },
+
     async salvarQtd(id) {
         const qtd = { qtd_boa: parseFloat($('mf-qb-' + id).value) || 0, qtd_refugo: parseFloat($('mf-qr-' + id).value) || 0, qtd_retrabalho: parseFloat($('mf-qt-' + id).value) || 0 };
         const a = this._abertas.find(x => x.id === id); if (a) Object.assign(a, qtd);
@@ -1015,6 +1035,8 @@ const mf = {
     },
 
     async fecharSessao(id) {
+        if (this._dup('fechar')) return;  // trava duplo-toque
+        if (!confirm('Encerrar esta sessão de produção? Isso conclui o apontamento.')) return;  // A5: evita fechar por toque acidental
         const qtd = { qtd_boa: parseFloat($('mf-qb-' + id).value) || 0, qtd_refugo: parseFloat($('mf-qr-' + id).value) || 0, qtd_retrabalho: parseFloat($('mf-qt-' + id).value) || 0 };
         const avancar = $('mf-av-' + id)?.checked || false;  // concluir a etapa e mover a OP no fluxo
         this._abertas = this._abertas.filter(x => x.id !== id);  // some da lista de abertas
@@ -1041,6 +1063,7 @@ const mf = {
     async salvarParada(apId) {
         const motivo_id = $('mf-mot').value, observacao = $('mf-mot-obs').value || null;
         if (!motivo_id) return toast('Selecione o motivo.', 'erro');
+        if (this._dup('parada')) return;  // trava duplo-toque
         const id = this._uuid();
         const a = this._abertas.find(x => x.id === apId); if (a) { (a.parada = a.parada || []).push({ id, datahora_fim: null }); }
         await fila.salvarEstado('abertas', this._abertas);
@@ -1084,6 +1107,7 @@ const mf = {
         const a = this._abertas.find(x => x.id === apId);
         const op = a && this._cad.ops.find(o => o.id === a.op_id);
         if (!op?.produto_id) return toast('OP sem produto vinculado.', 'erro');
+        if (this._dup('medicao')) return;  // trava duplo-toque
         const r = await api.post('/api/mf/medicao', { apontamento_id: apId, produto_id: op.produto_id, operador_id: a.operador_id || null, tipo: $('mf-ms-tipo').value, valor: v });
         if (!r?.ok) return toast('Erro: ' + (r?.erro || ''), 'erro');
         this._fecharModal(); toast('Medição registrada (alimenta o CEP).');
@@ -1147,6 +1171,8 @@ const mf = {
     async salvarNc(apId) {
         const qtd = parseFloat($('mf-nc-qtd').value);
         if (!qtd || qtd <= 0) return toast('Quantidade afetada deve ser > 0.', 'erro');
+        if (!$('mf-nc-def')?.value) return toast('Selecione o defeito (catálogo).', 'erro');  // M8: NC é sempre do catálogo
+        if (this._dup('nc')) return;  // trava duplo-toque
         const ncId = this._uuid();
         const foto = this._fotoData;
         const a = this._abertas.find(x => x.id === apId); if (a) (a.nao_conformidade = a.nao_conformidade || []).push({ id: ncId });
