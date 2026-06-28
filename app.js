@@ -3112,6 +3112,10 @@ const op = {
     async carregarHistorico() {
         const lista = await api.get('/api/importacoes-op');
         this._importacoes = lista || [];
+        // Fase 2b: a carteira canônica é a ordem_producao (MES) via /api/op-unificado.
+        // Plano/TOC/Preactor passam a ler dela. A tela de importar arquivo segue
+        // disponível (carregarImportacao continua no histórico).
+        if (await this.carregarUnificado()) { this.renderHistorico(); return; }
         if (lista?.length) {
             const latest = lista[0];
             const incompleto = this.rawData.length < (latest.total_linhas || 0);
@@ -3120,6 +3124,26 @@ const op = {
             }
         }
         this.renderHistorico();
+    },
+
+    // Fase 2b: carrega a carteira de OP da fonte única (ordem_producao do MES)
+    async carregarUnificado() {
+        let rows;
+        try { rows = await api.get('/api/op-unificado'); } catch { return false; }
+        if (!rows?.length) return false;
+        this._currentId = 'unificado';
+        this.colunas = Object.keys(rows[0].dados || {});
+        this.rawData = rows.map((r, i) => ({ _id: i, dados: r.dados, op_id: r.op_id }));
+        this._colQtd = 'Qtd';
+        this.filtered = [...this.rawData];
+        this._mapearColunasOP();
+        this._detectCombosCols();
+        const dz = document.getElementById('op-drop-zone'); if (dz) dz.style.display = 'none';
+        const od = document.getElementById('op-data'); if (od) od.classList.add('visible');
+        this.render();
+        opDash._dirty = true; vxe._dirty = true; pesquisa._dirty = true;
+        setTimeout(() => alertas.verificar(), 300);
+        return true;
     },
 
     async carregarImportacao(id) {
