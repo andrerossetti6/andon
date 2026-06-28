@@ -1,0 +1,1258 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manual SIGS — Sistema Integrado de Gestão Stoll</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.6;
+    color: #1a1a2e;
+    background: #fff;
+  }
+
+  /* ── CAPA ── */
+  .cover {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 60%, #16213e 100%);
+    padding: 80px 72px;
+    page-break-after: always;
+    position: relative;
+    overflow: hidden;
+  }
+  .cover::before {
+    content: '';
+    position: absolute;
+    top: -100px; right: -100px;
+    width: 500px; height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(99,102,241,.25) 0%, transparent 70%);
+  }
+  .cover::after {
+    content: '';
+    position: absolute;
+    bottom: -80px; left: 200px;
+    width: 350px; height: 350px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(38,198,218,.15) 0%, transparent 70%);
+  }
+  .cover-tag {
+    font-size: 9pt;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: #6366f1;
+    text-transform: uppercase;
+    margin-bottom: 20px;
+  }
+  .cover h1 {
+    font-size: 42pt;
+    font-weight: 800;
+    color: #fff;
+    line-height: 1.1;
+    margin-bottom: 8px;
+  }
+  .cover h1 span { color: #6366f1; }
+  .cover .cover-sub {
+    font-size: 18pt;
+    font-weight: 400;
+    color: rgba(255,255,255,.6);
+    margin-bottom: 48px;
+  }
+  .cover-divider {
+    width: 60px;
+    height: 4px;
+    background: #6366f1;
+    border-radius: 2px;
+    margin-bottom: 40px;
+  }
+  .cover-desc {
+    font-size: 11pt;
+    color: rgba(255,255,255,.55);
+    max-width: 520px;
+    line-height: 1.8;
+    margin-bottom: 60px;
+  }
+  .cover-meta {
+    display: flex;
+    gap: 48px;
+  }
+  .cover-meta-item { }
+  .cover-meta-label {
+    font-size: 7.5pt;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: rgba(255,255,255,.35);
+    margin-bottom: 4px;
+  }
+  .cover-meta-val {
+    font-size: 10pt;
+    font-weight: 600;
+    color: rgba(255,255,255,.75);
+  }
+
+  /* ── LAYOUT ── */
+  .page {
+    padding: 48px 64px;
+  }
+
+  /* ── HEADER DE SEÇÃO ── */
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 28px;
+    padding-bottom: 14px;
+    border-bottom: 2px solid #f0f0f8;
+    page-break-after: avoid;
+  }
+  .section-num {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: #6366f1;
+    color: #fff;
+    font-size: 13pt;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .section-header h2 {
+    font-size: 16pt;
+    font-weight: 800;
+    color: #1a1a2e;
+  }
+  .section-header .section-badge {
+    margin-left: auto;
+    font-size: 7.5pt;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #6366f1;
+    background: rgba(99,102,241,.08);
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1px solid rgba(99,102,241,.2);
+  }
+
+  h3 {
+    font-size: 11pt;
+    font-weight: 700;
+    color: #2d2d4e;
+    margin: 24px 0 10px;
+    page-break-after: avoid;
+  }
+  h3::before {
+    content: '▸ ';
+    color: #6366f1;
+  }
+
+  p { margin-bottom: 10px; color: #3a3a5c; }
+
+  /* ── TABELAS ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0 20px;
+    font-size: 9.5pt;
+    page-break-inside: avoid;
+  }
+  th {
+    background: #f4f4fc;
+    color: #2d2d4e;
+    font-weight: 700;
+    text-align: left;
+    padding: 9px 12px;
+    border-bottom: 2px solid #e0e0f0;
+    font-size: 8.5pt;
+    letter-spacing: .5px;
+    text-transform: uppercase;
+  }
+  td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #f0f0f8;
+    color: #3a3a5c;
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafaff; }
+  td strong { color: #1a1a2e; font-weight: 600; }
+  td code {
+    background: #f4f4fc;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 8.5pt;
+    color: #6366f1;
+    font-family: monospace;
+  }
+
+  /* ── BADGES DE STATUS ── */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 8pt;
+    font-weight: 700;
+  }
+  .badge-red    { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+  .badge-yellow { background: #fffbeb; color: #d97706; border: 1px solid #fde68a; }
+  .badge-green  { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+  .badge-blue   { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+  .badge-purple { background: #faf5ff; color: #7c3aed; border: 1px solid #ddd6fe; }
+
+  /* ── CALLOUT BOXES ── */
+  .callout {
+    border-left: 4px solid #6366f1;
+    background: rgba(99,102,241,.05);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+    page-break-inside: avoid;
+  }
+  .callout.warn  { border-color: #f59e0b; background: rgba(245,158,11,.06); }
+  .callout.danger{ border-color: #dc2626; background: rgba(220,38,38,.05); }
+  .callout.ok    { border-color: #16a34a; background: rgba(22,163,74,.05); }
+  .callout-title {
+    font-size: 8.5pt;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+    color: #6366f1;
+  }
+  .callout.warn  .callout-title { color: #b45309; }
+  .callout.danger .callout-title { color: #dc2626; }
+  .callout.ok    .callout-title { color: #16a34a; }
+  .callout p { margin: 0; font-size: 9.5pt; }
+
+  /* ── FLUXO PIPELINE ── */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin: 20px 0;
+    page-break-inside: avoid;
+  }
+  .pipe-step {
+    flex: 1;
+    text-align: center;
+    padding: 14px 8px;
+    background: #f4f4fc;
+    border: 1px solid #e0e0f0;
+    position: relative;
+  }
+  .pipe-step:first-child { border-radius: 8px 0 0 8px; }
+  .pipe-step:last-child  { border-radius: 0 8px 8px 0; }
+  .pipe-step .pipe-icon  { font-size: 16pt; display: block; margin-bottom: 4px; }
+  .pipe-step .pipe-label { font-size: 8pt; font-weight: 700; color: #2d2d4e; }
+  .pipe-step .pipe-sub   { font-size: 7pt; color: #8b8bae; margin-top: 2px; }
+  .pipe-arrow {
+    font-size: 14pt;
+    color: #c0c0e0;
+    padding: 0 2px;
+    flex-shrink: 0;
+  }
+
+  /* ── FORMULA BOX ── */
+  .formula {
+    background: #f4f4fc;
+    border: 1px solid #e0e0f0;
+    border-radius: 8px;
+    padding: 12px 18px;
+    text-align: center;
+    font-size: 11pt;
+    font-weight: 600;
+    color: #2d2d4e;
+    margin: 14px 0;
+    letter-spacing: .5px;
+  }
+  .formula span { color: #6366f1; }
+
+  /* ── ROTINA CARDS ── */
+  .rotina-grid {
+    display: grid;
+    grid-template-columns: repeat(2,1fr);
+    gap: 14px;
+    margin: 14px 0;
+  }
+  .rotina-card {
+    border: 1px solid #e0e0f0;
+    border-radius: 10px;
+    padding: 14px 16px;
+    page-break-inside: avoid;
+  }
+  .rotina-freq {
+    font-size: 8pt;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #6366f1;
+    margin-bottom: 8px;
+  }
+  .rotina-card ul { padding-left: 14px; }
+  .rotina-card li { font-size: 9pt; color: #3a3a5c; margin-bottom: 4px; }
+
+  /* ── OEE METER ── */
+  .oee-scale {
+    display: flex;
+    margin: 14px 0;
+    border-radius: 6px;
+    overflow: hidden;
+    height: 32px;
+    font-size: 8.5pt;
+    font-weight: 700;
+  }
+  .oee-red    { flex: 65; background: #fecaca; color: #dc2626; display:flex;align-items:center;justify-content:center; }
+  .oee-yellow { flex: 20; background: #fde68a; color: #92400e; display:flex;align-items:center;justify-content:center; }
+  .oee-green  { flex: 15; background: #bbf7d0; color: #166534; display:flex;align-items:center;justify-content:center; }
+
+  /* ── SUMÁRIO ── */
+  .toc-page {
+    padding: 60px 64px;
+    page-break-after: always;
+  }
+  .toc-title {
+    font-size: 22pt;
+    font-weight: 800;
+    color: #1a1a2e;
+    margin-bottom: 4px;
+  }
+  .toc-sub {
+    font-size: 10pt;
+    color: #8b8bae;
+    margin-bottom: 40px;
+  }
+  .toc-entry {
+    display: flex;
+    align-items: baseline;
+    padding: 10px 0;
+    border-bottom: 1px solid #f0f0f8;
+  }
+  .toc-num  { font-size: 9pt; font-weight: 700; color: #6366f1; width: 28px; flex-shrink: 0; }
+  .toc-name { font-size: 10.5pt; font-weight: 600; color: #2d2d4e; flex: 1; }
+  .toc-dots { flex: 1; border-bottom: 1px dotted #ccc; margin: 0 10px 3px; }
+  .toc-page-num { font-size: 9pt; color: #8b8bae; font-weight: 600; }
+  .toc-sub-entry {
+    display: flex;
+    align-items: baseline;
+    padding: 5px 0 5px 28px;
+    border-bottom: 1px solid #f8f8ff;
+  }
+  .toc-sub-entry .toc-name { font-size: 9.5pt; font-weight: 500; color: #5a5a8a; }
+
+  /* ── PAGE BREAK ── */
+  .page-break { page-break-before: always; }
+
+  /* ── FOOTER ── */
+  @page {
+    size: A4;
+    margin: 0;
+  }
+  @media print {
+    .cover { min-height: 100vh; }
+    .page-break { page-break-before: always; }
+  }
+
+  /* ── KPI MINI CARD ── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(5,1fr);
+    gap: 10px;
+    margin: 14px 0;
+  }
+  .kpi-card {
+    border: 1px solid #e0e0f0;
+    border-radius: 8px;
+    padding: 10px 12px;
+    border-top: 3px solid #6366f1;
+  }
+  .kpi-label { font-size: 7.5pt; font-weight: 700; color: #8b8bae; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
+  .kpi-value { font-size: 13pt; font-weight: 800; color: #2d2d4e; }
+  .kpi-sub   { font-size: 7.5pt; color: #ababce; margin-top: 2px; }
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════════════════
+     CAPA
+════════════════════════════════════════════════════════ -->
+<div class="cover">
+  <div class="cover-tag">Gestão Industrial · Stoll</div>
+  <h1><span>SIGS</span></h1>
+  <div class="cover-sub">Sistema Integrado de Gestão</div>
+  <div class="cover-divider"></div>
+  <p class="cover-desc">
+    Manual de uso para gestores. Cobre o ciclo completo da operação: previsão de demanda,
+    política de estoques, identificação de gargalos, sequenciamento e execução no chão de fábrica.
+  </p>
+  <div class="cover-meta">
+    <div class="cover-meta-item">
+      <div class="cover-meta-label">Versão</div>
+      <div class="cover-meta-val">2026 — Junho</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="cover-meta-label">Empresa</div>
+      <div class="cover-meta-val">Stoll</div>
+    </div>
+    <div class="cover-meta-item">
+      <div class="cover-meta-label">Uso</div>
+      <div class="cover-meta-val">Gestão / Administração</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     SUMÁRIO
+════════════════════════════════════════════════════════ -->
+<div class="toc-page">
+  <div class="toc-title">Sumário</div>
+  <div class="toc-sub">Manual SIGS — Sistema Integrado de Gestão Stoll</div>
+
+  <div class="toc-entry">
+    <span class="toc-num">—</span>
+    <span class="toc-name">O que é o SIGS e o fluxo recomendado</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">3</span>
+  </div>
+  <div class="toc-entry">
+    <span class="toc-num">1</span>
+    <span class="toc-name">Configuração</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">3</span>
+  </div>
+  <div class="toc-entry">
+    <span class="toc-num">2</span>
+    <span class="toc-name">Importação de dados</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">4</span>
+  </div>
+  <div class="toc-entry">
+    <span class="toc-num">3</span>
+    <span class="toc-name">S&OP — Planejamento de demanda e estoques</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">5</span>
+  </div>
+  <div class="toc-sub-entry">
+    <span class="toc-name">3.1 · Previsão de Demanda</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">5</span>
+  </div>
+  <div class="toc-sub-entry">
+    <span class="toc-name">3.2 · Política de Estoques</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">5</span>
+  </div>
+  <div class="toc-sub-entry">
+    <span class="toc-name">3.3 · Plano de Produção</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">6</span>
+  </div>
+  <div class="toc-sub-entry">
+    <span class="toc-name">3.4 · Dashboard S&OP</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">6</span>
+  </div>
+  <div class="toc-entry">
+    <span class="toc-num">4</span>
+    <span class="toc-name">TOC — Identificação do gargalo</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">7</span>
+  </div>
+  <div class="toc-entry">
+    <span class="toc-num">5</span>
+    <span class="toc-name">PREACTOR — Sequenciamento da produção</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">7</span>
+  </div>
+  <div class="toc-entry">
+    <span class="toc-num">6</span>
+    <span class="toc-name">MES — Execução no chão de fábrica</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">8</span>
+  </div>
+  <div class="toc-sub-entry">
+    <span class="toc-name">6.1 · Apontamento de produção</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">8</span>
+  </div>
+  <div class="toc-sub-entry">
+    <span class="toc-name">6.2 · WIP — Produção em andamento</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">9</span>
+  </div>
+  <div class="toc-sub-entry">
+    <span class="toc-name">6.3 · OEE — Eficiência global</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">9</span>
+  </div>
+  <div class="toc-entry">
+    <span class="toc-num">7</span>
+    <span class="toc-name">Dashboard principal</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">10</span>
+  </div>
+  <div class="toc-entry">
+    <span class="toc-num">8</span>
+    <span class="toc-name">Outros dashboards analíticos</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">11</span>
+  </div>
+  <div class="toc-entry">
+    <span class="toc-num">9</span>
+    <span class="toc-name">Rotina de uso recomendada</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">11</span>
+  </div>
+  <div class="toc-entry">
+    <span class="toc-num">—</span>
+    <span class="toc-name">Pontos de atenção e boas práticas</span>
+    <span class="toc-dots"></span>
+    <span class="toc-page-num">12</span>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     INTRODUÇÃO E FLUXO
+════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+  <div class="section-header">
+    <div class="section-num" style="background:#2d2d4e;font-size:10pt;">★</div>
+    <h2>O que é o SIGS e como usar</h2>
+  </div>
+
+  <p>O SIGS é uma plataforma integrada de gestão industrial desenvolvida para a Stoll. Ele cobre o ciclo completo da operação — da previsão de demanda ao registro de produção no chão de fábrica — e é dividido em seis módulos que devem ser usados <strong>em sequência</strong>. Cada módulo alimenta o próximo.</p>
+
+  <div class="pipeline">
+    <div class="pipe-step">
+      <span class="pipe-icon">⚙</span>
+      <div class="pipe-label">Configuração</div>
+      <div class="pipe-sub">Base e processos</div>
+    </div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step">
+      <span class="pipe-icon">📥</span>
+      <div class="pipe-label">Importação</div>
+      <div class="pipe-sub">Vendas / Estoque / OP</div>
+    </div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step">
+      <span class="pipe-icon">📊</span>
+      <div class="pipe-label">S&amp;OP</div>
+      <div class="pipe-sub">Previsão e política</div>
+    </div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step">
+      <span class="pipe-icon">🔩</span>
+      <div class="pipe-label">TOC</div>
+      <div class="pipe-sub">Gargalo</div>
+    </div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step">
+      <span class="pipe-icon">📅</span>
+      <div class="pipe-label">Preactor</div>
+      <div class="pipe-sub">Sequenciamento</div>
+    </div>
+    <div class="pipe-arrow">›</div>
+    <div class="pipe-step">
+      <span class="pipe-icon">🏭</span>
+      <div class="pipe-label">MES</div>
+      <div class="pipe-sub">Execução</div>
+    </div>
+  </div>
+
+  <div class="callout ok">
+    <div class="callout-title">Dica de navegação</div>
+    <p>A barra <strong>"Fluxo do Sistema"</strong> no Dashboard principal mostra quais etapas já têm dados carregados (✓) e quais estão pendentes (○). Use-a como ponto de partida toda vez que abrir o sistema.</p>
+  </div>
+
+  <!-- ── SEÇÃO 1 ── -->
+  <div class="section-header" style="margin-top:36px;">
+    <div class="section-num">1</div>
+    <h2>Configuração</h2>
+    <span class="section-badge">Uma vez · Manutenção trimestral</span>
+  </div>
+
+  <p>É a etapa que você faz <strong>uma vez</strong> e atualiza quando o portfólio ou a estrutura de produção mudam. Acesse pelo menu <strong>CONFIGURAÇÃO → Base de Dados</strong>.</p>
+
+  <table>
+    <thead>
+      <tr><th>Módulo</th><th>O que configurar</th><th>Impacto</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Base de Dados</strong></td>
+        <td>Cadastrar SKUs ativos (código, descrição, segmento)</td>
+        <td>Referência para todos os cruzamentos do sistema</td>
+      </tr>
+      <tr>
+        <td><strong>Processos</strong></td>
+        <td>Definir etapas produtivas (costura, corte, acabamento…)</td>
+        <td>Usado pelo TOC para calcular gargalo e pelo MES para apontamento</td>
+      </tr>
+      <tr>
+        <td><strong>Matriz de Set Up</strong></td>
+        <td>Tempo de troca entre produtos em cada processo</td>
+        <td>Usado pelo Preactor para sequenciar minimizando setup</td>
+      </tr>
+      <tr>
+        <td><strong>Calendário</strong></td>
+        <td>Dias úteis, turnos, horas por turno</td>
+        <td>Base de capacidade para TOC e Preactor</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <div class="callout-title">Atenção</div>
+    <p>Se o Calendário e a Matriz de Set Up não estiverem preenchidos, os cálculos de capacidade do TOC e do Preactor ficarão estimados com valores padrão, podendo gerar planos irreais.</p>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     IMPORTAÇÃO
+════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+  <div class="section-header">
+    <div class="section-num">2</div>
+    <h2>Importação de dados</h2>
+    <span class="section-badge">Mensal · CSV ou XLS</span>
+  </div>
+
+  <p>Aqui você carrega os dados do ERP ou das planilhas para dentro do sistema. Acesse pelo menu <strong>IMPORTAÇÃO</strong>. O formato aceito é CSV ou XLS.</p>
+
+  <table>
+    <thead>
+      <tr><th>Módulo</th><th>O que importar</th><th>Colunas mínimas esperadas</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Vendas</strong></td>
+        <td>Histórico mensal por SKU</td>
+        <td><code>Código</code> · <code>Descrição</code> · colunas por mês (jan/24, fev/24…)</td>
+      </tr>
+      <tr>
+        <td><strong>Estoque</strong></td>
+        <td>Posição atual de estoque</td>
+        <td><code>Código</code> · <code>Quantidade</code> · <code>Valor</code> (opcional para R$)</td>
+      </tr>
+      <tr>
+        <td><strong>Ordens de Produção</strong></td>
+        <td>OPs abertas ou planejadas</td>
+        <td><code>Nº OP</code> · <code>Código</code> · <code>Quantidade</code> · <code>Status</code> · <code>Emissão</code></td>
+      </tr>
+      <tr>
+        <td><strong>Cliente</strong></td>
+        <td>Faturamento por cliente</td>
+        <td><code>Cliente</code> · <code>Valor Total</code></td>
+      </tr>
+      <tr>
+        <td><strong>Costura</strong></td>
+        <td>Dados de eficiência de costura</td>
+        <td><code>Código</code> · <code>Segmento</code> · dados de eficiência</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Como importar (passo a passo)</h3>
+  <p><strong>1.</strong> Acesse o módulo desejado no menu IMPORTAÇÃO.<br>
+  <strong>2.</strong> Clique em <strong>Importar</strong> e selecione o arquivo CSV ou XLS.<br>
+  <strong>3.</strong> O sistema exibe as colunas detectadas — confirme qual coluna representa o código, a quantidade, etc.<br>
+  <strong>4.</strong> Clique em <strong>Salvar</strong>. Os dados ficam armazenados e disponíveis para todos os módulos.</p>
+
+  <div class="callout warn">
+    <div class="callout-title">Atenção ao mapeamento de colunas</div>
+    <p>Errar o mapeamento (por exemplo, mapear a coluna errada como "código") gera distorções em todos os módulos. Revise com cuidado na primeira importação de cada arquivo.</p>
+  </div>
+
+  <div class="callout danger">
+    <div class="callout-title">Dado sensível — Cliente R$ 16M</div>
+    <p>O arquivo de cliente contém 12.908 linhas com R$ 16M+ de faturamento. <strong>Nunca exclua esses dados sem necessidade</strong> — reimportar é simples, mas perder o histórico prejudica análises comparativas.</p>
+  </div>
+
+  <div class="callout ok">
+    <div class="callout-title">Backup antes de reimportar</div>
+    <p>Antes de substituir qualquer importação, use o botão <strong>⬇ Backup</strong> no topo do Dashboard para salvar todos os dados em JSON.</p>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     S&OP
+════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+  <div class="section-header">
+    <div class="section-num">3</div>
+    <h2>S&amp;OP — Planejamento de demanda e estoques</h2>
+    <span class="section-badge">Mensal</span>
+  </div>
+
+  <p>Aqui você transforma os dados históricos em decisões de produção. Acesse pelo menu <strong>S&amp;OP</strong>. É composto por quatro telas que devem ser usadas nesta ordem.</p>
+
+  <!-- 3.1 Previsão -->
+  <h3>3.1 · Previsão de Demanda</h3>
+  <p>Gera a estimativa de vendas futuras por SKU com base no histórico. Requer a importação de Vendas.</p>
+
+  <table>
+    <thead>
+      <tr><th>Método</th><th>Quando usar</th><th>Indicador de qualidade</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Média Móvel</strong></td>
+        <td>Demanda estável, sem tendência ou sazonalidade</td>
+        <td rowspan="3" style="vertical-align:middle;text-align:center;"><strong>MAPE</strong><br><span style="font-size:8pt;color:#8b8bae;">Erro Médio Absoluto<br>Percentual por SKU<br><br>&lt; 15% → excelente<br>15–30% → aceitável<br>&gt; 30% → revisar</span></td>
+      </tr>
+      <tr>
+        <td><strong>Holt-Winters</strong></td>
+        <td>Demanda sazonal (verão/inverno, coleções, datas comemorativas)</td>
+      </tr>
+      <tr>
+        <td><strong>Regressão Linear</strong></td>
+        <td>Produto em crescimento ou queda constante</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <div class="callout-title">Boa prática</div>
+    <p>Se o MAPE de um produto estiver acima de 30%, revise o método ou considere tratar esse SKU manualmente. Produtos com comportamento muito irregular respondem melhor ao Holt-Winters.</p>
+  </div>
+
+  <!-- 3.2 Política -->
+  <h3>3.2 · Política de Estoques</h3>
+  <p>Classifica cada SKU e define quanto manter em estoque para cada nível de serviço. Requer a Previsão de Demanda rodada.</p>
+
+  <table>
+    <thead>
+      <tr><th>Parâmetro</th><th>O que significa</th><th>Valor típico Stoll</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Lead Time</strong></td>
+        <td>Tempo de reposição (meses). Inclui produção + aprovação.</td>
+        <td>1 a 3 meses</td>
+      </tr>
+      <tr>
+        <td><strong>Nível de Serviço</strong></td>
+        <td>Tolerância a ruptura. 95% → Z = 1.65 · 90% → Z = 1.28</td>
+        <td>90% padrão · 95% para produtos A</td>
+      </tr>
+      <tr>
+        <td><strong>Horizonte histórico</strong></td>
+        <td>Quantos meses de vendas usar para calcular variabilidade</td>
+        <td>12 meses</td>
+      </tr>
+      <tr>
+        <td><strong>ABC automático</strong></td>
+        <td>Aplica nível de serviço diferente por classe (A = 95%, B = 90%, C = 80%)</td>
+        <td>Recomendado ativar</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>Os parâmetros são <strong>salvos automaticamente</strong> — na próxima abertura da tela já estarão preenchidos.</p>
+
+  <p>Após calcular, o sistema classifica cada SKU em quatro status:</p>
+
+  <table>
+    <thead>
+      <tr><th>Status</th><th>Situação</th><th>Ação imediata</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="badge badge-red">RUPTURA</span></td>
+        <td>Estoque abaixo do estoque de segurança. Risco real de falta.</td>
+        <td>Produzir com prioridade máxima</td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-yellow">RISCO</span></td>
+        <td>Estoque abaixo do ponto de reposição ideal.</td>
+        <td>Programar produção no próximo ciclo</td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-green">OK</span></td>
+        <td>Dentro da política definida.</td>
+        <td>Monitorar normalmente</td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-blue">EXCESSO</span></td>
+        <td>Mais de 2× o ideal em estoque. Capital parado.</td>
+        <td>Não produzir. Girar via promoções ou renegociação.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <div class="callout-title">Impacto financeiro</div>
+    <p>Quando o arquivo de estoque tiver o campo de valor, o sistema calcula automaticamente a <strong>receita em risco</strong> (RUPTURA + RISCO) e o <strong>capital parado em excesso</strong>. Esses valores aparecem no Dashboard principal para decisão imediata.</p>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     S&OP continuação + TOC
+════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+  <!-- 3.3 Plano -->
+  <h3>3.3 · Plano de Produção</h3>
+  <p>Consolida a previsão de demanda com o estoque atual e gera uma sugestão de quanto produzir de cada SKU no próximo período. É a entrada natural para a criação das OPs no ERP.</p>
+
+  <p>O plano mostra: demanda prevista · estoque atual · estoque de segurança · <strong>quantidade sugerida a produzir</strong>. Exporte para XLS para usar como base de emissão de OPs.</p>
+
+  <!-- 3.4 Dashboard S&OP -->
+  <h3>3.4 · Dashboard S&amp;OP</h3>
+  <p>Visão executiva com evolução de previsão versus realizado e snapshots de rodadas anteriores para comparação histórica. Use em reuniões mensais de S&amp;OP.</p>
+
+  <!-- ── SEÇÃO 4 ── -->
+  <div class="section-header" style="margin-top:36px;">
+    <div class="section-num">4</div>
+    <h2>TOC — Identificação do gargalo</h2>
+    <span class="section-badge">Mensal ou quando a mix muda</span>
+  </div>
+
+  <p>A Teoria das Restrições (TOC) identifica qual processo produtivo está limitando a capacidade total da fábrica. Acesse pelo menu <strong>TOC → Gargalo (TOC)</strong>.</p>
+
+  <h3>Como usar</h3>
+  <p><strong>1.</strong> Selecione o ano de análise.<br>
+  <strong>2.</strong> O sistema cruza a demanda prevista com a capacidade disponível de cada processo (Calendário + processos cadastrados).<br>
+  <strong>3.</strong> O processo com maior percentual de utilização é o gargalo.</p>
+
+  <table>
+    <thead>
+      <tr><th>Utilização</th><th>Situação</th><th>Decisão</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="badge badge-red">&gt; 100%</span></td>
+        <td>Gargalo real — capacidade esgotada</td>
+        <td>Horas extras · subcontratação · corte de mix</td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-yellow">85–100%</span></td>
+        <td>Zona de risco — qualquer variação causa atraso</td>
+        <td>Monitorar semanalmente. Preparar contingência.</td>
+      </tr>
+      <tr>
+        <td><span class="badge badge-green">&lt; 85%</span></td>
+        <td>Processo com folga disponível</td>
+        <td>Pode absorver demanda adicional sem risco</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Fila do gargalo</h3>
+  <p>A fila mostra quais OPs estão aguardando o processo gargalo. Use-a para priorizar: produza primeiro as OPs de maior valor ou com prazo mais crítico.</p>
+
+  <div class="callout warn">
+    <div class="callout-title">Alerta automático</div>
+    <p>Se o gargalo ultrapassar 100% de utilização, um alerta vermelho aparece automaticamente no Dashboard principal com o nome do processo e o percentual.</p>
+  </div>
+
+  <!-- ── SEÇÃO 5 ── -->
+  <div class="section-header" style="margin-top:36px;">
+    <div class="section-num">5</div>
+    <h2>PREACTOR — Sequenciamento da produção</h2>
+    <span class="section-badge">Mensal ou semanal</span>
+  </div>
+
+  <p>Organiza as OPs em uma sequência de execução visual — o Gantt — considerando a capacidade de cada processo. Acesse pelo menu <strong>PREACTOR → Linha do Tempo</strong>.</p>
+
+  <h3>Como usar</h3>
+  <p><strong>1.</strong> Selecione o mês a sequenciar.<br>
+  <strong>2.</strong> O sistema posiciona as OPs no tempo conforme a capacidade disponível de cada processo.<br>
+  <strong>3.</strong> Barras em <span style="color:#dc2626;font-weight:700;">vermelho</span> indicam conflito de capacidade (sobreposição).<br>
+  <strong>4.</strong> Reordene as OPs conforme prioridades comerciais (prazo, cliente VIP, valor do pedido).</p>
+
+  <div class="callout">
+    <div class="callout-title">Regra prática</div>
+    <p>Respeite sempre a sequência do gargalo (definida no TOC). Os demais processos devem ser agendados subordinados ao gargalo — nunca produza na frente do gargalo o que ele ainda não tem capacidade de processar.</p>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     MES
+════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+  <div class="section-header">
+    <div class="section-num">6</div>
+    <h2>MES — Execução no chão de fábrica</h2>
+    <span class="section-badge">Diário · Tempo real</span>
+  </div>
+
+  <p>O MES (Manufacturing Execution System) registra o que acontece de verdade na produção, em tempo real. Acesse pelo menu <strong>MES → Chão de Fábrica</strong>.</p>
+
+  <!-- 6.1 Apontamento -->
+  <h3>6.1 · Aba Apontamento — como registrar a produção</h3>
+
+  <table>
+    <thead>
+      <tr><th>Passo</th><th>Ação</th><th>Detalhe</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td style="color:#6366f1;font-weight:700;">1</td>
+        <td><strong>Selecionar OP pendente</strong></td>
+        <td>Na lista de OPs importadas, clique na OP desejada. O formulário é preenchido automaticamente.</td>
+      </tr>
+      <tr>
+        <td style="color:#6366f1;font-weight:700;">2</td>
+        <td><strong>Completar informações</strong></td>
+        <td>Selecione o processo, operador e máquina. Confirme a quantidade planejada.</td>
+      </tr>
+      <tr>
+        <td style="color:#6366f1;font-weight:700;">3</td>
+        <td><strong>Iniciar apontamento</strong></td>
+        <td>Clique em <strong>Iniciar Apontamento</strong>. O cronômetro começa automaticamente.</td>
+      </tr>
+      <tr>
+        <td style="color:#6366f1;font-weight:700;">4</td>
+        <td><strong>Registrar parada</strong> (se houver)</td>
+        <td>Clique em <strong>Registrar Parada</strong>, escolha o tipo, selecione um motivo rápido (chips) ou escreva um motivo específico.</td>
+      </tr>
+      <tr>
+        <td style="color:#6366f1;font-weight:700;">5</td>
+        <td><strong>Retomar</strong></td>
+        <td>Quando o problema for resolvido, clique em <strong>Retomar</strong>. O cronômetro volta a correr.</td>
+      </tr>
+      <tr>
+        <td style="color:#6366f1;font-weight:700;">6</td>
+        <td><strong>Finalizar</strong></td>
+        <td>Informe a <strong>quantidade produzida</strong> e o <strong>refugo</strong>. Clique em <strong>Finalizar</strong>.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Tipos de parada</h3>
+
+  <table>
+    <thead>
+      <tr><th>Tipo</th><th>Quando usar</th><th>Impacto no OEE</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Não planejada</strong></td>
+        <td>Quebra inesperada, falha de equipamento</td>
+        <td>Reduz Disponibilidade (D)</td>
+      </tr>
+      <tr>
+        <td><strong>Planejada</strong></td>
+        <td>Manutenção preventiva agendada</td>
+        <td>Reduz Disponibilidade (D)</td>
+      </tr>
+      <tr>
+        <td><strong>Setup / Troca</strong></td>
+        <td>Troca de produto ou regulagem de máquina</td>
+        <td>Reduz Disponibilidade (D)</td>
+      </tr>
+      <tr>
+        <td><strong>Qualidade</strong></td>
+        <td>Retrabalho, série de defeitos</td>
+        <td>Reduz Disponibilidade (D)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p><strong>Motivos rápidos disponíveis:</strong> Falta de material · Manutenção corretiva · Setup/Troca · Falta de operador · Defeito de qualidade · Falta de energia. Clique no chip para preencher o campo automaticamente.</p>
+
+  <!-- 6.2 WIP -->
+  <h3>6.2 · Aba WIP — Produção em andamento</h3>
+  <p>Mostra todos os apontamentos em andamento ou pausados neste momento. Use para saber a situação do chão de fábrica sem precisar descer até a produção.</p>
+
+  <table>
+    <thead>
+      <tr><th>Indicador</th><th>O que mede</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><strong>Total de OPs ativas</strong></td><td>Apontamentos com cronômetro rodando agora</td></tr>
+      <tr><td><strong>OPs pausadas</strong></td><td>Apontamentos parados aguardando resolução</td></tr>
+      <tr><td><strong>Quantidade produzida</strong></td><td>Acumulado do turno/período</td></tr>
+      <tr><td><strong>Refugo do período</strong></td><td>Peças rejeitadas ou reprocessadas</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <div class="callout-title">Alerta automático</div>
+    <p>Se houver apontamentos em PARADA, um alerta amarelo aparece automaticamente no Dashboard principal.</p>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     OEE + DASHBOARD
+════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+  <!-- 6.3 OEE -->
+  <h3>6.3 · Aba OEE — Eficiência global do equipamento</h3>
+  <p>O OEE mede a eficiência real da produção combinando disponibilidade e qualidade.</p>
+
+  <div class="formula">
+    OEE = <span>Disponibilidade (D)</span> × <span>Qualidade (Q)</span>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>Componente</th><th>Fórmula</th><th>O que afeta</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Disponibilidade (D)</strong></td>
+        <td>Tempo produtivo ÷ Tempo total disponível</td>
+        <td>Paradas, quebras, setups</td>
+      </tr>
+      <tr>
+        <td><strong>Qualidade (Q)</strong></td>
+        <td>(Produzido − Refugo) ÷ Produzido</td>
+        <td>Defeitos e retrabalho</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="oee-scale">
+    <div class="oee-red">Abaixo de 65% — requer ação imediata</div>
+    <div class="oee-yellow">65–84% — aceitável</div>
+    <div class="oee-green">≥ 85%</div>
+  </div>
+
+  <p>O gráfico de <strong>Pareto de paradas</strong> mostra quais motivos consomem mais tempo de máquina. Aja sobre os maiores primeiro — resolver o topo do Pareto gera o maior ganho de OEE.</p>
+
+  <!-- ── SEÇÃO 7 ── -->
+  <div class="section-header" style="margin-top:36px;">
+    <div class="section-num">7</div>
+    <h2>Dashboard principal</h2>
+    <span class="section-badge">Diário</span>
+  </div>
+
+  <p>É a visão executiva do sistema. Acesse clicando no logo ou pelo menu DASHBOARDS. Atualiza dados de todos os módulos de uma vez. Clique em <strong>↻ Atualizar</strong> a qualquer momento.</p>
+
+  <h3>Linha 1 — Indicadores operacionais</h3>
+  <div class="kpi-grid">
+    <div class="kpi-card" style="border-top-color:#26c6da;">
+      <div class="kpi-label">Vendas no mês</div>
+      <div class="kpi-value" style="color:#26c6da;font-size:11pt;">—</div>
+      <div class="kpi-sub">unidades do mês mais recente</div>
+    </div>
+    <div class="kpi-card" style="border-top-color:#26a69a;">
+      <div class="kpi-label">Faturamento clientes</div>
+      <div class="kpi-value" style="color:#26a69a;font-size:11pt;">—</div>
+      <div class="kpi-sub">R$ acumulado</div>
+    </div>
+    <div class="kpi-card" style="border-top-color:#f06292;">
+      <div class="kpi-label">Estoque crítico</div>
+      <div class="kpi-value" style="color:#f06292;font-size:11pt;">—</div>
+      <div class="kpi-sub">itens com &lt; 1 mês de cobertura</div>
+    </div>
+    <div class="kpi-card" style="border-top-color:#ffab76;">
+      <div class="kpi-label">OPs em aberto</div>
+      <div class="kpi-value" style="color:#ffab76;font-size:11pt;">—</div>
+      <div class="kpi-sub">ordens importadas</div>
+    </div>
+    <div class="kpi-card" style="border-top-color:#7c4dff;">
+      <div class="kpi-label">Códigos ativos</div>
+      <div class="kpi-value" style="color:#7c4dff;font-size:11pt;">—</div>
+      <div class="kpi-sub">em vendas</div>
+    </div>
+  </div>
+
+  <h3>Linha 2 — Indicadores estratégicos</h3>
+
+  <table>
+    <thead>
+      <tr><th>Card</th><th>Fonte dos dados</th><th>Ação se crítico</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>R$ em Risco</strong></td>
+        <td>Política de Estoques</td>
+        <td>Priorizar produção dos SKUs em RUPTURA imediatamente</td>
+      </tr>
+      <tr>
+        <td><strong>OEE Real (7 dias)</strong></td>
+        <td>MES — apontamentos finalizados</td>
+        <td>Analisar Pareto de paradas no MES → atacar maior motivo</td>
+      </tr>
+      <tr>
+        <td><strong>WIP Ativo</strong></td>
+        <td>MES — apontamentos em andamento</td>
+        <td>Verificar apontamentos em PARADA e acionar supervisão</td>
+      </tr>
+      <tr>
+        <td><strong>Gargalo — Utilização</strong></td>
+        <td>TOC</td>
+        <td>Se &gt; 100%: horas extras ou subcontratação. Se &gt; 85%: monitorar.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Alertas automáticos</h3>
+  <p>O painel de alertas mostra problemas identificados automaticamente. Clique em qualquer alerta para navegar diretamente ao módulo responsável.</p>
+
+  <table>
+    <thead>
+      <tr><th>Alerta</th><th>Significado</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><span class="badge badge-red">🔴</span> <strong>Códigos com estoque ZERO</strong></td><td>SKUs com vendas mas sem estoque — risco imediato de ruptura</td></tr>
+      <tr><td><span class="badge badge-red">🔴</span> <strong>R$ em risco</strong></td><td>Valor financeiro de SKUs em RUPTURA ou RISCO na Política</td></tr>
+      <tr><td><span class="badge badge-red">🔴</span> <strong>Gargalo &gt; 100%</strong></td><td>Processo produtivo com capacidade esgotada</td></tr>
+      <tr><td><span class="badge badge-yellow">🟡</span> <strong>Apontamento em PARADA</strong></td><td>Produção parada no MES aguardando resolução</td></tr>
+    </tbody>
+  </table>
+
+</div>
+
+<!-- ════════════════════════════════════════════════════════
+     OUTROS DASHBOARDS + ROTINA
+════════════════════════════════════════════════════════ -->
+<div class="page page-break">
+
+  <!-- ── SEÇÃO 8 ── -->
+  <div class="section-header">
+    <div class="section-num">8</div>
+    <h2>Outros dashboards analíticos</h2>
+  </div>
+
+  <table>
+    <thead>
+      <tr><th>Dashboard</th><th>O que mostra</th><th>Quando usar</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Vendas × Estoque</strong></td>
+        <td>Cobertura de estoque por produto — cruzamento direto entre venda e posição atual</td>
+        <td>Reunião semanal de estoque</td>
+      </tr>
+      <tr>
+        <td><strong>Pesquisa ABC</strong></td>
+        <td>Curva ABC de vendas — classifica produtos por participação no faturamento</td>
+        <td>Definição de foco do portfólio</td>
+      </tr>
+      <tr>
+        <td><strong>ABC Micro</strong></td>
+        <td>ABC segmentado por tipo de produto ou canal de venda</td>
+        <td>Análise comercial detalhada</td>
+      </tr>
+      <tr>
+        <td><strong>ABC Estoque</strong></td>
+        <td>Cruzamento da curva ABC com o estoque — mostra onde o capital está parado</td>
+        <td>Decisão de desovar estoque de baixo giro</td>
+      </tr>
+      <tr>
+        <td><strong>Pedidos</strong></td>
+        <td>Carteira de pedidos em aberto por cliente e prazo</td>
+        <td>Acompanhamento comercial e expedição</td>
+      </tr>
+      <tr>
+        <td><strong>Comparador</strong></td>
+        <td>Comparativo entre dois períodos — volume, mix e tendência</td>
+        <td>Análise de crescimento / queda por produto</td>
+      </tr>
+      <tr>
+        <td><strong>Clientes</strong></td>
+        <td>Ranking de clientes por faturamento e evolução por período</td>
+        <td>Reunião com equipe comercial</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ── SEÇÃO 9 ── -->
+  <div class="section-header" style="margin-top:36px;">
+    <div class="section-num">9</div>
+    <h2>Rotina de uso recomendada</h2>
+  </div>
+
+  <div class="rotina-grid">
+    <div class="rotina-card" style="border-top:3px solid #6366f1;">
+      <div class="rotina-freq">Diário</div>
+      <ul>
+        <li>Abrir o Dashboard e checar os alertas</li>
+        <li>Verificar WIP ativo e OEE do dia anterior no MES</li>
+        <li>Resolver apontamentos em PARADA</li>
+        <li>Conferir o Fluxo do Sistema — etapas verdes confirmam que os dados estão atualizados</li>
+      </ul>
+    </div>
+    <div class="rotina-card" style="border-top:3px solid #26c6da;">
+      <div class="rotina-freq">Semanal</div>
+      <ul>
+        <li>Acessar Vendas × Estoque — identificar produtos críticos</li>
+        <li>Revisar Pareto de paradas no MES — atacar o maior motivo</li>
+        <li>Conferir fila do gargalo no TOC</li>
+        <li>Ajustar sequência no Preactor se houver mudança de prioridade</li>
+      </ul>
+    </div>
+    <div class="rotina-card" style="border-top:3px solid #26a69a;">
+      <div class="rotina-freq">Mensal</div>
+      <ul>
+        <li>Importar novos dados de Vendas e Estoque</li>
+        <li>Rodar Previsão de Demanda e Política de Estoques</li>
+        <li>Gerar Plano de Produção e emitir OPs no ERP</li>
+        <li>Atualizar análise TOC com nova demanda</li>
+        <li>Reagendar Preactor para o próximo mês</li>
+        <li>Fazer backup dos dados (botão ⬇ Backup no Dashboard)</li>
+      </ul>
+    </div>
+    <div class="rotina-card" style="border-top:3px solid #f59e0b;">
+      <div class="rotina-freq">Trimestral</div>
+      <ul>
+        <li>Revisar Calendário (turnos, feriados)</li>
+        <li>Atualizar Matriz de Set Up se houver novos produtos</li>
+        <li>Revisar parâmetros da Política de Estoques</li>
+        <li>Avaliar se o método de previsão ainda é o mais adequado por SKU</li>
+        <li>Revisar o mix ativo no cadastro de Base de Dados</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- PONTOS DE ATENÇÃO -->
+  <div class="section-header" style="margin-top:36px;">
+    <div class="section-num" style="background:#2d2d4e;font-size:10pt;">!</div>
+    <h2>Pontos de atenção e boas práticas</h2>
+  </div>
+
+  <div class="callout danger">
+    <div class="callout-title">Não altere dados diretamente no banco</div>
+    <p>Todas as inserções e atualizações devem ser feitas pelas telas de importação do sistema. Alterações diretas no banco de dados quebram o histórico de atividades e podem corromper os cruzamentos.</p>
+  </div>
+
+  <div class="callout ok">
+    <div class="callout-title">Servidor automático no Mac</div>
+    <p>O servidor inicia automaticamente quando o Mac liga, via LaunchAgent. Se o sistema não responder após uma reinicialização, aguarde 1 minuto e tente novamente. Não é necessário abrir nenhum terminal.</p>
+  </div>
+
+  <div class="callout warn">
+    <div class="callout-title">Sempre faça backup antes de limpar dados</div>
+    <p>Use o botão <strong>⬇ Backup</strong> no Dashboard antes de qualquer operação de limpeza (<strong>Limpar dados</strong>) ou reimportação de massa. O backup gera um arquivo JSON com todos os dados do sistema.</p>
+  </div>
+
+  <div class="callout">
+    <div class="callout-title">Respeite a sequência dos módulos</div>
+    <p>O sistema funciona em cadeia. Rodar a Política de Estoques sem ter a Previsão de Demanda calculada gera resultados incorretos. Sempre siga o fluxo: Configuração → Importação → S&amp;OP → TOC → Preactor → MES.</p>
+  </div>
+
+  <div style="margin-top:48px;padding-top:24px;border-top:1px solid #f0f0f8;display:flex;justify-content:space-between;align-items:center;">
+    <div style="font-size:8pt;color:#ababce;">SIGS — Sistema Integrado de Gestão Stoll · Versão Junho 2026</div>
+    <div style="font-size:8pt;color:#ababce;">Documento de uso interno · Gestão / Administração</div>
+  </div>
+
+</div>
+
+</body>
+</html>
