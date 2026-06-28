@@ -2521,6 +2521,32 @@ app.post('/api/mf/importar-ops', auth, mfEscrita, async (req, res) => {
     res.json({ ok: true, inseridas, produtos_criados, ignoradas: existentes.length, erros });
 });
 
+// ── #4 Integração de máquina (Stoll): recebe contagem automática ─────────────
+// O gateway/máquina faz POST com a contagem produzida (delta). Soma na sessão
+// aberta daquela máquina — auto-contagem, elimina digitação no maior estágio.
+app.post('/api/mf/maquina-contagem', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {}, cod = b.maquina_codigo, delta = Number(b.qtd_delta ?? b.qtd ?? 0);
+    if (!cod || !(delta > 0)) return res.status(400).json({ erro: 'maquina_codigo e qtd_delta>0 obrigatórios' });
+    const { data: maq } = await supabase.from('maquina').select('id').eq('codigo', cod).limit(1).single();
+    if (!maq) return res.status(404).json({ erro: 'máquina não encontrada' });
+    const { data: aps } = await supabase.from('apontamento').select('id,qtd_boa').eq('maquina_id', maq.id).is('datahora_fim', null).order('datahora_inicio', { ascending: false }).limit(1);
+    if (!aps?.length) return res.status(409).json({ erro: 'sem sessão aberta nesta máquina — abra o apontamento antes' });
+    const novo = Number(aps[0].qtd_boa || 0) + delta;
+    const { error } = await supabase.from('apontamento').update({ qtd_boa: novo }).eq('id', aps[0].id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, apontamento_id: aps[0].id, qtd_boa: novo });
+});
+// ── #5 ERP write-back: confirmações de produção (OPs + produzido) p/ o ERP ────
+app.get('/api/mf/erp/confirmacoes', auth, async (req, res) => {
+    const ops = (await supabase.from('ordem_producao').select('id,numero,status,qtd_planejada,unidade,data_abertura,data_prevista, produto:produto_id(codigo)').neq('status', 'cancelada')).data || [];
+    const aps = (await supabase.from('apontamento').select('op_id,qtd_boa,qtd_refugo,qtd_retrabalho,datahora_fim')).data || [];
+    const byOp = {};
+    aps.forEach(a => { const o = (byOp[a.op_id] = byOp[a.op_id] || { boa: 0, refugo: 0, retrab: 0, ultima: null }); o.boa += Number(a.qtd_boa || 0); o.refugo += Number(a.qtd_refugo || 0); o.retrab += Number(a.qtd_retrabalho || 0); if (a.datahora_fim && (!o.ultima || a.datahora_fim > o.ultima)) o.ultima = a.datahora_fim; });
+    let conf = ops.map(o => { const p = byOp[o.id] || { boa: 0, refugo: 0, retrab: 0, ultima: null }; return { op: o.numero, produto: o.produto?.codigo || null, status: o.status, unidade: o.unidade, qtd_planejada: Number(o.qtd_planejada), qtd_produzida: p.boa, qtd_refugo: p.refugo, qtd_retrabalho: p.retrab, ultima_producao: p.ultima }; });
+    if (req.query.com_producao === '1') conf = conf.filter(c => c.qtd_produzida > 0 || c.status === 'concluida');
+    res.json({ gerado_em: new Date().toISOString(), total: conf.length, confirmacoes: conf });
+});
+
 // ── Documentos (#7): instrução de trabalho por produto/etapa ─────────────────
 app.get('/api/mf/documentos', auth, async (req, res) => {
     const r = await supabase.from('documento').select('*, produto:produto_id(codigo,descricao), etapa:etapa_id(nome,ordem)').eq('ativo', true).order('criado_em', { ascending: false });

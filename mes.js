@@ -204,7 +204,7 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['painel','wip','prazo','flxt','capac','andon','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','setup','cil','cad','rastreio','mat','doc','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','wip','prazo','flxt','capac','andon','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','setup','cil','cad','rastreio','mat','doc','integ','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (this._andonTimer && name !== 'andon') { clearInterval(this._andonTimer); this._andonTimer = null; }
         if (name === 'painel') this.renderPainel();
         if (name === 'wip')    this.renderWip();
@@ -214,6 +214,7 @@ const mf = {
         if (name === 'setup')  this.renderSetup();
         if (name === 'mat')    this.renderMateriais();
         if (name === 'doc')    this.renderDocumentos();
+        if (name === 'integ')  this.renderIntegracoes();
         if (name === 'prazo')  this.renderPrazo();
         if (name === 'flxt')   this.renderFluxoTempo();
         if (name === 'capac')  this.renderCapacidade();
@@ -770,6 +771,73 @@ const mf = {
             : '<div style="color:var(--text-dim);padding:10px 0;">Nenhuma instrução cadastrada para este produto/etapa.</div>';
         this._modal(`<div class="s-label" style="margin-bottom:6px;">📄 INSTRUÇÕES — ${esc(a.etapa_nome || '')}</div>${corpo}
             <div style="display:flex;justify-content:flex-end;margin-top:14px;"><button class="btn secondary" onclick="mf._fecharModal()">Fechar</button></div>`);
+    },
+
+    // ═══ INTEGRAÇÕES (#4 máquina Stoll / #5 ERP write-back) ═════════════════════
+    async renderIntegracoes() {
+        const pan = $('mf-pan-integ');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando...</div>`;
+        const base = location.origin;
+        const conf = await api.get('/api/mf/erp/confirmacoes?com_producao=1');
+        const linhas = (conf?.confirmacoes || []).map(c => `<tr>
+            <td style="padding:6px 8px;">${esc(c.op || '')}</td>
+            <td style="padding:6px 8px;">${esc(c.produto || '')}</td>
+            <td style="padding:6px 8px;">${esc(c.status || '')}</td>
+            <td style="padding:6px 8px;text-align:right;">${(+c.qtd_planejada || 0).toLocaleString('pt-BR')}</td>
+            <td style="padding:6px 8px;text-align:right;font-weight:700;color:#66bb6a;">${(+c.qtd_produzida || 0).toLocaleString('pt-BR')}</td>
+            <td style="padding:6px 8px;text-align:right;color:#f06292;">${(+c.qtd_refugo || 0).toLocaleString('pt-BR')}</td>
+            <td style="padding:6px 8px;font-size:.72rem;color:var(--text-dim);">${c.ultima_producao ? new Date(c.ultima_producao).toLocaleString('pt-BR') : '—'}</td></tr>`).join('');
+        pan.innerHTML = `
+            <div class="summary-card" style="margin-bottom:16px;">
+                <div class="s-label" style="margin-bottom:8px;">🔌 #4 · CONTAGEM AUTOMÁTICA DA MÁQUINA (Stoll)</div>
+                <p style="font-size:.84rem;color:var(--text-dim);margin:0 0 10px;">O contador da máquina (ou um gateway/CLP) envia a quantidade produzida e ela soma sozinha na sessão aberta daquela máquina — acaba a digitação no maior estágio. O lado do software está pronto; falta apontar o equipamento/gateway para este endereço:</p>
+                <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:8px;padding:12px;font-family:ui-monospace,monospace;font-size:.78rem;overflow-x:auto;">
+                    <div style="color:#66bb6a;font-weight:700;">POST ${esc(base)}/api/mf/maquina-contagem</div>
+                    <div style="color:var(--text-dim);">Authorization: Bearer &lt;token&gt;</div>
+                    <div style="color:var(--text-dim);">Content-Type: application/json</div>
+                    <div style="margin-top:6px;">{ "maquina_codigo": "STOLL-01", "qtd_delta": 12 }</div>
+                </div>
+                <div style="font-size:.74rem;color:var(--text-dim);margin-top:8px;">Testar agora com uma máquina que tenha sessão aberta:</div>
+                <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap;">
+                    <input id="mf-integ-maq" class="mf-input" placeholder="código da máquina (ex.: STOLL-01)" style="max-width:220px;">
+                    <input id="mf-integ-qtd" class="mf-input" type="number" placeholder="qtd" value="1" style="max-width:90px;">
+                    <button class="btn secondary" style="font-size:.8rem;" onclick="mf.testarContagem()">Enviar contagem</button>
+                    <span id="mf-integ-res" style="font-size:.78rem;"></span>
+                </div>
+            </div>
+            <div class="summary-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;flex-wrap:wrap;">
+                    <div class="s-label" style="margin:0;">📤 #5 · CONFIRMAÇÃO DE PRODUÇÃO PARA O ERP</div>
+                    <button class="btn primary" style="font-size:.8rem;" onclick="mf.exportarErp()">⬇ Baixar confirmações (JSON)</button>
+                </div>
+                <p style="font-size:.84rem;color:var(--text-dim);margin:0 0 10px;">Produzido por OP (somado dos apontamentos), pronto para o ERP dar baixa. O ERP pode ler direto em <code style="color:#26c6da;">GET /api/mf/erp/confirmacoes</code> ou usar o arquivo abaixo. ${conf?.total || 0} OP(s) com produção.</p>
+                <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                    <thead><tr style="color:var(--text-dim);text-align:left;border-bottom:1px solid var(--border-color);">
+                        <th style="padding:6px 8px;">OP</th><th style="padding:6px 8px;">Produto</th><th style="padding:6px 8px;">Status</th>
+                        <th style="padding:6px 8px;text-align:right;">Plan.</th><th style="padding:6px 8px;text-align:right;">Produzido</th>
+                        <th style="padding:6px 8px;text-align:right;">Refugo</th><th style="padding:6px 8px;">Última prod.</th></tr></thead>
+                    <tbody>${linhas || '<tr><td colspan="7" style="padding:12px;color:var(--text-dim);">Nenhuma OP com produção ainda.</td></tr>'}</tbody>
+                </table></div>
+            </div>`;
+    },
+    async testarContagem() {
+        const cod = $('mf-integ-maq').value.trim(), qtd = +$('mf-integ-qtd').value || 0;
+        const res = $('mf-integ-res');
+        if (!cod || qtd <= 0) { res.style.color = '#f06292'; res.textContent = 'informe máquina e qtd'; return; }
+        const r = await api.post('/api/mf/maquina-contagem', { maquina_codigo: cod, qtd_delta: qtd });
+        if (r?.ok) { res.style.color = '#66bb6a'; res.textContent = `✓ somado — sessão agora com ${r.qtd_boa} boas`; }
+        else { res.style.color = '#f06292'; res.textContent = r?.erro || 'erro'; }
+    },
+    async exportarErp() {
+        const d = await api.get('/api/mf/erp/confirmacoes');
+        if (!d) return toast('Erro ao gerar.', 'erro');
+        const blob = new Blob([JSON.stringify(d, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'confirmacoes-producao.json';
+        a.click();
+        URL.revokeObjectURL(a.href);
+        toast(`${d.total} confirmação(ões) exportada(s).`, 'ok');
     },
 
     // ═══ APONTAMENTO ═══════════════════════════════════════════════════════════
