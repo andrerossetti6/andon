@@ -204,7 +204,7 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['painel','wip','prazo','flxt','capac','andon','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','setup','cil','cad','rastreio','mat','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','wip','prazo','flxt','capac','andon','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','setup','cil','cad','rastreio','mat','doc','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (this._andonTimer && name !== 'andon') { clearInterval(this._andonTimer); this._andonTimer = null; }
         if (name === 'painel') this.renderPainel();
         if (name === 'wip')    this.renderWip();
@@ -213,6 +213,7 @@ const mf = {
         if (name === 'andon')  this.renderAndon();
         if (name === 'setup')  this.renderSetup();
         if (name === 'mat')    this.renderMateriais();
+        if (name === 'doc')    this.renderDocumentos();
         if (name === 'prazo')  this.renderPrazo();
         if (name === 'flxt')   this.renderFluxoTempo();
         if (name === 'capac')  this.renderCapacidade();
@@ -712,6 +713,65 @@ const mf = {
         this._fecharModal(); toast('Consumo registrado (baixou o estoque).');
     },
 
+    // ═══ DOCUMENTOS / INSTRUÇÕES ═══════════════════════════════════════════════
+    async renderDocumentos() {
+        const pan = $('mf-pan-doc');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando documentos...</div>`;
+        const [docs, etapas] = await Promise.all([api.get('/api/mf/documentos'), api.get('/api/mf/etapas-processo')]);
+        if (!Array.isArray(docs)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Documentos indisponível — rode <strong>mes_documentos.sql</strong> e recarregue.</div>`; return; }
+        const etOpt = `<option value="">— qualquer etapa —</option>` + (etapas || []).map(e => `<option value="${e.id}">${e.ordem}. ${esc(e.nome)}</option>`).join('');
+        const lista = docs.map(d => {
+            const escopo = [d.produto ? 'produto ' + esc(d.produto.codigo) : '', d.etapa ? esc(d.etapa.nome) : ''].filter(Boolean).join(' · ') || 'geral';
+            return `<div class="summary-card" style="margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                <div><strong style="font-size:.9rem;">${esc(d.titulo)}</strong> <span style="font-size:.7rem;color:var(--text-dim);">· ${escopo}</span>
+                    ${d.url ? `<a href="${esc(d.url)}" target="_blank" style="color:#26c6da;font-size:.78rem;margin-left:8px;">abrir link ↗</a>` : ''}
+                    ${d.conteudo ? `<div style="font-size:.78rem;color:var(--text-dim);margin-top:4px;white-space:pre-wrap;">${esc(d.conteudo).slice(0, 200)}</div>` : ''}</div>
+                <button onclick="mf.excluirDoc('${d.id}')" style="background:none;border:none;color:#f06292;cursor:pointer;font-size:.72rem;">excluir</button>
+            </div>`;
+        }).join('');
+        pan.innerHTML = `
+            <div class="summary-card" style="margin-bottom:14px;">
+                <div class="s-label" style="margin-bottom:10px;">+ NOVA INSTRUÇÃO / DOCUMENTO</div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:8px;">
+                    <input id="mf-doc-tit" class="mf-input" placeholder="Título *">
+                    <input id="mf-doc-prod" class="mf-input" placeholder="Código do produto (opcional)">
+                    <select id="mf-doc-etapa" class="mf-input">${etOpt}</select>
+                    <input id="mf-doc-url" class="mf-input" placeholder="Link/URL (PDF, desenho)">
+                </div>
+                <textarea id="mf-doc-cont" class="mf-input" placeholder="Ou texto da instrução de trabalho..." style="width:100%;min-height:64px;margin-bottom:8px;"></textarea>
+                <button class="btn primary" style="font-size:.8rem;" onclick="mf.salvarDoc()">Salvar documento</button>
+                <div style="font-size:.72rem;color:var(--text-dim);margin-top:6px;">Vazio em produto/etapa = vale para todos. O operador vê na sessão os documentos do produto+etapa dele.</div>
+            </div>
+            <div class="s-label" style="margin:6px 0 10px;">DOCUMENTOS (${docs.length})</div>
+            ${lista || '<div class="summary-card" style="color:var(--text-dim);">Nenhum documento ainda.</div>'}
+            <style>.mf-input{padding:7px 10px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;}</style>`;
+    },
+    async salvarDoc() {
+        const titulo = $('mf-doc-tit').value.trim(), url = $('mf-doc-url').value.trim(), conteudo = $('mf-doc-cont').value.trim();
+        if (!titulo || (!url && !conteudo)) return toast('Título e (link ou texto) obrigatórios.', 'erro');
+        const r = await api.post('/api/mf/documentos', { titulo, produto_codigo: $('mf-doc-prod').value.trim() || null, etapa_id: $('mf-doc-etapa').value || null, url, conteudo });
+        toast(r?.ok ? 'Documento salvo.' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderDocumentos();
+    },
+    async excluirDoc(id) {
+        if (!confirm('Excluir este documento?')) return;
+        const r = await api.del('/api/mf/documentos/' + id);
+        if (r?.ok) this.renderDocumentos(); else toast('Erro.', 'erro');
+    },
+    async verInstrucao(apId) {  // operador: vê as instruções do produto+etapa da sessão
+        const a = this._abertas.find(x => x.id === apId) || {};
+        const prod = (this._cad.ops || []).find(o => o.id === a.op_id)?.produto_id;
+        const qs = [prod ? 'produto_id=' + prod : '', a.etapa_id ? 'etapa_id=' + a.etapa_id : ''].filter(Boolean).join('&');
+        const docs = await api.get('/api/mf/documentos' + (qs ? '?' + qs : ''));
+        const corpo = (Array.isArray(docs) && docs.length)
+            ? docs.map(d => `<div style="padding:10px 0;border-top:1px solid rgba(255,255,255,.06);">
+                <strong>${esc(d.titulo)}</strong>${d.url ? ` <a href="${esc(d.url)}" target="_blank" style="color:#26c6da;font-size:.8rem;">abrir ↗</a>` : ''}
+                ${d.conteudo ? `<div style="font-size:.84rem;color:var(--text-dim);margin-top:4px;white-space:pre-wrap;">${esc(d.conteudo)}</div>` : ''}</div>`).join('')
+            : '<div style="color:var(--text-dim);padding:10px 0;">Nenhuma instrução cadastrada para este produto/etapa.</div>';
+        this._modal(`<div class="s-label" style="margin-bottom:6px;">📄 INSTRUÇÕES — ${esc(a.etapa_nome || '')}</div>${corpo}
+            <div style="display:flex;justify-content:flex-end;margin-top:14px;"><button class="btn secondary" onclick="mf._fecharModal()">Fechar</button></div>`);
+    },
+
     // ═══ APONTAMENTO ═══════════════════════════════════════════════════════════
     async renderApont() {
         const c = this._cad;
@@ -863,6 +923,7 @@ const mf = {
                     <button class="btn secondary" style="font-size:.78rem;" onclick="mf.formParada('${a.id}')">⏸ Registrar parada</button>
                     <button class="btn secondary" style="font-size:.78rem;" onclick="mf.formMedicao('${a.id}')">📏 Medir</button>
                     <button class="btn secondary" style="font-size:.78rem;border-color:rgba(240,98,146,.4);color:#f06292;" onclick="mf.formNc('${a.id}')">⚠ Registrar NC</button>
+                    <button class="btn secondary" style="font-size:.78rem;" onclick="mf.verInstrucao('${a.id}')">📄 Instrução</button>
                     <button class="btn secondary" style="font-size:.78rem;" onclick="mf.formConsumoFio('${a.id}')">📦 Fio</button>
                     <button class="btn secondary" style="font-size:.78rem;border-color:rgba(255,82,82,.5);color:#ff5252;" onclick="mf.formAndon('${a.id}')">🆘 Andon</button>
                     ${a.etapa_id?`<label style="display:flex;align-items:center;gap:5px;font-size:.74rem;color:var(--text-dim);margin-left:auto;cursor:pointer;" title="Ao fechar, move a OP para a próxima etapa do fluxo"><input type="checkbox" id="mf-av-${a.id}" checked> avançar no fluxo</label>`:''}

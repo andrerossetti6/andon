@@ -2521,6 +2521,32 @@ app.post('/api/mf/importar-ops', auth, mfEscrita, async (req, res) => {
     res.json({ ok: true, inseridas, produtos_criados, ignoradas: existentes.length, erros });
 });
 
+// ── Documentos (#7): instrução de trabalho por produto/etapa ─────────────────
+app.get('/api/mf/documentos', auth, async (req, res) => {
+    const r = await supabase.from('documento').select('*, produto:produto_id(codigo,descricao), etapa:etapa_id(nome,ordem)').eq('ativo', true).order('criado_em', { ascending: false });
+    if (r.error && /schema cache|does not exist/i.test(r.error.message || '')) return res.status(503).json({ erro: 'Documentos não inicializados. Rode mes_documentos.sql.' });
+    if (r.error) return res.status(500).json({ erro: r.error.message });
+    let docs = r.data || [];
+    // filtro de relevância p/ a estação: aplica se (produto null ou =X) E (etapa null ou =Y)
+    const { produto_id, etapa_id } = req.query;
+    if (produto_id || etapa_id) docs = docs.filter(d => (!d.produto_id || d.produto_id === produto_id) && (!d.etapa_id || d.etapa_id === etapa_id));
+    res.json(docs);
+});
+app.post('/api/mf/documentos', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {};
+    if (!b.titulo || (!b.url && !b.conteudo)) return res.status(400).json({ erro: 'título e (url ou conteúdo) obrigatórios' });
+    let produto_id = b.produto_id || null;
+    if (!produto_id && b.produto_codigo) { const { data: pr } = await supabase.from('produto').select('id').eq('codigo', b.produto_codigo).limit(1).single(); if (!pr) return res.status(400).json({ erro: 'código de produto não encontrado' }); produto_id = pr.id; }
+    const { data, error } = await supabase.from('documento').insert({ titulo: b.titulo, produto_id, etapa_id: b.etapa_id || null, url: b.url || null, conteudo: b.conteudo || null }).select().single();
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true, documento: data });
+});
+app.delete('/api/mf/documentos/:id', auth, mfEscrita, async (req, res) => {
+    const { error } = await supabase.from('documento').update({ ativo: false }).eq('id', req.params.id);
+    if (error) return res.status(500).json({ erro: error.message });
+    res.json({ ok: true });
+});
+
 // ── Setup / SMED (#3): tempo de troca de artigo (paradas categoria 'setup') ──
 app.get('/api/mf/setup', auth, async (req, res) => {
     const dias = Math.min(90, Math.max(7, Number(req.query.dias) || 14));
