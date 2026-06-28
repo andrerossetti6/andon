@@ -848,6 +848,25 @@ app.delete('/api/maquinas/:id', auth, async (req, res) => {
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true });
 });
+// Integração Fase 1b: máquina do MES no formato de 'maquinas' (SIGS), com
+// processo_id mapeado para processos_config por nome. Fonte única de recurso para
+// o TOC (gargalo Stoll). NÃO toca no CRUD de Processos (/api/maquinas).
+app.get('/api/maquinas-unificado', auth, async (req, res) => {
+    const [{ data: vw, error: e1 }, { data: procs, error: e2 }] = await Promise.all([
+        supabase.from('vw_maquina_sigs').select('*'),
+        supabase.from('processos_config').select('id,nome'),
+    ]);
+    if (e1) return res.status(500).json({ erro: e1.message });
+    if (e2) return res.status(500).json({ erro: e2.message });
+    const norm = s => String(s || '').toLowerCase().replace(/^\s*\d+\.\s*/, '').trim();
+    const byNome = new Map((procs || []).map(p => [norm(p.nome), p.id]));
+    let rows = (vw || []).map(m => ({
+        id: m.id, processo_id: byNome.get(norm(m.processo)) || null,
+        id_maquina: m.id_maquina, modelo: m.modelo, oee: m.oee, status: m.status, n_pessoas: m.n_pessoas,
+    }));
+    if (req.query.processo_id) rows = rows.filter(m => m.processo_id === req.query.processo_id);
+    res.json(rows);
+});
 
 // ── ARQUITETURA DE DADOS — rotas genéricas ───────────────────
 ['calendario','processos','capacidade'].forEach(nome => {

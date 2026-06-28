@@ -4581,7 +4581,9 @@ const toc = {
 
     async _loadMaquinasTecelagem() {
         if (this._maquinasTec !== null) return this._maquinasTec;
-        const [procs, maqs] = await Promise.all([api.get('/api/processos-config'), api.get('/api/maquinas')]);
+        // Fase 1b: gargalo Stoll lê a fonte única de recurso (maquina do MES via
+        // vw_maquina_sigs), não mais a 'maquinas' do SIGS. Mesmo formato/contrato.
+        const [procs, maqs] = await Promise.all([api.get('/api/processos-config'), api.get('/api/maquinas-unificado')]);
         const tec = (procs || []).find(p => /tecel/i.test(p.nome || ''));
         if (!tec) { this._maquinasTec = []; return []; }
         this._maquinasTec = (maqs || []).filter(m => m.processo_id === tec.id && String(m.status || 'Ativo').toLowerCase() !== 'inativo');
