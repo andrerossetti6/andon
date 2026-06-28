@@ -336,6 +336,32 @@ app.get('/api/op', auth, async (req, res) => {
     try { res.json(await fetchAllRows('dados_op', importacao_id)); }
     catch (e) { res.status(500).json({ erro: 'Erro ao buscar ordens: ' + e.message }); }
 });
+// Integração Fase 2: ordem_producao (MES) no MESMO formato que o SIGS lê de
+// dados_op ({id, dados:{'N. OP','Ref','Descrição','Cor','Tam','Marca','Qtd','Status'}}).
+// Fonte única da carteira de OP. NÃO toca em dados_op nem no /api/op (import legado).
+app.get('/api/op-unificado', auth, async (req, res) => {
+    const [{ data: ops, error: e1 }, { data: prods, error: e2 }] = await Promise.all([
+        supabase.from('ordem_producao').select('id,numero,produto_id,qtd_planejada,unidade,status,data_abertura,data_prevista').neq('status', 'cancelada'),
+        supabase.from('produto').select('id,codigo,descricao,cor,marca,tamanho'),
+    ]);
+    if (e1) return res.status(500).json({ erro: e1.message });
+    if (e2) return res.status(500).json({ erro: e2.message });
+    const pById = new Map((prods || []).map(p => [p.id, p]));
+    const rows = (ops || []).map(o => {
+        const p = pById.get(o.produto_id) || {};
+        return {
+            id: o.id, op_id: o.id, produto_codigo: p.codigo || '',
+            dados: {
+                'N. OP': o.numero, 'Ref': p.codigo || '', 'Descrição': p.descricao || '',
+                'Cor': p.cor || '', 'Tam': p.tamanho || '', 'Marca': p.marca || '',
+                'Qtd': o.qtd_planejada, 'Status': o.status,
+                'Emissão': o.data_abertura ? String(o.data_abertura).slice(0, 10) : '',
+                'Prev. Final': o.data_prevista ? String(o.data_prevista).slice(0, 10) : '',
+            },
+        };
+    });
+    res.json(rows);
+});
 
 // ── DELETE /api/importacoes-op/:id ───────────────────────────
 app.delete('/api/importacoes-op/:id', auth, adminOnly, async (req, res) => {
