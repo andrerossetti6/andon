@@ -778,7 +778,8 @@ const mf = {
         const pan = $('mf-pan-integ');
         pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando...</div>`;
         const base = location.origin;
-        const conf = await api.get('/api/mf/erp/confirmacoes?com_producao=1');
+        const [conf, chaveR] = await Promise.all([api.get('/api/mf/erp/confirmacoes?com_producao=1'), api.get('/api/mf/maquina-chave')]);
+        const chave = chaveR?.chave || null;
         const linhas = (conf?.confirmacoes || []).map(c => `<tr>
             <td style="padding:6px 8px;">${esc(c.op || '')}</td>
             <td style="padding:6px 8px;">${esc(c.produto || '')}</td>
@@ -789,14 +790,18 @@ const mf = {
             <td style="padding:6px 8px;font-size:.72rem;color:var(--text-dim);">${c.ultima_producao ? new Date(c.ultima_producao).toLocaleString('pt-BR') : '—'}</td></tr>`).join('');
         pan.innerHTML = `
             <div class="summary-card" style="margin-bottom:16px;">
-                <div class="s-label" style="margin-bottom:8px;">🔌 #4 · CONTAGEM AUTOMÁTICA DA MÁQUINA (Stoll)</div>
-                <p style="font-size:.84rem;color:var(--text-dim);margin:0 0 10px;">O contador da máquina (ou um gateway/CLP) envia a quantidade produzida e ela soma sozinha na sessão aberta daquela máquina — acaba a digitação no maior estágio. O lado do software está pronto; falta apontar o equipamento/gateway para este endereço:</p>
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+                    <div class="s-label" style="margin:0;">🔌 #4 · CONTAGEM AUTOMÁTICA DA MÁQUINA (Stoll)</div>
+                    <span style="font-size:.72rem;font-weight:700;padding:3px 9px;border-radius:6px;background:${chave ? 'rgba(102,187,106,.15)' : 'rgba(255,202,40,.15)'};color:${chave ? '#66bb6a' : '#ffca28'};">API ${chave ? 'ABERTA' : 'sem chave'}</span>
+                </div>
+                <p style="font-size:.84rem;color:var(--text-dim);margin:0 0 10px;">O contador da máquina (ou um gateway/CLP) envia a quantidade produzida e ela soma sozinha na sessão aberta daquela máquina — acaba a digitação no maior estágio. A API está <strong>aberta para a máquina</strong> via chave fixa (não precisa de login de usuário). Configure o equipamento/gateway com:</p>
                 <div style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:8px;padding:12px;font-family:ui-monospace,monospace;font-size:.78rem;overflow-x:auto;">
                     <div style="color:#66bb6a;font-weight:700;">POST ${esc(base)}/api/mf/maquina-contagem</div>
-                    <div style="color:var(--text-dim);">Authorization: Bearer &lt;token&gt;</div>
+                    <div style="color:var(--text-dim);">X-API-Key: ${chave ? `<span style="color:#26c6da;">${esc(chave)}</span>` : '&lt;defina MF_MAQUINA_API_KEY no .env&gt;'}</div>
                     <div style="color:var(--text-dim);">Content-Type: application/json</div>
                     <div style="margin-top:6px;">{ "maquina_codigo": "STOLL-01", "qtd_delta": 12 }</div>
                 </div>
+                ${chave ? `<div style="font-size:.72rem;color:var(--text-dim);margin-top:6px;">🔒 Chave secreta — só admin vê. Quem tiver essa chave pode lançar produção. Para trocar, gere outra em <code>MF_MAQUINA_API_KEY</code> no .env e reinicie.</div>` : ''}
                 <div style="font-size:.74rem;color:var(--text-dim);margin-top:8px;">Testar agora com uma máquina que tenha sessão aberta:</div>
                 <div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap;">
                     <input id="mf-integ-maq" class="mf-input" placeholder="código da máquina (ex.: STOLL-01)" style="max-width:220px;">

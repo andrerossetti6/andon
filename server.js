@@ -69,6 +69,16 @@ function mfEscrita(req, res, next) {
     next();
 }
 
+// Auth máquina-a-máquina (#4 contagem): aceita a chave fixa MF_MAQUINA_API_KEY
+// (header X-API-Key ou Authorization: Bearer <chave>) OU o login normal (JWT).
+// Assim o contador/CLP/gateway da máquina chama sem precisar de usuário.
+function mfMaquinaAuth(req, res, next) {
+    const chave = process.env.MF_MAQUINA_API_KEY;
+    const enviado = req.headers['x-api-key'] || req.headers.authorization?.split(' ')[1];
+    if (chave && enviado && enviado === chave) { req.usuario = { perfil: 'maquina', nome: 'gateway-maquina' }; return next(); }
+    return auth(req, res, () => mfEscrita(req, res, next));  // sem chave válida → exige login
+}
+
 // ── GET /api/ping — wake-up sem auth ─────────────────────────
 app.get('/api/ping', (_req, res) => res.json({ ok: true, ts: Date.now() }));
 
@@ -2524,7 +2534,11 @@ app.post('/api/mf/importar-ops', auth, mfEscrita, async (req, res) => {
 // ── #4 Integração de máquina (Stoll): recebe contagem automática ─────────────
 // O gateway/máquina faz POST com a contagem produzida (delta). Soma na sessão
 // aberta daquela máquina — auto-contagem, elimina digitação no maior estágio.
-app.post('/api/mf/maquina-contagem', auth, mfEscrita, async (req, res) => {
+// chave da API de máquina (só admin vê, p/ configurar o gateway)
+app.get('/api/mf/maquina-chave', auth, adminOnly, (_req, res) => {
+    res.json({ configurada: !!process.env.MF_MAQUINA_API_KEY, chave: process.env.MF_MAQUINA_API_KEY || null });
+});
+app.post('/api/mf/maquina-contagem', mfMaquinaAuth, async (req, res) => {
     const b = req.body || {}, cod = b.maquina_codigo, delta = Number(b.qtd_delta ?? b.qtd ?? 0);
     if (!cod || !(delta > 0)) return res.status(400).json({ erro: 'maquina_codigo e qtd_delta>0 obrigatórios' });
     const { data: maq } = await supabase.from('maquina').select('id').eq('codigo', cod).limit(1).single();
