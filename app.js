@@ -1061,11 +1061,81 @@ function fecharDetalheVxe() {
     document.getElementById('vxe-detail-panel').classList.remove('open');
 }
 
+// ═══ COCKPIT EXECUTIVO — consolida os dois domínios (SIGS planejamento + MES execução) ═══
+const cockpit = {
+    async render() {
+        const body = document.getElementById('cockpit-body');
+        if (!body) return;
+        body.innerHTML = `<div style="padding:48px;text-align:center;color:var(--text-dim);">Consolidando os dois domínios…</div>`;
+        const [maqUni, ind, andon, carteira, prods] = await Promise.all([
+            api.get('/api/maquinas-unificado').catch(() => []),
+            api.get('/api/mf/indicadores').catch(() => null),
+            api.get('/api/mf/andon').catch(() => []),
+            api.get('/api/op-unificado').catch(() => []),
+            api.get('/api/mf/produtos').catch(() => []),
+        ]);
+        // ── EXECUÇÃO (MES) ──
+        const teares = (maqUni || []).filter(m => /^stoll/i.test(m.id_maquina || '') && String(m.status || '').toLowerCase() !== 'inativo');
+        const porModelo = {};
+        teares.forEach(m => { const k = m.modelo || '—'; porModelo[k] = (porModelo[k] || 0) + 1; });
+        const cart = Array.isArray(carteira) ? carteira : [];
+        const qtdCarteira = cart.reduce((s, o) => s + (Number(o.dados?.Qtd) || 0), 0);
+        const emProd = cart.filter(o => /produ/i.test(o.dados?.Status || '')).length;
+        const andonAbertos = (Array.isArray(andon) ? andon : []).filter(a => a.status && a.status !== 'resolvido').length;
+        const oee = ind && (ind.oee_medio ?? ind.oee);
+        const oeeTxt = (oee != null && oee > 0) ? (Math.round(oee * 10) / 10) + '%' : '<span style="color:var(--text-dim);font-size:.8rem;">aguardando apontamento</span>';
+        const nProdMes = Array.isArray(prods) ? prods.length : 0;
+        // ── PLANEJAMENTO (SIGS, em memória) ──
+        const nSkusVendas = (vendas?.rawData?.length) || 0;
+        const nEstoque = (estoque?.rawData?.length) || 0;
+        const nBanco = (banco?.rawData?.length) || 0;
+
+        const card = (label, valor, cor, sub) => `
+            <div class="summary-card" style="text-align:center;padding:16px 10px;border-top:3px solid ${cor};">
+                <div style="font-size:1.7rem;font-weight:800;color:${cor};line-height:1.1;">${valor}</div>
+                <div style="font-size:.72rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;margin-top:6px;">${label}</div>
+                ${sub ? `<div style="font-size:.7rem;color:var(--text-dim);margin-top:3px;">${sub}</div>` : ''}
+            </div>`;
+        const teaTab = Object.entries(porModelo).sort().map(([m, n]) =>
+            `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:.85rem;">
+                <span style="color:var(--text-primary);">Stoll ${m}</span><strong style="color:#ff5252;">${n} tear${n > 1 ? 'es' : ''}</strong></div>`).join('');
+
+        body.innerHTML = `
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:22px;">
+                ${card('OPs na carteira', cart.length.toLocaleString('pt-BR'), '#26c6da', emProd + ' em produção')}
+                ${card('Qtd planejada', Math.round(qtdCarteira).toLocaleString('pt-BR'), '#7c4dff', 'unidades')}
+                ${card('Teares ativos', teares.length, '#ff5252', 'Tecelagem (Stoll)')}
+                ${card('Produtos (MES)', nProdMes, '#26a69a', 'catalogados')}
+                ${card('OEE médio', oeeTxt, '#ffab76', 'execução real')}
+                ${card('Andon aberto', andonAbertos, andonAbertos ? '#f06292' : '#3fb950', 'chamados agora')}
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
+                <div class="summary-card">
+                    <div class="s-label" style="margin-bottom:12px;">🧠 PLANEJAMENTO — SIGS / Stoll</div>
+                    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);"><span style="color:var(--text-dim);">SKUs com histórico de vendas</span><strong>${nSkusVendas.toLocaleString('pt-BR')}</strong></div>
+                    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);"><span style="color:var(--text-dim);">Itens em estoque</span><strong>${nEstoque.toLocaleString('pt-BR')}</strong></div>
+                    <div style="display:flex;justify-content:space-between;padding:6px 0;"><span style="color:var(--text-dim);">Itens no banco de dados (cadastro)</span><strong>${nBanco.toLocaleString('pt-BR')}</strong></div>
+                    <div style="font-size:.72rem;color:var(--text-dim);margin-top:10px;">Decide <strong>o que</strong> e <strong>quanto</strong> produzir (Previsão · Política · Plano · TOC · Preactor).</div>
+                </div>
+                <div class="summary-card">
+                    <div class="s-label" style="margin-bottom:12px;">⚙️ EXECUÇÃO — MES / Malha Forte</div>
+                    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);"><span style="color:var(--text-dim);">Carteira (OPs do ERP)</span><strong>${cart.length}</strong></div>
+                    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);"><span style="color:var(--text-dim);">Em produção agora</span><strong style="color:#26c6da;">${emProd}</strong></div>
+                    <div style="padding:8px 0 2px;"><div style="font-size:.72rem;color:var(--text-dim);margin-bottom:6px;">CAPACIDADE TECELAGEM</div>${teaTab || '<span style="color:var(--text-dim);">—</span>'}</div>
+                    <div style="font-size:.72rem;color:var(--text-dim);margin-top:10px;">Executa e <strong>mede</strong> o realizado (Apontamento · Andon · OEE · Qualidade).</div>
+                </div>
+            </div>
+            <div style="font-size:.72rem;color:var(--text-dim);margin-top:16px;text-align:center;">
+                Fonte única integrada · carteira e capacidade vêm do MES Malha Forte; vendas/estoque/cadastro do SIGS. ${(oee == null || !(oee > 0)) ? 'OEE/qualidade aparecem quando a fábrica começar a apontar no MES.' : ''}
+            </div>`;
+    }
+};
+
 function navigateTo(viewName) {
     if (viewName !== 'dashboard') localStorage.setItem('sin1_lastView', viewName);
     fecharDetalhe();
     fecharDetalheVxe();
-    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','toc','previsao','politica','plano-prod','soep','timeline','pesquisa','vxe','op-dash','pedidos','comparador','clientes-dash','abc','abc-micro','abc-estoque','mes'].forEach(v => {
+    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','toc','previsao','politica','plano-prod','soep','timeline','pesquisa','vxe','op-dash','pedidos','comparador','clientes-dash','abc','abc-micro','abc-estoque','mes','cockpit'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -1098,6 +1168,7 @@ function navigateTo(viewName) {
         // ⑥ MES
         mes:           'nav-mes',
         // ⑦ Dashboards
+        cockpit:       'nav-cockpit',
         pesquisa:      'nav-pesquisa',
         vxe:           'nav-vxe',
         'op-dash':     'nav-op-dash',
@@ -1174,6 +1245,9 @@ function navigateTo(viewName) {
             const gargalo = toc._resultProcs?.filter(p=>!p.semDados).sort((a,b)=>(b.util||0)-(a.util||0))[0] || null;
             toc._renderFilaGargalo(gargalo);
         }
+    } else if (viewName === 'cockpit') {
+        document.getElementById('nav-cockpit')?.classList.add('active');
+        cockpit.render();
     } else if (viewName === 'pesquisa') {
         document.getElementById('nav-pesquisa')?.classList.add('active');
         if (pesquisa._dirty) { pesquisa.populateFiltros(); pesquisa._dirty = false; }

@@ -158,6 +158,9 @@
                     DASHBOARDS <span class="nav-toggle">▾</span>
                 </h3>
                 <ul class="nav-section-body">
+                    <li id="nav-cockpit" onclick="navigateTo('cockpit')">
+                        <div class="item-content">🎯 Cockpit Executivo</div>
+                    </li>
                     <li id="nav-pesquisa" onclick="navigateTo('pesquisa')">
                         <div class="item-content">Pesquisa por Código</div>
                     </li>
@@ -585,6 +588,19 @@
     </main>
 
     <!-- ── Pesquisa por Código ──────────────────────────────── -->
+    <main class="content" id="view-cockpit" style="display:none;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">Cockpit <span>Executivo</span></h1>
+                <p class="page-subtitle">Visão consolidada dos dois domínios — planejamento (SIGS) + execução (MES Malha Forte)</p>
+            </div>
+            <div class="page-header-actions">
+                <button class="btn secondary" onclick="cockpit.render()" style="font-size:.8rem;">↻ Atualizar</button>
+            </div>
+        </header>
+        <div id="cockpit-body"></div>
+    </main>
+
     <main class="content" id="view-pesquisa" style="display:none;">
         <header class="page-header">
             <div class="page-header-text">
