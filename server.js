@@ -2199,15 +2199,29 @@ app.delete('/api/mf/etapas-processo/:id', auth, mfEscrita, async (req, res) => {
 // ── WIP / Kanban de produção (OP avança pelo fluxo) ───────────
 // fecha o movimento aberto `m` e abre o próximo (ou conclui a OP na última etapa)
 // avança a OP no fluxo movendo o ponteiro etapa_atual (ou conclui na última etapa)
+// roteiro do produto = etapas que ele usa (na ordem). Sem produto_etapa → todas as etapas ativas.
+async function roteiroDoProduto(produto_id, todasEtapas) {
+    const all = todasEtapas || (await supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).order('ordem')).data || [];
+    if (!produto_id) return all;
+    const { data: pe } = await supabase.from('produto_etapa').select('etapa_id').eq('produto_id', produto_id);
+    if (!pe?.length) return all;  // sem roteiro definido = usa todas (compatível)
+    const set = new Set(pe.map(x => x.etapa_id));
+    return all.filter(e => set.has(e.id));
+}
+async function roteiroDaOp(op_id) {
+    const { data: op } = await supabase.from('ordem_producao').select('produto_id').eq('id', op_id).single();
+    return roteiroDoProduto(op?.produto_id);
+}
 async function avancarOpFluxo(op_id) {
     const { data: op } = await supabase.from('ordem_producao').select('etapa_atual_id, etapa:etapa_atual_id(ordem)').eq('id', op_id).single();
     if (!op?.etapa_atual_id) return { erro: 'OP não está no fluxo.' };
-    const { data: prox } = await supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).gt('ordem', op.etapa?.ordem ?? 0).order('ordem').limit(1);
-    if (prox?.length) {
-        await supabase.from('ordem_producao').update({ etapa_atual_id: prox[0].id, etapa_desde: new Date().toISOString() }).eq('id', op_id);
-        return { proxima: prox[0].nome };
+    const rot = await roteiroDaOp(op_id);  // respeita o roteiro do produto (pula etapas que ele não usa)
+    const prox = rot.find(e => e.ordem > (op.etapa?.ordem ?? 0));
+    if (prox) {
+        await supabase.from('ordem_producao').update({ etapa_atual_id: prox.id, etapa_desde: new Date().toISOString() }).eq('id', op_id);
+        return { proxima: prox.nome };
     }
-    await supabase.from('ordem_producao').update({ etapa_atual_id: null, etapa_desde: null, status: 'concluida' }).eq('id', op_id);  // saiu da última etapa
+    await supabase.from('ordem_producao').update({ etapa_atual_id: null, etapa_desde: null, status: 'concluida' }).eq('id', op_id);  // saiu da última etapa do roteiro
     return { concluida: true };
 }
 // quadro: por etapa, as OPs cujo etapa_atual = etapa; sessão aberta = "em processo". Lead/throughput vêm do apontamento.
@@ -2252,24 +2266,31 @@ app.post('/api/mf/wip/iniciar', auth, mfEscrita, async (req, res) => {
     const { data: op } = await supabase.from('ordem_producao').select('etapa_atual_id').eq('id', op_id).single();
     if (op?.etapa_atual_id) return res.status(409).json({ erro: 'Esta OP já está no fluxo.' });
     let etapaId = req.body.etapa_id;
-    if (!etapaId) { const { data: e } = await supabase.from('etapa_processo').select('id').eq('ativo', true).order('ordem').limit(1); etapaId = e?.[0]?.id; }
-    if (!etapaId) return res.status(400).json({ erro: 'Nenhuma etapa cadastrada.' });
+    if (!etapaId) { const rot = await roteiroDaOp(op_id); etapaId = rot[0]?.id; }  // 1ª etapa do roteiro do produto
+    if (!etapaId) return res.status(400).json({ erro: 'Produto sem roteiro/etapas.' });
     const { error } = await supabase.from('ordem_producao').update({ etapa_atual_id: etapaId, etapa_desde: new Date().toISOString() }).eq('id', op_id);
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true });
 });
-// entra com várias OPs de uma vez (na 1ª etapa, ou etapa_id informado) — só as que estão fora do fluxo
+// entra com várias OPs de uma vez — cada uma na 1ª etapa do SEU roteiro. Só as que estão fora do fluxo.
 app.post('/api/mf/wip/iniciar-lote', auth, mfEscrita, async (req, res) => {
     const ids = Array.isArray(req.body?.op_ids) ? req.body.op_ids : [];
     if (!ids.length) return res.status(400).json({ erro: 'op_ids obrigatório' });
-    let etapaId = req.body.etapa_id;
-    if (!etapaId) { const { data: e } = await supabase.from('etapa_processo').select('id').eq('ativo', true).order('ordem').limit(1); etapaId = e?.[0]?.id; }
-    if (!etapaId) return res.status(400).json({ erro: 'Nenhuma etapa cadastrada.' });
-    const { data, error } = await supabase.from('ordem_producao')
-        .update({ etapa_atual_id: etapaId, etapa_desde: new Date().toISOString() })
-        .in('id', ids).is('etapa_atual_id', null).not('status', 'in', '(concluida,cancelada)').select('id');
-    if (error) return res.status(500).json({ erro: error.message });
-    res.json({ ok: true, inseridas: (data || []).length });
+    const { data: ops } = await supabase.from('ordem_producao').select('id,produto_id').in('id', ids).is('etapa_atual_id', null).not('status', 'in', '(concluida,cancelada)');
+    if (!ops?.length) return res.json({ ok: true, inseridas: 0 });
+    const todas = (await supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).order('ordem')).data || [];
+    const prodIds = [...new Set(ops.map(o => o.produto_id).filter(Boolean))];
+    const { data: pe } = prodIds.length ? await supabase.from('produto_etapa').select('produto_id,etapa_id').in('produto_id', prodIds) : { data: [] };
+    const rotProd = {}; (pe || []).forEach(x => { (rotProd[x.produto_id] = rotProd[x.produto_id] || new Set()).add(x.etapa_id); });
+    const firstDe = pid => { const set = rotProd[pid]; const rot = set ? todas.filter(e => set.has(e.id)) : todas; return rot[0]?.id; };
+    const porEtapa = {};
+    for (const o of ops) { const f = firstDe(o.produto_id); if (f) (porEtapa[f] = porEtapa[f] || []).push(o.id); }
+    let inseridas = 0; const now = new Date().toISOString();
+    for (const [etapaId, opIds] of Object.entries(porEtapa)) {
+        const { data } = await supabase.from('ordem_producao').update({ etapa_atual_id: etapaId, etapa_desde: now }).in('id', opIds).select('id');
+        inseridas += (data || []).length;
+    }
+    res.json({ ok: true, inseridas });
 });
 // avança a OP para a próxima etapa (move o ponteiro)
 app.post('/api/mf/wip/avancar', auth, mfEscrita, async (req, res) => {
@@ -2285,16 +2306,41 @@ app.post('/api/mf/wip/voltar', auth, mfEscrita, async (req, res) => {
     if (!op_id) return res.status(400).json({ erro: 'op_id obrigatório' });
     const { data: op } = await supabase.from('ordem_producao').select('etapa_atual_id, etapa:etapa_atual_id(ordem)').eq('id', op_id).single();
     if (!op?.etapa_atual_id) return res.status(404).json({ erro: 'OP não está no fluxo.' });
-    const { data: ant } = await supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).lt('ordem', op.etapa?.ordem ?? 0).order('ordem', { ascending: false }).limit(1);
-    if (!ant?.length) return res.status(400).json({ erro: 'Já está na primeira etapa.' });
-    await supabase.from('ordem_producao').update({ etapa_atual_id: ant[0].id, etapa_desde: new Date().toISOString() }).eq('id', op_id);
-    res.json({ ok: true, anterior: ant[0].nome });
+    const rot = await roteiroDaOp(op_id);  // etapa anterior NO ROTEIRO do produto
+    const ant = [...rot].reverse().find(e => e.ordem < (op.etapa?.ordem ?? 0));
+    if (!ant) return res.status(400).json({ erro: 'Já está na primeira etapa.' });
+    await supabase.from('ordem_producao').update({ etapa_atual_id: ant.id, etapa_desde: new Date().toISOString() }).eq('id', op_id);
+    res.json({ ok: true, anterior: ant.nome });
 });
 // retira a OP do fluxo (zera o ponteiro)
 app.delete('/api/mf/wip/:op_id', auth, mfEscrita, async (req, res) => {
     const { error } = await supabase.from('ordem_producao').update({ etapa_atual_id: null, etapa_desde: null }).eq('id', req.params.op_id);
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true });
+});
+// roteiro do produto (por código): etapas marcando quais o produto usa
+app.get('/api/mf/produto/:codigo/roteiro', auth, async (req, res) => {
+    const { data: prod } = await supabase.from('produto').select('id,codigo,descricao').eq('codigo', req.params.codigo).limit(1).single();
+    if (!prod) return res.status(404).json({ erro: 'produto não encontrado' });
+    const etapas = (await supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).order('ordem')).data || [];
+    const peR = await supabase.from('produto_etapa').select('etapa_id').eq('produto_id', prod.id);
+    if (peR.error && /schema cache|does not exist/i.test(peR.error.message || '')) return res.status(503).json({ erro: 'Roteiro não inicializado. Rode mes_roteiro.sql.' });
+    const set = new Set((peR.data || []).map(x => x.etapa_id));
+    const usaTodas = set.size === 0;  // sem linhas = usa todas (padrão)
+    res.json({ produto: prod, padrao: usaTodas, etapas: etapas.map(e => ({ ...e, no_roteiro: usaTodas || set.has(e.id) })) });
+});
+// define o roteiro (array etapa_ids). Marcar todas (ou nenhuma) → volta ao padrão "todas".
+app.put('/api/mf/produto/:codigo/roteiro', auth, mfEscrita, async (req, res) => {
+    const { data: prod } = await supabase.from('produto').select('id').eq('codigo', req.params.codigo).limit(1).single();
+    if (!prod) return res.status(404).json({ erro: 'produto não encontrado' });
+    const etapaIds = Array.isArray(req.body?.etapa_ids) ? req.body.etapa_ids : [];
+    const total = (await supabase.from('etapa_processo').select('id').eq('ativo', true)).data?.length || 0;
+    await supabase.from('produto_etapa').delete().eq('produto_id', prod.id);
+    if (etapaIds.length && etapaIds.length < total) {  // só grava se for um subconjunto real
+        const { error } = await supabase.from('produto_etapa').insert(etapaIds.map(eid => ({ produto_id: prod.id, etapa_id: eid })));
+        if (error) return res.status(500).json({ erro: error.message });
+    }
+    res.json({ ok: true, padrao: !(etapaIds.length && etapaIds.length < total) });
 });
 
 // ── Fluxo no tempo: throughput/lead por dia + WIP/gargalo por etapa ──────────
@@ -2366,22 +2412,25 @@ app.get('/api/mf/capacidade', auth, async (req, res) => {
     const etapasR = await supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).order('ordem');
     if (etapasR.error && /schema cache|does not exist|column/i.test(etapasR.error.message || '')) return res.status(503).json({ erro: 'Fluxo não inicializado.' });
     if (etapasR.error) return res.status(500).json({ erro: etapasR.error.message });
-    const [maqsR, temposR, opsR] = await Promise.all([
+    const [maqsR, temposR, opsR, peR] = await Promise.all([
         supabase.from('maquina').select('id,etapa_id').eq('ativo', true),
         supabase.from('tempo_padrao').select('etapa_id,produto_id,seg_por_unidade'),
         supabase.from('ordem_producao').select('produto_id,qtd_planejada, etapa:etapa_atual_id(ordem)').not('status', 'in', '(concluida,cancelada)'),
+        supabase.from('produto_etapa').select('produto_id,etapa_id'),
     ]);
     if (temposR.error && /schema cache|does not exist/i.test(temposR.error.message || '')) return res.status(503).json({ erro: 'Tempo padrão não inicializado. Rode mes_leva2.sql.' });
     const maqCount = {}; (maqsR.data || []).forEach(m => { if (m.etapa_id) maqCount[m.etapa_id] = (maqCount[m.etapa_id] || 0) + 1; });
     const stdDef = {}, stdOv = {};
     (temposR.data || []).forEach(t => { if (t.produto_id) stdOv[t.etapa_id + '|' + t.produto_id] = Number(t.seg_por_unidade); else stdDef[t.etapa_id] = Number(t.seg_por_unidade); });
+    const rotProd = {}; (peR.data || []).forEach(x => { (rotProd[x.produto_id] = rotProd[x.produto_id] || new Set()).add(x.etapa_id); });  // roteiro: produto → etapas que usa
+    const usaEtapa = (prod, etapaId) => { const set = rotProd[prod]; return !set || set.size === 0 || set.has(etapaId); };  // sem roteiro = usa todas
     const ops = opsR.data || [];
     const etapas = (etapasR.data || []).map(e => {
         const std = prod => stdOv[e.id + '|' + prod] ?? stdDef[e.id] ?? 0;
         let req_seg = 0;
         for (const o of ops) {
-            const ord = o.etapa?.ordem || 0;  // 0 = ainda não entrou no fluxo → precisa de todas as etapas
-            if (ord === 0 || ord <= e.ordem) req_seg += Number(o.qtd_planejada || 0) * std(o.produto_id);
+            const ord = o.etapa?.ordem || 0;  // 0 = ainda não entrou no fluxo → precisa de todas as do roteiro
+            if ((ord === 0 || ord <= e.ordem) && usaEtapa(o.produto_id, e.id)) req_seg += Number(o.qtd_planejada || 0) * std(o.produto_id);
         }
         const maquinas = maqCount[e.id] || 0, req_h = req_seg / 3600, disp = maquinas * horasDia;
         const dias = disp > 0 && req_h > 0 ? Math.round(req_h / disp * 10) / 10 : (req_h > 0 ? null : 0);

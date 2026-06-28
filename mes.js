@@ -1179,6 +1179,7 @@ const mf = {
                 <div style="font-size:1.1rem;font-weight:700;">${esc(p.codigo)} — ${esc(p.descricao)}</div>
                 <div style="font-size:.8rem;color:var(--text-dim);margin-top:4px;">${[p.cor, p.marca, p.tamanho].filter(Boolean).map(esc).join(' · ') || 'sem atributos'} · unidade ${esc(p.unidade_medida || '')}${p.custo_unitario ? ` · custo R$ ${brl(p.custo_unitario)}` : ''}${d.viaOp ? ` · <span style="color:#26c6da;">via OP ${esc(d.viaOp)}</span>` : ''}</div>
             </div>
+            <div id="mf-rastreio-rot" data-cod="${esc(p.codigo)}" class="summary-card" style="margin-bottom:14px;"><span style="color:var(--text-dim);font-size:.8rem;">carregando roteiro...</span></div>
             <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
                 ${this._rcard('#26c6da', d.ops.length, 'ORDENS DE PRODUÇÃO')}
                 ${this._rcard('#26a69a', d.aps.length, 'APONTAMENTOS')}
@@ -1207,6 +1208,24 @@ const mf = {
                 </div>${sessoes}</div>`;
         }).join('');
         res.innerHTML = html;
+        this._carregarRoteiro(p.codigo);  // preenche o editor de roteiro
+    },
+    async _carregarRoteiro(codigo) {
+        const el = $('mf-rastreio-rot'); if (!el) return;
+        const r = await api.get('/api/mf/produto/' + encodeURIComponent(codigo) + '/roteiro');
+        if (!r || !Array.isArray(r.etapas)) { el.innerHTML = `<span style="color:var(--text-dim);font-size:.8rem;">Roteiro indisponível${r?.erro ? ' — ' + esc(r.erro) : ''}.</span>`; return; }
+        const chips = r.etapas.map(e => `<label style="display:inline-flex;align-items:center;gap:5px;font-size:.8rem;padding:4px 8px;border:1px solid ${e.no_roteiro ? '#26a69a55' : 'var(--border-color)'};border-radius:7px;cursor:pointer;background:${e.no_roteiro ? 'rgba(38,166,154,.08)' : 'transparent'};">
+            <input type="checkbox" data-eid="${e.id}" ${e.no_roteiro ? 'checked' : ''} onchange="mf.salvarRoteiro('${esc(codigo)}')"> ${e.ordem}. ${esc(e.nome)}</label>`).join(' ');
+        el.innerHTML = `<div class="s-label" style="margin-bottom:8px;">🔀 ROTEIRO — etapas que este produto usa ${r.padrao ? '<span style="color:var(--text-dim);font-size:.7rem;font-weight:400;">(padrão: todas)</span>' : ''}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">${chips}</div>
+            <div style="font-size:.72rem;color:var(--text-dim);margin-top:8px;">Desmarque as etapas que este produto NÃO passa (ex.: pula Silicone). O fluxo e a capacidade respeitam isso. Todas marcadas = padrão.</div>`;
+    },
+    async salvarRoteiro(codigo) {
+        const ids = [...document.querySelectorAll('#mf-rastreio-rot input[type=checkbox]:checked')].map(c => c.dataset.eid);
+        const r = await api.put('/api/mf/produto/' + encodeURIComponent(codigo) + '/roteiro', { etapa_ids: ids });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao salvar roteiro.', 'erro');
+        toast(r.padrao ? 'Roteiro = padrão (todas as etapas).' : 'Roteiro salvo.', 'ok');
+        this._carregarRoteiro(codigo);
     },
 
     // ═══ RASTREABILIDADE (fase 4) ══════════════════════════════════════════════
