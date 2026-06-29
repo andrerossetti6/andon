@@ -1169,8 +1169,10 @@ function navigateTo(viewName) {
         timeline:      'nav-preactor',
         // ⑥ MES
         mes:           'nav-mes',
-        // ⑦ Dashboards
+        // ★ Executivo
+        dashboard:     'nav-painel',
         cockpit:       'nav-cockpit',
+        // ⑦ Dashboards
         pesquisa:      'nav-pesquisa',
         vxe:           'nav-vxe',
         'op-dash':     'nav-op-dash',
