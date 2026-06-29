@@ -89,8 +89,20 @@ function mfMaquinaAuth(req, res, next) {
     const chave = process.env.MF_MAQUINA_API_KEY;
     const enviado = req.headers['x-api-key'] || req.headers.authorization?.split(' ')[1];
     if (chave && enviado && enviado === chave) { req.usuario = { perfil: 'maquina', nome: 'gateway-maquina' }; return next(); }
-    return auth(req, res, () => mfEscrita(req, res, next));  // sem chave válida → exige login
+    return auth(req, res, () => adminOnly(req, res, next));  // sem a chave da máquina → só admin (operador não forja produção)
 }
+
+// resposta 500 sem vazar detalhe do banco pro cliente (loga o real no servidor) — M19
+function erro500(res, e, ctx) {
+    console.error('[500]' + (ctx ? ' ' + ctx : ''), e?.message || e);
+    return res.status(500).json({ erro: 'Erro interno no servidor. Tente novamente.' });
+}
+
+// rate-limit simples do login (em memória): 5 falhas → 15 min de bloqueio por IP — M18
+const _loginFails = new Map();
+function _loginBloqueado(ip) { const e = _loginFails.get(ip); return (e?.until && Date.now() < e.until) ? Math.ceil((e.until - Date.now()) / 1000) : 0; }
+function _loginFalhou(ip) { const e = _loginFails.get(ip) || { count: 0 }; e.count++; if (e.count >= 5) { e.until = Date.now() + 15 * 60 * 1000; e.count = 0; } _loginFails.set(ip, e); }
+function _loginOk(ip) { _loginFails.delete(ip); }
 
 // ── GET /api/ping — wake-up sem auth ─────────────────────────
 app.get('/api/ping', (_req, res) => res.json({ ok: true, ts: Date.now() }));
@@ -98,6 +110,9 @@ app.get('/api/ping', (_req, res) => res.json({ ok: true, ts: Date.now() }));
 // ── POST /api/auth/login ──────────────────────────────────────
 app.post('/api/auth/login', async (req, res) => {
     try {
+        const ip = req.ip || req.connection?.remoteAddress || 'desconhecido';
+        const espera = _loginBloqueado(ip);
+        if (espera) return res.status(429).json({ erro: `Muitas tentativas. Aguarde ${Math.ceil(espera / 60)} min.` });
         const { email, senha } = req.body;
         if (!email || !senha)
             return res.status(400).json({ erro: 'Email e senha obrigatórios' });
@@ -115,12 +130,11 @@ app.post('/api/auth/login', async (req, res) => {
             return res.status(503).json({ erro: 'Banco de dados indisponível. Execute o schema.sql no Supabase.' });
         }
 
-        if (!usuario)
-            return res.status(401).json({ erro: 'Credenciais inválidas' });
+        if (!usuario) { _loginFalhou(ip); return res.status(401).json({ erro: 'Credenciais inválidas' }); }
 
         const ok = await bcrypt.compare(senha, usuario.senha_hash);
-        if (!ok)
-            return res.status(401).json({ erro: 'Credenciais inválidas' });
+        if (!ok) { _loginFalhou(ip); return res.status(401).json({ erro: 'Credenciais inválidas' }); }
+        _loginOk(ip);  // sucesso: zera o contador de tentativas
 
         const token = jwt.sign(
             { id: usuario.id, nome: usuario.nome, email: usuario.email, perfil: usuario.perfil },
@@ -530,7 +544,7 @@ app.delete('/api/importacoes-banco/:id', auth, adminOnly, async (req, res) => {
 // ── S&OP — AÇÕES / DECISÕES ───────────────────────────────────
 app.get('/api/soep-acoes', auth, async (_req, res) => {
     const { data, error } = await supabase.from('soep_acoes').select('*').order('criado_em', { ascending: false });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.post('/api/soep-acoes', auth, async (req, res) => {
@@ -539,26 +553,26 @@ app.post('/api/soep-acoes', auth, async (req, res) => {
     const { data, error } = await supabase.from('soep_acoes')
         .insert({ descricao: descricao.trim(), responsavel: responsavel||null, prazo: prazo||null, modulo: modulo||null, status: 'aberta' })
         .select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, acao: data });
 });
 app.put('/api/soep-acoes/:id', auth, async (req, res) => {
     const fields = {};
     ['status','descricao','responsavel','prazo'].forEach(k => { if (req.body[k] !== undefined) fields[k] = req.body[k] || null; });
     const { error } = await supabase.from('soep_acoes').update(fields).eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 app.delete('/api/soep-acoes/:id', auth, adminOnly, async (req, res) => {
     const { error } = await supabase.from('soep_acoes').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
 // ── S&OP — SNAPSHOT DE PREVISÃO (histórico para acurácia) ────
 app.get('/api/soep-snapshot', auth, async (_req, res) => {
     const { data, error } = await supabase.from('soep_snapshot').select('mes,codigo,qty_prevista,criado_em').order('criado_em', { ascending: false });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.post('/api/soep-snapshot/bulk', auth, async (req, res) => {
@@ -568,19 +582,19 @@ app.post('/api/soep-snapshot/bulk', auth, async (req, res) => {
     await supabase.from('soep_snapshot').delete().eq('mes', mes);
     const rows = items.map(i => ({ mes, codigo: String(i.codigo).toUpperCase(), qty_prevista: i.qty||0, usuario_id: req.usuario.id }));
     const { error } = await supabase.from('soep_snapshot').insert(rows);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, total: rows.length });
 });
 app.delete('/api/soep-snapshot/:mes', auth, adminOnly, async (req, res) => {
     const { error } = await supabase.from('soep_snapshot').delete().eq('mes', req.params.mes);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
 // ── S&OP — PLANO DE PRODUÇÃO (persiste no banco) ─────────────
 app.get('/api/soep-plano', auth, async (_req, res) => {
     const { data, error } = await supabase.from('soep_plano').select('mes,codigo,quantidade');
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.post('/api/soep-plano/bulk', auth, async (req, res) => {
@@ -588,12 +602,12 @@ app.post('/api/soep-plano/bulk', auth, async (req, res) => {
     if (!Array.isArray(items) || !items.length) return res.json({ ok: true });
     const rows = items.map(i => ({ mes: i.mes, codigo: String(i.codigo).toUpperCase(), quantidade: i.quantidade||0, usuario_id: req.usuario.id }));
     const { error } = await supabase.from('soep_plano').upsert(rows, { onConflict: 'mes,codigo' });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 app.delete('/api/soep-plano/:mes', auth, async (req, res) => {
     const { error } = await supabase.from('soep_plano').delete().eq('mes', req.params.mes);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
@@ -608,12 +622,12 @@ app.post('/api/plano-versao/congelar', auth, async (req, res) => {
     const versao = new Date().toISOString();
     const rows = comQtd.map(p => ({ versao, label: label || null, mes: p.mes, codigo: p.codigo, quantidade: p.quantidade, usuario_id: req.usuario.id }));
     const { error } = await supabase.from('plano_versao').insert(rows);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, versao, total: rows.length });
 });
 app.get('/api/plano-versao/lista', auth, async (_req, res) => {
     const { data, error } = await supabase.from('plano_versao').select('versao,label,criado_em').order('criado_em', { ascending: false });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     const vistos = new Map();
     (data || []).forEach(r => {
         if (!vistos.has(r.versao)) vistos.set(r.versao, { versao: r.versao, label: r.label, criado_em: r.criado_em, total: 0 });
@@ -625,19 +639,19 @@ app.get('/api/plano-versao', auth, async (req, res) => {
     const { versao } = req.query;
     if (!versao) return res.status(400).json({ erro: 'versao obrigatória' });
     const { data, error } = await supabase.from('plano_versao').select('mes,codigo,quantidade').eq('versao', versao);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.delete('/api/plano-versao/:versao', auth, adminOnly, async (req, res) => {
     const { error } = await supabase.from('plano_versao').delete().eq('versao', req.params.versao);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
 // ── CAPACIDADE POR PROCESSO — fonte única (substitui localStorage por navegador) ──
 app.get('/api/capacidade-config', auth, async (_req, res) => {
     const { data, error } = await supabase.from('capacidade_config').select('processo,maquinas,horas_dia,oee');
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.post('/api/capacidade-config/bulk', auth, async (req, res) => {
@@ -649,14 +663,14 @@ app.post('/api/capacidade-config/bulk', auth, async (req, res) => {
         atualizado_em: new Date().toISOString(),
     }));
     const { error } = await supabase.from('capacidade_config').upsert(rows, { onConflict: 'processo' });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
 // ── S&OP — ESTOQUE MÍNIMO POR SKU ────────────────────────────
 app.get('/api/estoque-minimo', auth, async (_req, res) => {
     const { data, error } = await supabase.from('estoque_minimo').select('codigo,quantidade');
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.post('/api/estoque-minimo/bulk', auth, async (req, res) => {
@@ -664,19 +678,19 @@ app.post('/api/estoque-minimo/bulk', auth, async (req, res) => {
     if (!Array.isArray(items) || !items.length) return res.json({ ok: true });
     const rows = items.map(i => ({ codigo: String(i.codigo).toUpperCase(), quantidade: i.quantidade||0 }));
     const { error } = await supabase.from('estoque_minimo').upsert(rows, { onConflict: 'codigo' });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 app.delete('/api/estoque-minimo/:codigo', auth, adminOnly, async (req, res) => {
     const { error } = await supabase.from('estoque_minimo').delete().eq('codigo', req.params.codigo.toUpperCase());
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
 // ── APS — DATAS DE ENTREGA POR SKU ───────────────────────────
 app.get('/api/op-datas', auth, async (_req, res) => {
     const { data, error } = await supabase.from('op_datas').select('*').order('data_entrega', { ascending: true });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.post('/api/op-datas/bulk', auth, async (req, res) => {
@@ -684,19 +698,19 @@ app.post('/api/op-datas/bulk', auth, async (req, res) => {
     if (!Array.isArray(items)) return res.status(400).json({ erro: 'items obrigatório' });
     const rows = items.map(i => ({ nop: i.nop||null, codigo: String(i.codigo).toUpperCase(), data_entrega: i.data_entrega||null, cpv: i.cpv||0, usuario_id: req.usuario.id }));
     const { error } = await supabase.from('op_datas').upsert(rows, { onConflict: 'codigo' });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, total: rows.length });
 });
 app.delete('/api/op-datas/:id', auth, adminOnly, async (req, res) => {
     const { error } = await supabase.from('op_datas').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
 // ── APS — MATRIZ DE SETUP/CHANGEOVER ─────────────────────────
 app.get('/api/setup-matrix', auth, async (_req, res) => {
     const { data, error } = await supabase.from('setup_matrix').select('*').order('processo').order('familia_de');
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.post('/api/setup-matrix/bulk', auth, async (req, res) => {
@@ -712,7 +726,7 @@ app.post('/api/setup-matrix/bulk', auth, async (req, res) => {
         );
         if (error) {
             if (backup?.length) await supabase.from('setup_matrix').insert(backup);
-            return res.status(500).json({ erro: error.message });
+            return erro500(res, error);
         }
     }
     res.json({ ok: true });
@@ -721,32 +735,32 @@ app.post('/api/setup-matrix/bulk', auth, async (req, res) => {
 // ── APS — CENÁRIOS DE SIMULAÇÃO ───────────────────────────────
 app.get('/api/timeline-cenario', auth, async (_req, res) => {
     const { data, error } = await supabase.from('timeline_cenario').select('id,nome,config,resultado,criado_em').order('criado_em', { ascending: false }).limit(20);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.post('/api/timeline-cenario', auth, async (req, res) => {
     const { nome, config, resultado } = req.body;
     if (!nome) return res.status(400).json({ erro: 'Nome obrigatório' });
     const { data, error } = await supabase.from('timeline_cenario').insert({ nome, config: config||{}, resultado: resultado||{}, usuario_id: req.usuario.id }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, cenario: data });
 });
 app.put('/api/timeline-cenario/:id', auth, async (req, res) => {
     const { nome } = req.body;
     const { error } = await supabase.from('timeline_cenario').update({ nome }).eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 app.delete('/api/timeline-cenario/:id', auth, adminOnly, async (req, res) => {
     const { error } = await supabase.from('timeline_cenario').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
 // ── DISPONIBILIDADE: FERIADOS ────────────────────────────────
 app.get('/api/feriados', auth, async (_req, res) => {
     const { data, error } = await supabase.from('feriados').select('*').order('data');
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data);
 });
 app.post('/api/feriados/lote', auth, async (req, res) => {
@@ -762,7 +776,7 @@ app.post('/api/feriados/lote', auth, async (req, res) => {
     }
     for (let i = 0; i < rows.length; i += 200) {
         const { error } = await supabase.from('feriados').insert(rows.slice(i, i + 200));
-        if (error) return res.status(500).json({ erro: error.message });
+        if (error) return erro500(res, error);
     }
     res.json({ ok: true, total: rows.length });
 });
@@ -770,12 +784,12 @@ app.post('/api/feriados', auth, async (req, res) => {
     const { data: d, nome, tipo } = req.body;
     if (!d || !nome) return res.status(400).json({ erro: 'Data e nome obrigatórios' });
     const { data, error } = await supabase.from('feriados').insert({ data: d, nome, tipo: tipo || 'Nacional' }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, feriado: data });
 });
 app.delete('/api/feriados/:id', auth, async (req, res) => {
     const { error } = await supabase.from('feriados').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
@@ -807,33 +821,33 @@ async function salvarTurno(op, id, payload) {
 
 app.get('/api/turnos', auth, async (_req, res) => {
     const { data, error } = await supabase.from('turnos').select('*').order('nome');
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json((data || []).map(normalizarTurno));
 });
 app.post('/api/turnos', auth, async (req, res) => {
     const { processo, nome, inicio, fim, intervalo_min, dias_semana } = req.body;
     if (!nome || !inicio || !fim) return res.status(400).json({ erro: 'Nome, início e fim obrigatórios' });
     const { data, error } = await salvarTurno('insert', null, { processo, nome, inicio, fim, intervalo_min, dias_semana });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, turno: normalizarTurno(data) });
 });
 app.put('/api/turnos/:id', auth, async (req, res) => {
     const { processo, nome, inicio, fim, intervalo_min, dias_semana } = req.body;
     const { data, error } = await salvarTurno('update', req.params.id, { processo, nome, inicio, fim, intervalo_min, dias_semana });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, data: normalizarTurno(data) });
 });
 
 app.delete('/api/turnos/:id', auth, async (req, res) => {
     const { error } = await supabase.from('turnos').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
 // ── PROCESSOS CRUD ───────────────────────────────────────────
 app.get('/api/processos-config', auth, async (_req, res) => {
     const { data, error } = await supabase.from('processos_config').select('*').order('nome');
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data);
 });
 // Retorna o SQL de migração para corrigir a tabela turnos (schema antigo → novo)
@@ -847,18 +861,18 @@ app.get('/api/migrar-turnos-sql', auth, async (_req, res) => {
 app.post('/api/processos-config', auth, async (req, res) => {
     const { nome, descricao } = req.body;
     const { data, error } = await supabase.from('processos_config').insert({ nome, descricao }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, data });
 });
 app.put('/api/processos-config/:id', auth, async (req, res) => {
     const { nome, descricao } = req.body;
     const { data, error } = await supabase.from('processos_config').update({ nome, descricao }).eq('id', req.params.id).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, data });
 });
 app.delete('/api/processos-config/:id', auth, async (req, res) => {
     const { error } = await supabase.from('processos_config').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
@@ -867,7 +881,7 @@ app.get('/api/maquinas', auth, async (req, res) => {
     let q = supabase.from('maquinas').select('*').order('id_maquina');
     if (req.query.processo_id) q = q.eq('processo_id', req.query.processo_id);
     const { data, error } = await q;
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data);
 });
 app.post('/api/maquinas', auth, async (req, res) => {
@@ -876,18 +890,18 @@ app.post('/api/maquinas', auth, async (req, res) => {
     if (!id_maquina && !modelo && oee == null && n_pessoas == null)
         return res.status(400).json({ erro: 'Preencha ao menos um campo da máquina' });
     const { data, error } = await supabase.from('maquinas').insert({ processo_id, id_maquina: id_maquina || null, modelo: modelo || null, oee: oee ?? null, status: status || 'Ativo', n_pessoas: n_pessoas ?? null }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, data });
 });
 app.put('/api/maquinas/:id', auth, async (req, res) => {
     const { id_maquina, modelo, oee, status, n_pessoas } = req.body;
     const { data, error } = await supabase.from('maquinas').update({ id_maquina, modelo, oee, status, n_pessoas }).eq('id', req.params.id).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, data });
 });
 app.delete('/api/maquinas/:id', auth, async (req, res) => {
     const { error } = await supabase.from('maquinas').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 // Integração Fase 1b: máquina do MES no formato de 'maquinas' (SIGS), com
@@ -959,7 +973,7 @@ app.get('/api/mes/apontamentos', auth, async (req, res) => {
     if (req.query.processo)    q = q.eq('processo', req.query.processo);
     if (req.query.status)      q = q.eq('status', req.query.status);
     const { data, error } = await q.limit(500);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 
@@ -972,7 +986,7 @@ app.post('/api/mes/apontamentos', auth, async (req, res) => {
             qtd_planejada: Number(qtd_planejada) || 0, qtd_produzida: 0, qtd_refugo: 0,
             status: 'em_andamento', usuario_id: req.usuario.id })
         .select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, apontamento: data });
 });
 
@@ -983,13 +997,13 @@ app.put('/api/mes/apontamentos/:id', auth, async (req, res) => {
     });
     if (updates.status === 'finalizado' && !updates.fim) updates.fim = new Date().toISOString();
     const { data, error } = await supabase.from('apontamentos').update(updates).eq('id', req.params.id).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, apontamento: data });
 });
 
 app.delete('/api/mes/apontamentos/:id', auth, adminOnly, async (req, res) => {
     const { error } = await supabase.from('apontamentos').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
@@ -1001,7 +1015,7 @@ app.post('/api/mes/paradas', auth, async (req, res) => {
     const { data, error } = await supabase.from('paradas_mes')
         .insert({ apontamento_id, tipo: tipo || 'nao_planejada', motivo, inicio: new Date().toISOString() })
         .select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, parada: data });
 });
 
@@ -1010,7 +1024,7 @@ app.put('/api/mes/paradas/:id', auth, async (req, res) => {
     const { data: par } = await supabase.from('paradas_mes').select('inicio,apontamento_id').eq('id', req.params.id).single();
     const duracao_min = par ? Math.max(1, Math.round((new Date(fimTs) - new Date(par.inicio)) / 60000)) : 1;
     const { data, error } = await supabase.from('paradas_mes').update({ fim: fimTs, duracao_min }).eq('id', req.params.id).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     if (par?.apontamento_id) await supabase.from('apontamentos').update({ status: 'em_andamento' }).eq('id', par.apontamento_id);
     res.json({ ok: true, parada: data });
 });
@@ -1021,7 +1035,7 @@ app.get('/api/mes/wip', auth, async (_req, res) => {
         .select('id,op_numero,cod,descricao,processo,operador,turno,maquina,inicio,status,qtd_produzida,qtd_planejada,qtd_refugo,paradas_mes(id,tipo,motivo,inicio,fim,duracao_min)')
         .in('status', ['em_andamento', 'parado'])
         .order('processo').order('inicio');
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 
@@ -1232,7 +1246,7 @@ async function mfLista(res, tabela, cols, orderCol) {
     let q = supabase.from(tabela).select(cols || '*');
     if (orderCol) q = q.order(orderCol);
     const { data, error } = await q;
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 }
 app.get('/api/mf/produtos',  auth, (_q, res) => mfLista(res, 'produto', '*', 'codigo'));
@@ -1243,7 +1257,7 @@ app.put('/api/mf/maquinas/:id', auth, mfEscrita, async (req, res) => {
     ['etapa_id', 'nome', 'ativo'].forEach(f => { if (req.body[f] !== undefined) upd[f] = req.body[f]; });
     if (upd.etapa_id === '') upd.etapa_id = null;
     const { error } = await supabase.from('maquina').update(upd).eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 app.get('/api/mf/operadores',auth, (_q, res) => mfLista(res, 'operador', '*', 'nome'));
@@ -1270,7 +1284,7 @@ app.put('/api/mf/ops/:id', auth, mfEscrita, async (req, res) => {
     ['prioridade', 'status', 'data_prevista', 'data_abertura'].forEach(f => { if (req.body[f] !== undefined) upd[f] = req.body[f]; });
     if (upd.prioridade !== undefined) upd.prioridade = Number(upd.prioridade) || 0;
     const { error } = await supabase.from('ordem_producao').update(upd).eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
@@ -1281,7 +1295,7 @@ app.post('/api/mf/cadastro/:tabela', auth, mfEscrita, async (req, res) => {
     if (!MF_CADASTROS[t]) return res.status(400).json({ erro: 'Tabela inválida' });
     const { criado_em, atualizado_em, ...corpo } = req.body || {};  // o cliente não define os carimbos de auditoria (trigger cuida)
     const { data, error } = await supabase.from(t).upsert(corpo, { onConflict: MF_CADASTROS[t] }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, registro: data });
 });
 
@@ -1293,7 +1307,7 @@ app.post('/api/mf/ops', auth, mfEscrita, async (req, res) => {
         maquina_prevista_id: b.maquina_prevista_id || null, data_abertura: b.data_abertura || null, data_prevista: b.data_prevista || null,
         status: b.status || 'planejada', origem: b.origem || 'manual' };
     const { data, error } = await supabase.from('ordem_producao').upsert(row, { onConflict: 'numero' }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, op: data });
 });
 
@@ -1304,7 +1318,7 @@ app.get('/api/mf/apontamentos', auth, async (req, res) => {
         .order('datahora_inicio', { ascending: false });
     if (req.query.abertas === '1') q = q.is('datahora_fim', null);
     const { data, error } = await q.limit(200);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 
@@ -1318,7 +1332,7 @@ app.post('/api/mf/apontamentos', auth, mfEscrita, async (req, res) => {
     if (b.etapa_id) row.etapa_id = b.etapa_id;
     if (b.id) row.id = b.id;  // id gerado no cliente (fila offline) → upsert idempotente
     const { data, error } = await supabase.from('apontamento').upsert(row).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     // marca a OP como em produção
     await supabase.from('ordem_producao').update({ status: 'em_producao' }).eq('id', b.op_id).in('status', ['planejada','liberada']);
     // liga ao fluxo: se a OP ainda não está em etapa nenhuma, a sessão a "traz" para a etapa informada
@@ -1334,7 +1348,7 @@ app.put('/api/mf/apontamentos/:id', auth, mfEscrita, async (req, res) => {
     ['qtd_boa','qtd_refugo','qtd_retrabalho','datahora_fim','sincronizado_em','etapa_id'].forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
     if (req.body.fechar && !updates.datahora_fim) updates.datahora_fim = new Date().toISOString();
     const { data, error } = await supabase.from('apontamento').update(updates).eq('id', req.params.id).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     let avanco = null;
     // ao fechar concluindo a etapa, avança a OP no fluxo (move o ponteiro etapa_atual)
     if (req.body.avancar && data?.op_id) {
@@ -1363,7 +1377,7 @@ app.post('/api/mf/paradas', auth, mfEscrita, async (req, res) => {
         datahora_inicio: b.datahora_inicio || new Date().toISOString(), datahora_fim: b.datahora_fim || null, observacao: b.observacao || null };
     if (b.id) row.id = b.id;
     const { data, error } = await supabase.from('parada').upsert(row).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, parada: data });
 });
 app.put('/api/mf/paradas/:id', auth, mfEscrita, async (req, res) => {
@@ -1371,7 +1385,7 @@ app.put('/api/mf/paradas/:id', auth, mfEscrita, async (req, res) => {
     ['datahora_fim','observacao'].forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
     if (req.body.fechar && !updates.datahora_fim) updates.datahora_fim = new Date().toISOString();
     const { data, error } = await supabase.from('parada').update(updates).eq('id', req.params.id).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, parada: data });
 });
 
@@ -1409,7 +1423,7 @@ app.get('/api/mf/ncs', auth, async (req, res) => {
         .order('datahora', { ascending: false });
     if (req.query.apontamento_id) q = q.eq('apontamento_id', req.query.apontamento_id);
     const { data, error } = await q.limit(300);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     // assina as URLs das fotos (bucket privado)
     for (const nc of (data || [])) for (const f of (nc.foto || [])) f.url = await mfFotoUrl(f.url);
     res.json(data || []);
@@ -1442,7 +1456,7 @@ app.post('/api/mf/ncs', auth, mfEscrita, async (req, res) => {
     nc.gera_rnc = gera;
     if (b.id) nc.id = b.id;  // id do cliente (fila offline)
     const { data, error } = await supabase.from('nao_conformidade').upsert(nc).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     // Loop de melhoria: gatilho disparou → abre RNC formal automaticamente (se ainda não houver)
     let rnc_id = null;
     if (gera) {
@@ -1469,7 +1483,7 @@ app.get('/api/mf/rncs', auth, async (req, res) => {
     if (req.query.status === 'abertas') q = q.not('status', 'in', '(fechada,cancelada)');
     else if (req.query.status) q = q.eq('status', req.query.status);
     const { data, error } = await q.limit(200);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ resumo: resumo.data || {}, rncs: data || [] });
 });
 app.post('/api/mf/rncs', auth, mfEscrita, async (req, res) => {
@@ -1478,7 +1492,7 @@ app.post('/api/mf/rncs', auth, mfEscrita, async (req, res) => {
     const row = { titulo: b.titulo, descricao: b.descricao || null, defeito_id: b.defeito_id || null, maquina_id: b.maquina_id || null,
         nc_id: b.nc_id || null, prioridade: b.prioridade || 'media' };
     const { data, error } = await supabase.from('rnc').insert(row).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, rnc: data });
 });
 app.put('/api/mf/rncs/:id', auth, mfEscrita, async (req, res) => {
@@ -1491,7 +1505,7 @@ app.put('/api/mf/rncs/:id', auth, mfEscrita, async (req, res) => {
     if (b.avancar === 'fechar')    { upd.status = 'fechada'; upd.fechada_em = new Date().toISOString(); }
     if (b.avancar === 'cancelar')  { upd.status = 'cancelada'; upd.fechada_em = new Date().toISOString(); }
     const { data, error } = await supabase.from('rnc').update(upd).eq('id', req.params.id).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, rnc: data });
 });
 
@@ -1524,7 +1538,7 @@ app.post('/api/mf/fotos', auth, mfEscrita, async (req, res) => {
         capturada_em: b.capturada_em || new Date().toISOString(), metadados: b.metadados || null };
     if (b.id) row.id = b.id;
     const { data, error } = await supabase.from('foto').upsert(row).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, foto: data });
 });
 
@@ -1618,7 +1632,7 @@ app.post('/api/mf/importar', auth, mfEscrita, async (req, res) => {
     });
 
     const { error } = await supabase.from('stg_importacao').insert(rows);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     const cont = s => rows.filter(r => r.status === s).length;
     const termosPendentes = [...new Set(rows.filter(r => r.status === 'novo').map(r => r.linha_bruta._campos.defeito_texto))];
     res.json({ ok: true, lote_id, total: rows.length, valido: cont('valido'), novo: cont('novo'), rejeitado: cont('rejeitado'), termosPendentes });
@@ -1738,7 +1752,7 @@ app.post('/api/mf/importar/:lote_id/carga', auth, mfEscrita, async (req, res) =>
 
 app.get('/api/mf/importacao/:lote_id', auth, async (req, res) => {
     const { data, error } = await supabase.from('stg_importacao').select('*').eq('lote_id', req.params.lote_id).order('linha_origem');
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 
@@ -1771,7 +1785,7 @@ app.get('/api/mf/componentes', auth, async (req, res) => {
     let q = supabase.from('componente').select('*, maquina:maquina_id(codigo)').eq('ativo', true).order('codigo');
     if (req.query.maquina_id) q = q.eq('maquina_id', req.query.maquina_id);
     const { data, error } = await q;
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.get('/api/mf/pecas', auth, (_q, res) => mfLista(res, 'peca', '*', 'nome'));
@@ -1784,7 +1798,7 @@ app.get('/api/mf/etiquetas', auth, async (req, res) => {
     if (req.query.status) q = q.eq('status', req.query.status);
     else if (req.query.todas !== '1') q = q.neq('status', 'resolvida');   // ?todas=1 inclui resolvidas (Kanban)
     const { data, error } = await q.limit(200);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     for (const e of (data || [])) e.foto_url = await mfFotoUrl(e.foto_url);  // assina (bucket privado)
     res.json(data || []);
 });
@@ -1797,7 +1811,7 @@ app.post('/api/mf/etiquetas', auth, mfEscrita, async (req, res) => {
     const row = { id, maquina_id: b.maquina_id, componente_id: b.componente_id || null, operador_id: b.operador_id,
         tipo: b.tipo, gravidade: b.gravidade || 'media', descricao: b.descricao, foto_url };
     const { data, error } = await supabase.from('etiqueta_anomalia').upsert(row).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, etiqueta: data });
 });
 app.put('/api/mf/etiquetas/:id', auth, mfEscrita, async (req, res) => {
@@ -1805,7 +1819,7 @@ app.put('/api/mf/etiquetas/:id', auth, mfEscrita, async (req, res) => {
     ['status','ordem_manutencao_id'].forEach(f => { if (req.body[f] !== undefined) upd[f] = req.body[f]; });
     if (req.body.status === 'resolvida') upd.resolvida_em = new Date().toISOString();
     const { data, error } = await supabase.from('etiqueta_anomalia').update(upd).eq('id', req.params.id).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, etiqueta: data });
 });
 
@@ -1816,7 +1830,7 @@ app.get('/api/mf/oms', auth, async (req, res) => {
         .order('aberta_em', { ascending: false });
     if (req.query.status) q = q.eq('status', req.query.status);
     const { data, error } = await q.limit(200);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.post('/api/mf/oms', auth, mfEscrita, async (req, res) => {
@@ -1825,7 +1839,7 @@ app.post('/api/mf/oms', auth, mfEscrita, async (req, res) => {
     const row = { maquina_id: b.maquina_id, componente_id: b.componente_id || null, plano_id: b.plano_id || null, parada_id: b.parada_id || null,
         tipo: b.tipo, prioridade: b.prioridade || 'media', status: b.status || 'aberta', descricao: b.descricao, executor_id: b.executor_id || null };
     const { data, error } = await supabase.from('ordem_manutencao').insert(row).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     // se veio de uma etiqueta, vincula
     if (b.etiqueta_id) await supabase.from('etiqueta_anomalia').update({ status: 'em_tratativa', ordem_manutencao_id: data.id }).eq('id', b.etiqueta_id);
     res.json({ ok: true, om: data });
@@ -1836,7 +1850,7 @@ app.put('/api/mf/oms/:id', auth, mfEscrita, async (req, res) => {
     if (b.iniciar)  upd.iniciada_em  = b.iniciada_em  || new Date().toISOString(), upd.status = 'em_execucao';
     if (b.concluir) upd.concluida_em = b.concluida_em || new Date().toISOString(), upd.status = 'concluida';
     const { data, error } = await supabase.from('ordem_manutencao').update(upd).eq('id', req.params.id).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, om: data });
 });
 // consumo de peça numa OM (baixa estoque)
@@ -1857,7 +1871,7 @@ app.post('/api/mf/componentes', auth, mfEscrita, async (req, res) => {
     const row = { maquina_id: b.maquina_id, codigo: b.codigo, nome: b.nome, tipo: b.tipo,
         vida_util_valor: b.vida_util_valor || null, vida_util_unidade: b.vida_util_unidade || null };
     const { data, error } = await supabase.from('componente').upsert(row, { onConflict: 'codigo' }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, componente: data });
 });
 app.post('/api/mf/pecas', auth, mfEscrita, async (req, res) => {
@@ -1866,12 +1880,12 @@ app.post('/api/mf/pecas', auth, mfEscrita, async (req, res) => {
     const row = { codigo: b.codigo, nome: b.nome, categoria: b.categoria || null, unidade: b.unidade,
         estoque_atual: Number(b.estoque_atual) || 0, estoque_minimo: Number(b.estoque_minimo) || 0 };
     const { data, error } = await supabase.from('peca').upsert(row, { onConflict: 'codigo' }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, peca: data });
 });
 app.get('/api/mf/planos', auth, async (_q, res) => {
     const { data, error } = await supabase.from('plano_manutencao').select('*, maquina:maquina_id(codigo), componente:componente_id(nome)').eq('ativo', true).order('nome');
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.post('/api/mf/planos', auth, mfEscrita, async (req, res) => {
@@ -1880,14 +1894,14 @@ app.post('/api/mf/planos', auth, mfEscrita, async (req, res) => {
     const row = { maquina_id: b.maquina_id, componente_id: b.componente_id || null, nome: b.nome, tipo: b.tipo, gatilho: b.gatilho,
         intervalo_valor: b.intervalo_valor, intervalo_unidade: b.intervalo_unidade, instrucoes: b.instrucoes || null, duracao_estimada_min: b.duracao_estimada_min || null };
     const { data, error } = await supabase.from('plano_manutencao').insert(row).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, plano: data });
 });
 
 // ── Checklist CIL (Limpeza, Inspeção, Lubrificação) ───────────
 app.get('/api/mf/checklists', auth, async (_q, res) => {
     const { data, error } = await supabase.from('checklist_autonoma').select('*, checklist_item(*)').eq('ativo', true).order('nome');
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     (data || []).forEach(c => (c.checklist_item || []).sort((a, b) => a.ordem - b.ordem));
     res.json(data || []);
 });
@@ -1895,7 +1909,7 @@ app.post('/api/mf/checklists', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.nome || !b.frequencia || !Array.isArray(b.itens) || !b.itens.length) return res.status(400).json({ erro: 'nome, frequencia e itens[] obrigatórios' });
     const { data: cl, error } = await supabase.from('checklist_autonoma').insert({ maquina_id: b.maquina_id || null, tipo_maquina: b.tipo_maquina || null, nome: b.nome, frequencia: b.frequencia }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     const itens = b.itens.map((it, i) => ({ checklist_id: cl.id, ordem: i + 1, descricao: it.descricao, tipo: it.tipo || 'inspecao', referencia: it.referencia || null }));
     const { error: e2 } = await supabase.from('checklist_item').insert(itens);
     if (e2) return res.status(500).json({ erro: e2.message });
@@ -1907,7 +1921,7 @@ app.post('/api/mf/checklist-execucao', auth, mfEscrita, async (req, res) => {
     if (!b.checklist_id || !b.maquina_id || !b.operador_id || !b.turno_id || !Array.isArray(b.resultados)) return res.status(400).json({ erro: 'campos obrigatórios faltando' });
     const completo = b.resultados.every(r => r.resultado && r.resultado !== '');
     const { data: ex, error } = await supabase.from('checklist_execucao').insert({ checklist_id: b.checklist_id, maquina_id: b.maquina_id, operador_id: b.operador_id, turno_id: b.turno_id, status: completo ? 'completo' : 'parcial' }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     const itens = b.resultados.filter(r => r.item_id && r.resultado).map(r => ({ execucao_id: ex.id, item_id: r.item_id, resultado: r.resultado, observacao: r.observacao || null }));
     if (itens.length) { const { error: e2 } = await supabase.from('checklist_execucao_item').insert(itens); if (e2) return res.status(500).json({ erro: e2.message }); }
     res.json({ ok: true, execucao: ex, status: ex.status });
@@ -1963,7 +1977,7 @@ app.put('/api/mf/produtos/:id/custo', auth, mfEscrita, async (req, res) => {
     const v = Number(req.body?.custo_unitario);
     if (!(v >= 0)) return res.status(400).json({ erro: 'custo_unitario inválido' });
     const { error } = await supabase.from('produto').update({ custo_unitario: v }).eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 // congela o custo na NC (preenche custo_estimado a partir do custo atual)
@@ -1979,7 +1993,7 @@ app.post('/api/mf/cnq/recalcular', auth, mfEscrita, async (_req, res) => {
 app.get('/api/mf/lotes-fio', auth, async (_req, res) => {
     const { data, error } = await supabase.from('lote_fio').select('*').eq('ativo', true).order('data_recebimento', { ascending: false });
     if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'Rastreabilidade ainda não criada. Rode mes_rastreabilidade.sql.' });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.post('/api/mf/lotes-fio', auth, mfEscrita, async (req, res) => {
@@ -1989,7 +2003,7 @@ app.post('/api/mf/lotes-fio', auth, mfEscrita, async (req, res) => {
     const row = { codigo: b.codigo, fornecedor: b.fornecedor || null, composicao: b.composicao || null, titulo_fio: b.titulo_fio || null,
         cor: b.cor || null, qtd_recebida_kg: q, qtd_disponivel_kg: q, data_recebimento: b.data_recebimento || new Date().toISOString() };
     const { data, error } = await supabase.from('lote_fio').upsert(row, { onConflict: 'codigo' }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, lote: data });
 });
 // registra consumo de um lote de fio numa sessão (baixa o disponível)
@@ -2010,7 +2024,7 @@ app.get('/api/mf/genealogia', auth, async (req, res) => {
     else if (req.query.apontamento_id) q = q.eq('apontamento_id', req.query.apontamento_id);
     const { data, error } = await q.order('datahora_inicio', { ascending: false });
     if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'Rastreabilidade ainda não criada. Rode mes_rastreabilidade.sql.' });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 
@@ -2022,7 +2036,7 @@ app.post('/api/mf/medicao', auth, mfEscrita, async (req, res) => {
         operador_id: b.operador_id || null, datahora: b.datahora || new Date().toISOString() };
     const { data, error } = await supabase.from('medicao').insert(row).select().single();
     if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'CEP ainda não criado. Rode mes_cep.sql.' });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, medicao: data });
 });
 // define tolerância (± especificação) de um produto
@@ -2031,7 +2045,7 @@ app.put('/api/mf/produtos/:id/tolerancia', auth, mfEscrita, async (req, res) => 
     if (req.body.gramatura_tol !== undefined) upd.gramatura_tol = req.body.gramatura_tol;
     if (req.body.largura_tol   !== undefined) upd.largura_tol   = req.body.largura_tol;
     const { error } = await supabase.from('produto').update(upd).eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 // carta de controle + capabilidade de um produto/tipo
@@ -2057,7 +2071,7 @@ app.put('/api/mf/metas/:chave', auth, mfEscrita, async (req, res) => {
     const v = Number(req.body?.valor);
     if (!Number.isFinite(v)) return res.status(400).json({ erro: 'valor inválido' });
     const { error } = await supabase.from('config_meta').update({ valor: v, atualizado_em: new Date().toISOString() }).eq('chave', req.params.chave);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
@@ -2123,7 +2137,7 @@ app.get('/api/mf/painel', auth, async (_q, res) => {
 app.get('/api/mf/lotes-producao', auth, async (_q, res) => {
     const { data, error } = await supabase.from('lote_producao').select('*, produto:produto_id(codigo)').order('criado_em', { ascending: false }).limit(300);
     if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'Multi-etapa ainda não criada. Rode mes_escala.sql.' });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.post('/api/mf/lotes-producao', auth, mfEscrita, async (req, res) => {
@@ -2132,14 +2146,14 @@ app.post('/api/mf/lotes-producao', auth, mfEscrita, async (req, res) => {
     const q = Number(b.qtd_kg) || 0;
     const row = { codigo: b.codigo, apontamento_id: b.apontamento_id || null, produto_id: b.produto_id || null, etapa: b.etapa, qtd_kg: q, qtd_disponivel_kg: q };
     const { data, error } = await supabase.from('lote_producao').upsert(row, { onConflict: 'codigo' }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, lote: data });
 });
 app.post('/api/mf/consumo-lote', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.apontamento_id || !b.lote_producao_id || !(Number(b.qtd_consumida_kg) > 0)) return res.status(400).json({ erro: 'apontamento_id, lote_producao_id e qtd>0 obrigatórios' });
     const { error } = await supabase.from('consumo_lote').insert({ apontamento_id: b.apontamento_id, lote_producao_id: b.lote_producao_id, qtd_consumida_kg: b.qtd_consumida_kg });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     const { data: lp } = await supabase.from('lote_producao').select('qtd_disponivel_kg').eq('id', b.lote_producao_id).single();
     if (lp) await supabase.from('lote_producao').update({ qtd_disponivel_kg: Math.max(0, Number(lp.qtd_disponivel_kg) - Number(b.qtd_consumida_kg)) }).eq('id', b.lote_producao_id);
     res.json({ ok: true });
@@ -2148,7 +2162,7 @@ app.post('/api/mf/consumo-lote', auth, mfEscrita, async (req, res) => {
 app.get('/api/mf/genealogia-etapas/:lote_id', auth, async (req, res) => {
     const { data, error } = await supabase.from('vw_genealogia_etapas').select('*').eq('lote_raiz', req.params.lote_id).order('nivel');
     if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'Multi-etapa ainda não criada. Rode mes_escala.sql.' });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 // refresh da view materializada de OEE (escala)
@@ -2217,7 +2231,7 @@ app.post('/api/mf/okrs', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.titulo) return res.status(400).json({ erro: 'titulo obrigatório' });
     const { data, error } = await supabase.from('okr_objetivo').insert({ titulo: b.titulo, descricao: b.descricao || null, periodo: b.periodo || null, responsavel: b.responsavel || null }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, objetivo: data });
 });
 app.post('/api/mf/okrs/:id/kr', auth, mfEscrita, async (req, res) => {
@@ -2226,19 +2240,19 @@ app.post('/api/mf/okrs/:id/kr', auth, mfEscrita, async (req, res) => {
     const row = { objetivo_id: req.params.id, descricao: b.descricao, metrica: b.metrica || 'manual', unidade: b.unidade || null,
         direcao: b.direcao || 'subir', baseline: Number(b.baseline) || 0, meta: Number(b.meta), valor_manual: b.valor_manual != null ? Number(b.valor_manual) : null };
     const { data, error } = await supabase.from('okr_resultado').insert(row).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, kr: data });
 });
 app.put('/api/mf/kr/:id', auth, mfEscrita, async (req, res) => {
     const upd = {};
     ['valor_manual','meta','baseline','descricao','direcao'].forEach(f => { if (req.body[f] !== undefined) upd[f] = req.body[f]; });
     const { error } = await supabase.from('okr_resultado').update(upd).eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 app.delete('/api/mf/okrs/:id', auth, mfEscrita, async (req, res) => {
     const { error } = await supabase.from('okr_objetivo').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
@@ -2246,7 +2260,7 @@ app.delete('/api/mf/okrs/:id', auth, mfEscrita, async (req, res) => {
 app.get('/api/mf/etapas-processo', auth, async (_q, res) => {
     const { data, error } = await supabase.from('etapa_processo').select('*').eq('ativo', true).order('ordem');
     if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'Fluxo de processo não inicializado. Rode mes_fluxo.sql.' });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.post('/api/mf/etapas-processo', auth, mfEscrita, async (req, res) => {
@@ -2255,7 +2269,7 @@ app.post('/api/mf/etapas-processo', auth, mfEscrita, async (req, res) => {
     const { data: max } = await supabase.from('etapa_processo').select('ordem').eq('ativo', true).order('ordem', { ascending: false }).limit(1);
     const ordem = (max?.[0]?.ordem || 0) + 1;
     const { data, error } = await supabase.from('etapa_processo').insert({ nome, ordem, cor: req.body?.cor || null }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, etapa: data });
 });
 app.put('/api/mf/etapas-processo/:id', auth, mfEscrita, async (req, res) => {
@@ -2264,12 +2278,12 @@ app.put('/api/mf/etapas-processo/:id', auth, mfEscrita, async (req, res) => {
     if (upd.limite_wip === '' || upd.limite_wip === null) upd.limite_wip = null;
     if (upd.nome !== undefined) upd.nome = String(upd.nome).trim();
     const { error } = await supabase.from('etapa_processo').update(upd).eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 app.delete('/api/mf/etapas-processo/:id', auth, mfEscrita, async (req, res) => {
     const { error } = await supabase.from('etapa_processo').update({ ativo: false }).eq('id', req.params.id);  // exclusão lógica
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
@@ -2346,7 +2360,7 @@ app.post('/api/mf/wip/iniciar', auth, mfEscrita, async (req, res) => {
     if (!etapaId) { const rot = await roteiroDaOp(op_id); etapaId = rot[0]?.id; }  // 1ª etapa do roteiro do produto
     if (!etapaId) return res.status(400).json({ erro: 'Produto sem roteiro/etapas.' });
     const { error } = await supabase.from('ordem_producao').update({ etapa_atual_id: etapaId, etapa_desde: new Date().toISOString() }).eq('id', op_id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 // entra com várias OPs de uma vez — cada uma na 1ª etapa do SEU roteiro. Só as que estão fora do fluxo.
@@ -2392,7 +2406,7 @@ app.post('/api/mf/wip/voltar', auth, mfEscrita, async (req, res) => {
 // retira a OP do fluxo (zera o ponteiro)
 app.delete('/api/mf/wip/:op_id', auth, mfEscrita, async (req, res) => {
     const { error } = await supabase.from('ordem_producao').update({ etapa_atual_id: null, etapa_desde: null }).eq('id', req.params.op_id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 // roteiro do produto (por código): etapas marcando quais o produto usa
@@ -2415,7 +2429,7 @@ app.put('/api/mf/produto/:codigo/roteiro', auth, mfEscrita, async (req, res) => 
     await supabase.from('produto_etapa').delete().eq('produto_id', prod.id);
     if (etapaIds.length && etapaIds.length < total) {  // só grava se for um subconjunto real
         const { error } = await supabase.from('produto_etapa').insert(etapaIds.map(eid => ({ produto_id: prod.id, etapa_id: eid })));
-        if (error) return res.status(500).json({ erro: error.message });
+        if (error) return erro500(res, error);
     }
     res.json({ ok: true, padrao: !(etapaIds.length && etapaIds.length < total) });
 });
@@ -2614,7 +2628,7 @@ app.post('/api/mf/maquina-contagem', mfMaquinaAuth, async (req, res) => {
     if (!aps?.length) return res.status(409).json({ erro: 'sem sessão aberta nesta máquina — abra o apontamento antes' });
     const novo = Number(aps[0].qtd_boa || 0) + delta;
     const { error } = await supabase.from('apontamento').update({ qtd_boa: novo }).eq('id', aps[0].id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, apontamento_id: aps[0].id, qtd_boa: novo });
 });
 // ── #5 ERP write-back: confirmações de produção (OPs + produzido) p/ o ERP ────
@@ -2645,12 +2659,12 @@ app.post('/api/mf/documentos', auth, mfEscrita, async (req, res) => {
     let produto_id = b.produto_id || null;
     if (!produto_id && b.produto_codigo) { const { data: pr } = await supabase.from('produto').select('id').eq('codigo', b.produto_codigo).limit(1).single(); if (!pr) return res.status(400).json({ erro: 'código de produto não encontrado' }); produto_id = pr.id; }
     const { data, error } = await supabase.from('documento').insert({ titulo: b.titulo, produto_id, etapa_id: b.etapa_id || null, url: b.url || null, conteudo: b.conteudo || null }).select().single();
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, documento: data });
 });
 app.delete('/api/mf/documentos/:id', auth, mfEscrita, async (req, res) => {
     const { error } = await supabase.from('documento').update({ ativo: false }).eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
@@ -2661,7 +2675,7 @@ app.get('/api/mf/setup', auth, async (req, res) => {
     const { data, error } = await supabase.from('parada')
         .select('datahora_inicio,duracao_segundos, motivo:motivo_id!inner(categoria), ap:apontamento_id(maquina:maquina_id(codigo), etapa:etapa_id(nome,ordem))')
         .eq('motivo.categoria', 'setup').not('datahora_fim', 'is', null).gte('datahora_inicio', desde);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     const ps = data || [], totalSeg = ps.reduce((s, p) => s + Number(p.duracao_segundos || 0), 0);
     const byDay = {}, byMaq = {};
     ps.forEach(p => {
@@ -2682,7 +2696,7 @@ app.post('/api/mf/andon', auth, mfEscrita, async (req, res) => {
     if (b.id) row.id = b.id;
     const { data, error } = await supabase.from('chamado_andon').upsert(row).select().single();
     if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'Andon não inicializado. Rode mes_andon.sql.' });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true, chamado: data });
 });
 app.get('/api/mf/andon', auth, async (_q, res) => {
@@ -2690,7 +2704,7 @@ app.get('/api/mf/andon', auth, async (_q, res) => {
         .select('*, etapa:etapa_id(nome,ordem), maquina:maquina_id(codigo), operador:operador_id(nome), op:op_id(numero)')
         .neq('status', 'resolvido').order('aberto_em');
     if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'Andon não inicializado. Rode mes_andon.sql.' });
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json(data || []);
 });
 app.put('/api/mf/andon/:id', auth, mfEscrita, async (req, res) => {
@@ -2699,7 +2713,7 @@ app.put('/api/mf/andon/:id', auth, mfEscrita, async (req, res) => {
     else if (acao === 'resolver') { upd.status = 'resolvido'; upd.resolvido_em = new Date().toISOString(); }
     else return res.status(400).json({ erro: 'ação inválida (atender|resolver)' });
     const { error } = await supabase.from('chamado_andon').update(upd).eq('id', req.params.id);
-    if (error) return res.status(500).json({ erro: error.message });
+    if (error) return erro500(res, error);
     res.json({ ok: true });
 });
 
