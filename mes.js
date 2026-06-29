@@ -1873,38 +1873,93 @@ const mf = {
     },
 
     // ═══ PAINEL EXECUTIVO (cockpit) ════════════════════════════════════════════
+    _usuarioNome() {
+        try { const p = JSON.parse(atob((localStorage.getItem(TOKEN_KEY) || '').split('.')[1])); return (p.nome || '').split(' ')[0] || 'Operador'; } catch { return 'Operador'; }
+    },
     async renderPainel() {
         const pan = $('mf-pan-painel');
         pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando painel...</div>`;
-        const [kpi, al, etapas, wip] = await Promise.all([api.get('/api/mf/painel'), api.get('/api/mf/alertas'), api.get('/api/mf/etapas-processo'), api.get('/api/mf/wip')]);
+        const [kpi, al, etapas, wip, carteira, produtos, andon, aps] = await Promise.all([
+            api.get('/api/mf/painel'), api.get('/api/mf/alertas'), api.get('/api/mf/etapas-processo'), api.get('/api/mf/wip'),
+            api.get('/api/op-unificado'), api.get('/api/mf/produtos'), api.get('/api/mf/andon'), api.get('/api/mf/apontamentos'),
+        ]);
         const wipMap = {}; if (wip?.board) wip.board.forEach(b => { wipMap[b.etapa_id] = b; });
         if (!kpi) { pan.innerHTML = `<div class="summary-card" style="padding:24px;color:#f06292;">Painel indisponível — rode os SQLs pendentes (mes_metas.sql).</div>`; return; }
-        const brl = n => 'R$ ' + Number(n||0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        const card = (cor, val, lbl, aba) => `<div onclick="${aba?`mf.tab('${aba}')`:''}" style="background:${cor}14;border:1px solid ${cor}3a;border-radius:12px;padding:16px 20px;text-align:center;flex:1;min-width:130px;${aba?'cursor:pointer;':''}">
-            <div style="font-size:1.7rem;font-weight:800;color:${cor};">${val}</div><div style="font-size:.66rem;color:${cor};letter-spacing:.05em;">${lbl}</div></div>`;
-        const k = kpi;
-        const kpis = [
-            card('#26c6da', k.oee_medio != null ? k.oee_medio + '%' : '—', 'OEE MÉDIO', 'ind'),
-            card('#f06292', brl(k.cnq_total), 'CUSTO DA QUALIDADE', 'cnq'),
-            card('#7c4dff', k.ncs, 'NÃO CONFORMIDADES', 'ncs'),
-            card(k.rncs_atrasadas ? '#ff5252' : '#ffca28', k.rncs_abertas + (k.rncs_atrasadas?` (${k.rncs_atrasadas}⚠)`:''), 'RNCs ABERTAS', 'rnc'),
-            card('#ef6c00', k.etiquetas_abertas, 'ETIQUETAS ABERTAS', 'etiq'),
-            card('#26a69a', k.sessoes_abertas, 'SESSÕES ATIVAS', 'apont'),
-        ].join('');
-        const corSev = { alta:'#f06292', media:'#ffca28', baixa:'#8b949e' };
+        const brl = n => 'R$ ' + Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const nCarteira = Array.isArray(carteira) ? carteira.length : 0;
+        const nProdutos = Array.isArray(produtos) ? produtos.length : 0;
+        const wipOps = wip?.board ? wip.board.reduce((s, b) => s + (b.ops || 0), 0) : 0;
+        const andonAb = (Array.isArray(andon) ? andon : []).filter(a => a.status && a.status !== 'resolvido').length;
+
+        const kc = (cor, val, lbl, sub, aba) => `<div onclick="${aba ? `mf.tab('${aba}')` : ''}" class="summary-card" style="flex:1;min-width:140px;border-top:3px solid ${cor};padding:14px 16px;${aba ? 'cursor:pointer;' : ''}">
+            <div style="font-size:.64rem;color:var(--text-dim);letter-spacing:.05em;text-transform:uppercase;margin-bottom:6px;">${lbl}</div>
+            <div style="font-size:1.7rem;font-weight:800;color:${cor};line-height:1.05;">${val}</div>
+            <div style="font-size:.7rem;color:var(--text-dim);margin-top:3px;">${sub}</div></div>`;
+        const flow = (icon, tit, sub, ativo, aba) => `<div onclick="${aba ? `mf.tab('${aba}')` : ''}" style="flex:1;min-width:108px;text-align:center;padding:14px 8px;border:1px solid var(--border-color);border-radius:10px;position:relative;${aba ? 'cursor:pointer;' : ''}">
+            <div style="position:absolute;top:8px;right:10px;width:7px;height:7px;border-radius:50%;background:${ativo ? '#3fb950' : '#30363d'};box-shadow:${ativo ? '0 0 5px rgba(63,185,80,.5)' : 'none'};"></div>
+            <div style="font-size:1.1rem;margin-bottom:4px;">${icon}</div><div style="font-size:.76rem;font-weight:700;">${tit}</div>
+            <div style="font-size:.64rem;color:var(--text-dim);margin-top:2px;">${sub}</div></div>`;
+        const quick = (icon, lbl, aba) => `<button onclick="mf.tab('${aba}')" class="btn secondary" style="flex:1;min-width:130px;justify-content:center;gap:8px;font-size:.8rem;padding:12px;">${icon} ${lbl}</button>`;
+
+        const ativHtml = (Array.isArray(aps) ? aps : []).slice(0, 6).map(a => {
+            const min = Math.max(0, Math.round((Date.now() - new Date(a.datahora_inicio).getTime()) / 60000));
+            return `<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:.82rem;">
+                <span style="color:${a.datahora_fim ? '#26a69a' : '#26c6da'};">${a.datahora_fim ? '✓' : '▶'}</span>
+                <span>Sessão <strong>${esc(a.op?.numero || 'OP')}</strong> · ${esc(a.maquina?.codigo || '')} · ${esc(a.operador?.nome || '')}</span>
+                <span style="margin-left:auto;color:var(--text-dim);font-size:.72rem;white-space:nowrap;">${a.datahora_fim ? 'finalizada' : 'em curso'} · há ${min}min</span></div>`;
+        }).join('') || `<div style="color:var(--text-dim);padding:16px 0;">Nenhuma atividade ainda. As sessões de apontamento aparecem aqui.</div>`;
+
+        const corSev = { alta: '#f06292', media: '#ffca28', baixa: '#8b949e' };
         const alertas = (al?.alertas || []);
         const alertasHtml = alertas.length ? alertas.map(a => `<div onclick="mf.tab('${a.aba}')" style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;background:${corSev[a.sev]}12;border-left:3px solid ${corSev[a.sev]};margin-bottom:6px;cursor:pointer;">
             <span style="font-size:.62rem;font-weight:700;color:${corSev[a.sev]};border:1px solid ${corSev[a.sev]}55;border-radius:4px;padding:1px 6px;">${a.modulo}</span>
             <span style="font-size:.82rem;">${esc(a.msg)}</span></div>`).join('')
             : `<div style="text-align:center;padding:20px;color:#26a69a;">✓ Nenhum alerta — tudo dentro das metas.</div>`;
+
         pan.innerHTML = `
-            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;">${kpis}</div>
-            ${this._fluxoHTML(etapas, wipMap)}
-            <div class="summary-card">
-                <div class="s-label" style="margin-bottom:12px;">⚠ ALERTAS — O QUE EXIGE AÇÃO ${alertas.length?`(${alertas.length})`:''}</div>
-                ${alertasHtml}
-            </div>`;
+            <div style="margin-bottom:18px;">
+                <h2 style="font-size:1.5rem;font-weight:800;margin:0;">${this._saud()}, <span style="color:var(--indigo-primary);">${esc(this._usuarioNome())}</span></h2>
+                <p style="color:var(--text-dim);font-size:.85rem;margin:2px 0 0;">${new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })} · MES Malha Forte</p>
+            </div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+                ${kc('#26c6da', nCarteira.toLocaleString('pt-BR'), 'Carteira (OPs)', 'ordens ativas', 'fila')}
+                ${kc('#7c4dff', nProdutos.toLocaleString('pt-BR'), 'Produtos', 'catalogados', 'rastreio')}
+                ${kc('#26a69a', wipOps, 'WIP ativo', 'OPs no fluxo', 'wip')}
+                ${kc('#ffab76', kpi.sessoes_abertas, 'Sessões ativas', 'apontando agora', 'apont')}
+                ${kc(andonAb ? '#f06292' : '#3fb950', andonAb, 'Andon aberto', 'chamados', 'andon')}
+            </div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
+                ${kc('#26c6da', kpi.oee_medio != null ? kpi.oee_medio + '%' : '—', 'OEE médio', kpi.oee_medio != null ? 'execução' : 'aguardando apontamento', 'ind')}
+                ${kc('#f06292', brl(kpi.cnq_total), 'Custo qualidade', 'CNQ', 'cnq')}
+                ${kc('#7c4dff', kpi.ncs, 'Não conformidades', 'registradas', 'ncs')}
+                ${kc(kpi.rncs_atrasadas ? '#ff5252' : '#ffca28', kpi.rncs_abertas + (kpi.rncs_atrasadas ? ` (${kpi.rncs_atrasadas}⚠)` : ''), 'RNCs abertas', 'ações corretivas', 'rnc')}
+                ${kc('#ef6c00', kpi.etiquetas_abertas, 'Etiquetas', 'anomalias TPM', 'etiq')}
+            </div>
+            <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:14px;margin-bottom:18px;">
+                <div class="summary-card"><div class="s-label" style="margin-bottom:8px;">📋 ÚLTIMAS ATIVIDADES</div>${ativHtml}</div>
+                <div class="summary-card"><div class="s-label" style="margin-bottom:8px;">⚠ ALERTAS ${alertas.length ? `(${alertas.length})` : ''}</div>${alertasHtml}</div>
+            </div>
+            <div class="summary-card" style="margin-bottom:18px;">
+                <div class="s-label" style="margin-bottom:12px;">🔀 FLUXO DO SISTEMA — estado atual</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:stretch;">
+                    ${flow('🗂', 'Cadastros', nProdutos + ' produtos', nProdutos > 0, 'rastreio')}
+                    ${flow('📥', 'Carteira', nCarteira + ' OPs', nCarteira > 0, 'fila')}
+                    ${flow('📊', 'Fila/WIP', wipOps + ' no fluxo', wipOps > 0, 'wip')}
+                    ${flow('🛠', 'Apontamento', kpi.sessoes_abertas + ' ativas', kpi.sessoes_abertas > 0, 'apont')}
+                    ${flow('⚠', 'Qualidade', kpi.ncs + ' NCs', kpi.ncs > 0, 'ncs')}
+                    ${flow('📈', 'Indicadores', kpi.oee_medio != null ? 'OEE ' + kpi.oee_medio + '%' : 'sem dados', kpi.oee_medio != null, 'ind')}
+                </div>
+            </div>
+            <div class="summary-card" style="margin-bottom:18px;">
+                <div class="s-label" style="margin-bottom:12px;">⚡ ACESSO RÁPIDO</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    ${quick('🛠', 'Apontamento', 'apont')}${quick('📋', 'Fila de OPs', 'fila')}${quick('🆘', 'Andon', 'andon')}
+                    ${quick('📊', 'Kanban WIP', 'wip')}${quick('⏱', 'Cronoanálise', 'crono')}${quick('📥', 'Importar OPs', 'impops')}
+                </div>
+            </div>
+            ${this._fluxoHTML(etapas, wipMap)}`;
     },
+    _saud() { const h = new Date().getHours(); return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'; },
 
     // ═══ BPM — FLUXO DO PROCESSO (editável) ════════════════════════════════════
     _etBtn: 'background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:.62rem;padding:0 2px;line-height:1;',
