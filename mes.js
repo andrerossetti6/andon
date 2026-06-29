@@ -224,7 +224,7 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['painel','wip','prazo','flxt','capac','andon','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','setup','cil','cad','rastreio','mat','doc','integ','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','wip','prazo','flxt','capac','andon','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','setup','cil','cad','rastreio','mat','doc','crono','balanc','produtiv','custo','melhoria','integ','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (this._andonTimer && name !== 'andon') { clearInterval(this._andonTimer); this._andonTimer = null; }
         if (name === 'painel') this.renderPainel();
         if (name === 'wip')    this.renderWip();
@@ -234,6 +234,11 @@ const mf = {
         if (name === 'setup')  this.renderSetup();
         if (name === 'mat')    this.renderMateriais();
         if (name === 'doc')    this.renderDocumentos();
+        if (name === 'crono')  this.renderCrono();
+        if (name === 'balanc') this.renderBalanc();
+        if (name === 'produtiv') this.renderProdutiv();
+        if (name === 'custo')  this.renderCusto();
+        if (name === 'melhoria') this.renderMelhoria();
         if (name === 'integ')  this.renderIntegracoes();
         if (name === 'prazo')  this.renderPrazo();
         if (name === 'flxt')   this.renderFluxoTempo();
@@ -864,6 +869,180 @@ const mf = {
         URL.revokeObjectURL(a.href);
         toast(`${d.total} confirmação(ões) exportada(s).`, 'ok');
     },
+
+    // ═══ ENGENHARIA DE PROCESSOS E MÉTODOS ══════════════════════════════════════
+    // 1) Cronoanálise — tempo real medido × padrão
+    async renderCrono() {
+        const pan = $('mf-pan-crono');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando...</div>`;
+        const d = await api.get('/api/mf/cronoanalise');
+        if (!Array.isArray(d)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Cronoanálise indisponível — rode <strong>mes_engenharia.sql</strong> e recarregue.</div>`; return; }
+        const linhas = d.map(r => {
+            const dv = r.desvio_pct, cor = dv == null ? 'var(--text-dim)' : Math.abs(dv) <= 10 ? '#26a69a' : Math.abs(dv) <= 25 ? '#ffca28' : '#f06292';
+            return `<tr style="border-bottom:1px solid rgba(255,255,255,.05);">
+                <td style="padding:6px 8px;">${r.etapa_ordem}. ${esc(r.etapa)}</td><td style="padding:6px 8px;">${esc(r.produto || '—')}</td>
+                <td style="padding:6px 8px;text-align:right;">${r.seg_padrao != null ? r.seg_padrao : '<span style="color:#ffca28;">sem padrão</span>'}</td>
+                <td style="padding:6px 8px;text-align:right;font-weight:700;">${r.seg_real_medio}</td>
+                <td style="padding:6px 8px;text-align:center;color:var(--text-dim);font-size:.78rem;">${r.observacoes}</td>
+                <td style="padding:6px 8px;text-align:right;color:${cor};font-weight:700;">${dv == null ? '—' : (dv > 0 ? '+' : '') + dv + '%'}</td>
+                <td style="padding:6px 8px;text-align:right;"><button class="btn secondary" style="font-size:.72rem;" onclick="mf.adotarPadrao('${r.etapa_id}','${r.produto_id || ''}',${r.seg_real_medio})">adotar medido</button></td></tr>`;
+        }).join('');
+        pan.innerHTML = `
+            <div class="summary-card" style="margin-bottom:14px;"><div class="s-label">⏱ CRONOANÁLISE — tempo real medido × padrão</div>
+                <p style="font-size:.8rem;color:var(--text-dim);margin:8px 0 0;">O tempo de cada peça vem do apontamento (duração − paradas ÷ produzido). Compare com o padrão e <strong>adote o medido</strong> pra refinar o tempo-padrão — sem chute, o número vem do chão.</p></div>
+            ${d.length ? `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.84rem;">
+                <thead><tr style="color:var(--text-dim);text-align:left;border-bottom:1px solid var(--border-color);"><th style="padding:6px 8px;">Etapa</th><th style="padding:6px 8px;">Produto</th><th style="padding:6px 8px;text-align:right;">Padrão (s/pç)</th><th style="padding:6px 8px;text-align:right;">Real médio</th><th style="padding:6px 8px;text-align:center;">Obs.</th><th style="padding:6px 8px;text-align:right;">Desvio</th><th></th></tr></thead>
+                <tbody>${linhas}</tbody></table></div>`
+            : `<div class="summary-card" style="color:var(--text-dim);text-align:center;padding:28px;">Sem sessões finalizadas ainda. A cronoanálise aparece quando o chão começar a apontar produção.</div>`}`;
+    },
+    async adotarPadrao(etapaId, prodId, seg) {
+        if (!confirm(`Adotar ${seg}s/peça como novo tempo-padrão?`)) return;
+        const r = await api.put('/api/mf/tempos', { etapa_id: etapaId, produto_id: prodId || null, seg_por_unidade: seg });
+        toast(r?.ok ? 'Tempo-padrão atualizado.' : 'Erro.', r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderCrono();
+    },
+
+    // 2) Balanceamento de linha + takt
+    async renderBalanc() {
+        const pan = $('mf-pan-balanc');
+        const dem = this._balancDem || 0, horas = this._balancH || 8;
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando...</div>`;
+        const d = await api.get(`/api/mf/balanceamento?demanda=${dem}&horas=${horas}`);
+        if (!d || !Array.isArray(d.etapas)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Indisponível.</div>`; return; }
+        const maxC = Math.max(1, ...d.etapas.map(e => e.tempo_ciclo || 0), d.takt || 0);
+        const barras = d.etapas.map(e => {
+            const w = e.tempo_ciclo ? Math.round(e.tempo_ciclo / maxC * 100) : 0, cor = e.gargalo ? '#f06292' : e.tempo_ciclo == null ? '#30363d' : '#26a69a';
+            return `<div style="margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:3px;"><span>${e.ordem}. ${esc(e.etapa)} ${e.gargalo ? '🔴' : ''}</span>
+                    <span style="color:var(--text-dim);">${e.postos} posto(s)${e.tempo_ciclo != null ? ' · ' + e.tempo_ciclo + 's/pç' : ' · sem tempo-padrão'}${e.capacidade_dia != null ? ' · cap ' + e.capacidade_dia.toLocaleString('pt-BR') + '/dia' : ''}</span></div>
+                <div style="height:14px;background:var(--bg-card);border-radius:4px;overflow:hidden;"><div style="height:100%;width:${w}%;background:${cor};"></div></div></div>`;
+        }).join('');
+        const taktTxt = d.takt ? `<div style="font-size:.82rem;color:#26c6da;margin-bottom:10px;">Takt = <strong>${d.takt}s/peça</strong> (ritmo que a demanda exige). Posto com ciclo acima do takt = gargalo 🔴.</div>` : `<div style="font-size:.8rem;color:var(--text-dim);margin-bottom:10px;">Informe a demanda/dia pra calcular o takt e ver onde a linha desbalanceia.</div>`;
+        pan.innerHTML = `
+            <div class="summary-card" style="margin-bottom:14px;"><div class="s-label" style="margin-bottom:10px;">⚖️ BALANCEAMENTO DE LINHA + TAKT</div>
+                <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+                    <div><span class="mf-label">DEMANDA (peças/dia)</span><input id="mf-balanc-dem" type="number" min="0" class="mf-input" value="${dem}" style="max-width:150px;"></div>
+                    <div><span class="mf-label">HORAS/DIA</span><input id="mf-balanc-h" type="number" min="1" max="24" class="mf-input" value="${horas}" style="max-width:100px;"></div>
+                    <button class="btn primary" style="font-size:.8rem;" onclick="mf._balancCalc()">Calcular</button>
+                    ${d.gargalo ? `<span style="margin-left:auto;font-size:.82rem;color:#f06292;">Gargalo: <strong>${esc(d.gargalo)}</strong></span>` : ''}</div></div>
+            <div class="summary-card">${taktTxt}${barras}</div>`;
+    },
+    _balancCalc() { this._balancDem = +$('mf-balanc-dem').value || 0; this._balancH = +$('mf-balanc-h').value || 8; this.renderBalanc(); },
+
+    // 3) Produtividade por operador
+    async renderProdutiv() {
+        const pan = $('mf-pan-produtiv');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando...</div>`;
+        const d = await api.get('/api/mf/produtividade');
+        if (!Array.isArray(d)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Indisponível — rode <strong>mes_engenharia.sql</strong>.</div>`; return; }
+        const linhas = d.map((r, i) => `<tr style="border-bottom:1px solid rgba(255,255,255,.05);">
+            <td style="padding:6px 8px;">${i + 1}. ${esc(r.operador)}</td>
+            <td style="padding:6px 8px;text-align:right;font-weight:700;color:#26a69a;">${r.pecas_por_hora ?? '—'}</td>
+            <td style="padding:6px 8px;text-align:right;">${r.horas}</td><td style="padding:6px 8px;text-align:right;">${(+r.qtd_boa).toLocaleString('pt-BR')}</td>
+            <td style="padding:6px 8px;text-align:right;color:${r.refugo_pct > 5 ? '#f06292' : 'var(--text-dim)'};">${r.refugo_pct ?? 0}%</td>
+            <td style="padding:6px 8px;text-align:right;color:var(--text-dim);">${r.retrab_pct ?? 0}%</td></tr>`).join('');
+        pan.innerHTML = `
+            <div class="summary-card" style="margin-bottom:14px;"><div class="s-label">👥 PRODUTIVIDADE POR OPERADOR</div>
+                <p style="font-size:.8rem;color:var(--text-dim);margin:8px 0 0;">Peças boas/hora, refugo% e retrabalho% por pessoa, do apontamento. Mostra quem rende e se o gargalo é a máquina ou a gente.</p></div>
+            ${d.length ? `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.84rem;">
+                <thead><tr style="color:var(--text-dim);text-align:left;border-bottom:1px solid var(--border-color);"><th style="padding:6px 8px;">Operador</th><th style="padding:6px 8px;text-align:right;">Peças/h</th><th style="padding:6px 8px;text-align:right;">Horas</th><th style="padding:6px 8px;text-align:right;">Boas</th><th style="padding:6px 8px;text-align:right;">Refugo</th><th style="padding:6px 8px;text-align:right;">Retrab.</th></tr></thead>
+                <tbody>${linhas}</tbody></table></div>`
+            : `<div class="summary-card" style="color:var(--text-dim);text-align:center;padding:28px;">Sem produção apontada ainda.</div>`}`;
+    },
+
+    // 4) Custeio real por OP + taxas (R$/h do usuário)
+    async renderCusto() {
+        const pan = $('mf-pan-custo');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando...</div>`;
+        const [d, taxas] = await Promise.all([api.get('/api/mf/custo'), api.get('/api/mf/custo/taxas')]);
+        if (!Array.isArray(d)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Indisponível — rode <strong>mes_engenharia.sql</strong>.</div>`; return; }
+        const semTaxa = (taxas?.operadores || []).filter(o => o.custo_hora == null).length + (taxas?.maquinas || []).filter(m => m.custo_hora == null).length;
+        const linhas = d.map(r => `<tr style="border-bottom:1px solid rgba(255,255,255,.05);">
+            <td style="padding:6px 8px;">${esc(r.numero)}</td><td style="padding:6px 8px;">${esc(r.produto || '—')}</td><td style="padding:6px 8px;text-align:right;">${r.horas}</td>
+            <td style="padding:6px 8px;text-align:right;">R$ ${(+r.custo_mo).toFixed(2)}</td><td style="padding:6px 8px;text-align:right;">R$ ${(+r.custo_maquina).toFixed(2)}</td>
+            <td style="padding:6px 8px;text-align:right;">R$ ${(+r.custo_material).toFixed(2)}</td><td style="padding:6px 8px;text-align:right;color:#f06292;">R$ ${(+r.custo_refugo).toFixed(2)}</td>
+            <td style="padding:6px 8px;text-align:right;font-weight:700;color:#ffab76;">R$ ${(+r.custo_total).toFixed(2)}</td></tr>`).join('');
+        const taxaRow = (tipo, x) => `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:4px 0;">
+            <span style="font-size:.82rem;">${esc(x.codigo || x.nome)}</span>
+            <span style="display:flex;align-items:center;gap:4px;font-size:.8rem;">R$ <input type="number" min="0" step="0.01" value="${x.custo_hora ?? ''}" placeholder="—" class="mf-input" style="width:90px;padding:5px 8px;" onchange="mf.salvarTaxa('${tipo}','${x.id}',this.value)">/h</span></div>`;
+        pan.innerHTML = `
+            <div class="summary-card" style="margin-bottom:14px;"><div class="s-label">💰 CUSTEIO REAL POR OP</div>
+                <p style="font-size:.8rem;color:var(--text-dim);margin:8px 0 0;">Custo cheio = mão de obra (horas × R$/h) + máquina-hora + material + refugo. As taxas R$/h são suas — preencha abaixo (não invento número).${semTaxa ? ` <span style="color:#ffca28;">${semTaxa} recurso(s) sem taxa → custo subestimado.</span>` : ''}</p></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+                <div class="summary-card"><div class="s-label" style="margin-bottom:8px;">TAXA OPERADOR (R$/h)</div>${(taxas?.operadores || []).map(o => taxaRow('operador', o)).join('') || '<span style="color:var(--text-dim);">—</span>'}</div>
+                <div class="summary-card"><div class="s-label" style="margin-bottom:8px;">TAXA MÁQUINA (R$/h)</div>${(taxas?.maquinas || []).map(m => taxaRow('maquina', m)).join('') || '<span style="color:var(--text-dim);">—</span>'}</div></div>
+            ${d.length ? `<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                <thead><tr style="color:var(--text-dim);text-align:left;border-bottom:1px solid var(--border-color);"><th style="padding:6px 8px;">OP</th><th style="padding:6px 8px;">Produto</th><th style="padding:6px 8px;text-align:right;">Horas</th><th style="padding:6px 8px;text-align:right;">M.O.</th><th style="padding:6px 8px;text-align:right;">Máquina</th><th style="padding:6px 8px;text-align:right;">Material</th><th style="padding:6px 8px;text-align:right;">Refugo</th><th style="padding:6px 8px;text-align:right;">Total</th></tr></thead>
+                <tbody>${linhas}</tbody></table></div>`
+            : `<div class="summary-card" style="color:var(--text-dim);text-align:center;padding:24px;">Sem produção apontada ainda — o custo por OP aparece quando houver apontamento.</div>`}`;
+    },
+    async salvarTaxa(tipo, id, val) {
+        const r = await api.put(`/api/mf/custo/taxa/${tipo}/${id}`, { custo_hora: +val || 0 });
+        toast(r?.ok ? 'Taxa salva.' : 'Erro.', r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderCusto();
+    },
+
+    // 5) Melhoria contínua — FMEA + Kaizen
+    async renderMelhoria() {
+        const pan = $('mf-pan-melhoria');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando...</div>`;
+        const [fmea, kaizen, etapas] = await Promise.all([api.get('/api/mf/fmea'), api.get('/api/mf/kaizen'), api.get('/api/mf/etapas-processo')]);
+        if (!Array.isArray(fmea) || !Array.isArray(kaizen)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Indisponível — rode <strong>mes_engenharia.sql</strong>.</div>`; return; }
+        const etOpt = `<option value="">— etapa —</option>` + (etapas || []).map(e => `<option value="${e.id}">${e.ordem}. ${esc(e.nome)}</option>`).join('');
+        const fmeaLin = fmea.map(f => {
+            const cor = f.rpn >= 200 ? '#f06292' : f.rpn >= 100 ? '#ffca28' : '#26a69a';
+            return `<tr style="border-bottom:1px solid rgba(255,255,255,.05);">
+                <td style="padding:5px 8px;font-size:.8rem;">${esc(f.etapa?.nome || '—')}</td><td style="padding:5px 8px;">${esc(f.modo_falha)}</td>
+                <td style="padding:5px 8px;font-size:.78rem;color:var(--text-dim);">${esc(f.causa || '')}</td>
+                <td style="padding:5px 8px;text-align:center;">${f.severidade || '—'}/${f.ocorrencia || '—'}/${f.deteccao || '—'}</td>
+                <td style="padding:5px 8px;text-align:right;font-weight:700;color:${cor};">${f.rpn ?? '—'}</td>
+                <td style="padding:5px 8px;"><button onclick="mf.excluirFmea('${f.id}')" style="background:none;border:none;color:#f06292;cursor:pointer;font-size:.72rem;">✕</button></td></tr>`;
+        }).join('');
+        const cols = [['ideia', '💡 Ideias'], ['teste', '🧪 Em teste'], ['padrao', '✅ Virou padrão'], ['descartado', '🗑 Descartado']];
+        const board = cols.map(([st, lbl]) => {
+            const cards = kaizen.filter(k => k.status === st).map(k => `<div class="summary-card" style="padding:8px;margin-bottom:6px;">
+                <div style="font-size:.82rem;font-weight:600;">${esc(k.titulo)}</div>${k.etapa?.nome ? `<div style="font-size:.7rem;color:var(--text-dim);">${esc(k.etapa.nome)}</div>` : ''}
+                <div style="display:flex;gap:3px;margin-top:5px;flex-wrap:wrap;">${cols.filter(c => c[0] !== st).map(c => `<button onclick="mf.moverKaizen('${k.id}','${c[0]}')" title="mover p/ ${esc(c[1])}" style="background:var(--bg-card);border:1px solid var(--border-color);border-radius:4px;cursor:pointer;font-size:.7rem;padding:1px 5px;">${c[1].split(' ')[0]}</button>`).join('')}</div></div>`).join('');
+            return `<div style="flex:1;min-width:150px;"><div class="s-label" style="margin-bottom:8px;">${lbl} (${kaizen.filter(k => k.status === st).length})</div>${cards || '<div style="color:var(--text-dim);font-size:.76rem;">—</div>'}</div>`;
+        }).join('');
+        pan.innerHTML = `
+            <div class="summary-card" style="margin-bottom:14px;"><div class="s-label">🔧 MELHORIA CONTÍNUA — FMEA + Kaizen</div></div>
+            <div class="summary-card" style="margin-bottom:14px;">
+                <div class="s-label" style="margin-bottom:10px;">FMEA DE PROCESSO (RPN = Sev × Ocor × Det)</div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin-bottom:8px;">
+                    <select id="mf-fmea-et" class="mf-input">${etOpt}</select>
+                    <input id="mf-fmea-modo" class="mf-input" placeholder="Modo de falha *">
+                    <input id="mf-fmea-causa" class="mf-input" placeholder="Causa">
+                    <input id="mf-fmea-sev" type="number" min="1" max="10" class="mf-input" placeholder="Sev">
+                    <input id="mf-fmea-ocor" type="number" min="1" max="10" class="mf-input" placeholder="Ocor">
+                    <input id="mf-fmea-det" type="number" min="1" max="10" class="mf-input" placeholder="Det"></div>
+                <button class="btn primary" style="font-size:.8rem;" onclick="mf.salvarFmea()">+ Adicionar risco</button>
+                ${fmea.length ? `<div style="overflow-x:auto;margin-top:12px;"><table style="width:100%;border-collapse:collapse;font-size:.84rem;">
+                    <thead><tr style="color:var(--text-dim);text-align:left;border-bottom:1px solid var(--border-color);"><th style="padding:5px 8px;">Etapa</th><th style="padding:5px 8px;">Modo de falha</th><th style="padding:5px 8px;">Causa</th><th style="padding:5px 8px;text-align:center;">S/O/D</th><th style="padding:5px 8px;text-align:right;">RPN</th><th></th></tr></thead>
+                    <tbody>${fmeaLin}</tbody></table></div>` : '<div style="color:var(--text-dim);font-size:.8rem;margin-top:10px;">Nenhum risco mapeado.</div>'}</div>
+            <div class="summary-card">
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
+                    <div class="s-label" style="margin:0;">FUNIL KAIZEN — ideia → teste → padrão</div>
+                    <div style="display:flex;gap:6px;"><input id="mf-kz-tit" class="mf-input" placeholder="Nova ideia de melhoria" style="width:220px;"><button class="btn secondary" style="font-size:.78rem;" onclick="mf.salvarKaizen()">+ Ideia</button></div></div>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">${board}</div></div>`;
+    },
+    async salvarFmea() {
+        const modo = $('mf-fmea-modo').value.trim();
+        if (!modo) return toast('Modo de falha obrigatório.', 'erro');
+        const r = await api.post('/api/mf/fmea', { etapa_id: $('mf-fmea-et').value || null, modo_falha: modo, causa: $('mf-fmea-causa').value || null,
+            severidade: +$('mf-fmea-sev').value || null, ocorrencia: +$('mf-fmea-ocor').value || null, deteccao: +$('mf-fmea-det').value || null });
+        toast(r?.ok ? 'Risco adicionado.' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderMelhoria();
+    },
+    async excluirFmea(id) { if (!confirm('Excluir este risco?')) return; const r = await api.del('/api/mf/fmea/' + id); if (r?.ok) this.renderMelhoria(); },
+    async salvarKaizen() {
+        const tit = $('mf-kz-tit').value.trim();
+        if (!tit) return toast('Descreva a ideia.', 'erro');
+        const r = await api.post('/api/mf/kaizen', { titulo: tit });
+        toast(r?.ok ? 'Ideia registrada.' : 'Erro.', r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderMelhoria();
+    },
+    async moverKaizen(id, status) { const r = await api.put('/api/mf/kaizen/' + id, { status }); if (r?.ok) this.renderMelhoria(); },
 
     // ═══ APONTAMENTO ═══════════════════════════════════════════════════════════
     async renderApont() {

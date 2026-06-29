@@ -127,6 +127,19 @@
                 </ul>
             </nav>
 
+            <nav class="nav-section" id="nav-section-eng">
+                <h3 class="nav-section-header" data-key="mf-eng" onclick="toggleNavSection(this)">
+                    ENGENHARIA <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-crono" data-mftab="crono" onclick="mf.tab('crono')"><div class="item-content">Cronoanálise</div></li>
+                    <li id="nav-balanc" data-mftab="balanc" onclick="mf.tab('balanc')"><div class="item-content">Balanceamento &amp; Takt</div></li>
+                    <li id="nav-produtiv" data-mftab="produtiv" onclick="mf.tab('produtiv')"><div class="item-content">Produtividade (Operador)</div></li>
+                    <li id="nav-custo" data-mftab="custo" onclick="mf.tab('custo')"><div class="item-content">Custeio por OP</div></li>
+                    <li id="nav-melhoria" data-mftab="melhoria" onclick="mf.tab('melhoria')"><div class="item-content">Melhoria (FMEA/Kaizen)</div></li>
+                </ul>
+            </nav>
+
             <nav class="nav-section" id="nav-section-dados">
                 <h3 class="nav-section-header" data-key="mf-dados" onclick="toggleNavSection(this)">
                     DADOS <span class="nav-toggle">▾</span>
@@ -190,6 +203,11 @@
         <div id="mf-pan-rastreio" style="display:none;"></div>
         <div id="mf-pan-mat"    style="display:none;"></div>
         <div id="mf-pan-doc"    style="display:none;"></div>
+        <div id="mf-pan-crono"    style="display:none;"></div>
+        <div id="mf-pan-balanc"   style="display:none;"></div>
+        <div id="mf-pan-produtiv" style="display:none;"></div>
+        <div id="mf-pan-custo"    style="display:none;"></div>
+        <div id="mf-pan-melhoria" style="display:none;"></div>
         <div id="mf-pan-integ"  style="display:none;"></div>
         <div id="mf-pan-impops" style="display:none;"></div>
         <div id="mf-pan-import" style="display:none;"></div>

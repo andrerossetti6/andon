@@ -1497,7 +1497,7 @@ app.post('/api/mf/rncs', auth, mfEscrita, async (req, res) => {
 });
 app.put('/api/mf/rncs/:id', auth, mfEscrita, async (req, res) => {
     const b = req.body || {}, upd = {};
-    ['prioridade','responsavel_id','prazo','causa_raiz','metodo_analise','acao_corretiva','eficaz','verificacao_obs','status'].forEach(f => { if (b[f] !== undefined) upd[f] = b[f]; });
+    ['prioridade','responsavel_id','prazo','causa_raiz','metodo_analise','acao_corretiva','eficaz','verificacao_obs','status','porque_1','porque_2','porque_3','porque_4','porque_5'].forEach(f => { if (b[f] !== undefined) upd[f] = b[f]; });
     // transições de estágio
     if (b.avancar === 'analise')     upd.status = 'em_analise';
     if (b.avancar === 'acao')      { upd.status = 'em_acao'; }
@@ -2665,6 +2665,120 @@ app.post('/api/mf/documentos', auth, mfEscrita, async (req, res) => {
 });
 app.delete('/api/mf/documentos/:id', auth, mfEscrita, async (req, res) => {
     const { error } = await supabase.from('documento').update({ ativo: false }).eq('id', req.params.id);
+    if (error) return erro500(res, error);
+    res.json({ ok: true });
+});
+
+// ═══ ENGENHARIA DE PROCESSOS E MÉTODOS ═══════════════════════════════════════
+const _viewIndisp = (r, sql) => r.error && /schema cache|does not exist|relation/i.test(r.error.message || '') ? `Rode ${sql} no SQL Editor.` : null;
+
+// 1) Cronoanálise — tempo real medido × padrão, por produto/etapa
+app.get('/api/mf/cronoanalise', auth, async (_q, res) => {
+    const r = await supabase.from('vw_cronoanalise_resumo').select('*').order('etapa_ordem');
+    const ind = _viewIndisp(r, 'mes_engenharia.sql'); if (ind) return res.status(503).json({ erro: ind });
+    if (r.error) return erro500(res, r.error);
+    res.json(r.data || []);
+});
+
+// 2) Balanceamento de linha + takt: tempo de ciclo por etapa × takt da demanda
+app.get('/api/mf/balanceamento', auth, async (req, res) => {
+    const demanda = Math.max(0, Number(req.query.demanda) || 0);   // peças/dia desejadas
+    const horasDia = Math.min(24, Math.max(1, Number(req.query.horas) || 8));
+    const [etapasR, maqsR, temposR] = await Promise.all([
+        supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).order('ordem'),
+        supabase.from('maquina').select('etapa_id').eq('ativo', true),
+        supabase.from('tempo_padrao').select('etapa_id,seg_por_unidade').is('produto_id', null),
+    ]);
+    if (etapasR.error) return erro500(res, etapasR.error);
+    const postosDe = {}; (maqsR.data || []).forEach(m => { if (m.etapa_id) postosDe[m.etapa_id] = (postosDe[m.etapa_id] || 0) + 1; });
+    const segDe = Object.fromEntries((temposR.data || []).map(t => [t.etapa_id, Number(t.seg_por_unidade) || 0]));
+    const takt = demanda > 0 ? (horasDia * 3600) / demanda : null;   // seg/peça que a linha precisa entregar
+    const etapas = (etapasR.data || []).map(e => {
+        const postos = postosDe[e.id] || 0, seg = segDe[e.id] || 0;
+        const tempo_ciclo = postos > 0 && seg > 0 ? seg / postos : null;   // seg/peça do posto
+        const capacidade_dia = seg > 0 ? Math.round(postos * horasDia * 3600 / seg) : null;
+        const utilizacao = (takt && tempo_ciclo) ? Math.round(tempo_ciclo / takt * 100) : null;
+        return { etapa: e.nome, ordem: e.ordem, postos, seg_padrao: seg, tempo_ciclo: tempo_ciclo ? Math.round(tempo_ciclo * 10) / 10 : null,
+            capacidade_dia, utilizacao, gargalo: utilizacao != null && utilizacao > 100 };
+    });
+    const comCiclo = etapas.filter(e => e.tempo_ciclo != null);
+    const gargalo = comCiclo.length ? comCiclo.reduce((a, b) => b.tempo_ciclo > a.tempo_ciclo ? b : a) : null;
+    res.json({ takt: takt ? Math.round(takt * 10) / 10 : null, demanda, horasDia, gargalo: gargalo?.etapa || null, etapas });
+});
+
+// 3) Produtividade por operador
+app.get('/api/mf/produtividade', auth, async (_q, res) => {
+    const r = await supabase.from('vw_produtividade_operador').select('*').order('pecas_por_hora', { ascending: false, nullsFirst: false });
+    const ind = _viewIndisp(r, 'mes_engenharia.sql'); if (ind) return res.status(503).json({ erro: ind });
+    if (r.error) return erro500(res, r.error);
+    res.json(r.data || []);
+});
+
+// 4) Custeio real por OP + cadastro de taxas (R$/h) — taxas são do usuário
+app.get('/api/mf/custo', auth, async (_q, res) => {
+    const r = await supabase.from('vw_custo_op').select('*').order('custo_total', { ascending: false, nullsFirst: false });
+    const ind = _viewIndisp(r, 'mes_engenharia.sql'); if (ind) return res.status(503).json({ erro: ind });
+    if (r.error) return erro500(res, r.error);
+    res.json(r.data || []);
+});
+app.get('/api/mf/custo/taxas', auth, async (_q, res) => {
+    const [ops, maqs] = await Promise.all([
+        supabase.from('operador').select('id,nome,custo_hora').eq('ativo', true).order('nome'),
+        supabase.from('maquina').select('id,codigo,nome,custo_hora').eq('ativo', true).order('codigo'),
+    ]);
+    res.json({ operadores: ops.data || [], maquinas: maqs.data || [] });
+});
+app.put('/api/mf/custo/taxa/:tipo/:id', auth, mfEscrita, async (req, res) => {
+    const tabela = req.params.tipo === 'operador' ? 'operador' : req.params.tipo === 'maquina' ? 'maquina' : null;
+    if (!tabela) return res.status(400).json({ erro: 'tipo inválido' });
+    const v = Number(req.body?.custo_hora);
+    if (!(v >= 0)) return res.status(400).json({ erro: 'custo_hora inválido' });
+    const { error } = await supabase.from(tabela).update({ custo_hora: v }).eq('id', req.params.id);
+    if (error) return erro500(res, error);
+    res.json({ ok: true });
+});
+
+// 5a) FMEA de processo
+app.get('/api/mf/fmea', auth, async (_q, res) => {
+    const r = await supabase.from('fmea').select('*, etapa:etapa_id(nome,ordem)').eq('ativo', true).order('rpn', { ascending: false });
+    const ind = _viewIndisp(r, 'mes_engenharia.sql'); if (ind) return res.status(503).json({ erro: ind });
+    if (r.error) return erro500(res, r.error);
+    res.json(r.data || []);
+});
+app.post('/api/mf/fmea', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {};
+    if (!b.modo_falha) return res.status(400).json({ erro: 'modo_falha obrigatório' });
+    const row = { etapa_id: b.etapa_id || null, modo_falha: b.modo_falha, efeito: b.efeito || null, causa: b.causa || null,
+        severidade: b.severidade || null, ocorrencia: b.ocorrencia || null, deteccao: b.deteccao || null, acao: b.acao || null };
+    const { data, error } = await supabase.from('fmea').insert(row).select().single();
+    if (error) return erro500(res, error);
+    res.json({ ok: true, fmea: data });
+});
+app.delete('/api/mf/fmea/:id', auth, mfEscrita, async (req, res) => {
+    const { error } = await supabase.from('fmea').update({ ativo: false }).eq('id', req.params.id);
+    if (error) return erro500(res, error);
+    res.json({ ok: true });
+});
+
+// 5b) Kaizen (funil ideia → teste → padrão)
+app.get('/api/mf/kaizen', auth, async (_q, res) => {
+    const r = await supabase.from('kaizen').select('*, etapa:etapa_id(nome)').order('criado_em', { ascending: false });
+    const ind = _viewIndisp(r, 'mes_engenharia.sql'); if (ind) return res.status(503).json({ erro: ind });
+    if (r.error) return erro500(res, r.error);
+    res.json(r.data || []);
+});
+app.post('/api/mf/kaizen', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {};
+    if (!b.titulo) return res.status(400).json({ erro: 'titulo obrigatório' });
+    const row = { titulo: b.titulo, descricao: b.descricao || null, etapa_id: b.etapa_id || null, ganho_esperado: b.ganho_esperado || null, responsavel: b.responsavel || null };
+    const { data, error } = await supabase.from('kaizen').insert(row).select().single();
+    if (error) return erro500(res, error);
+    res.json({ ok: true, kaizen: data });
+});
+app.put('/api/mf/kaizen/:id', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {}, upd = {};
+    ['titulo','descricao','etapa_id','status','ganho_esperado','responsavel'].forEach(f => { if (b[f] !== undefined) upd[f] = b[f]; });
+    const { error } = await supabase.from('kaizen').update(upd).eq('id', req.params.id);
     if (error) return erro500(res, error);
     res.json({ ok: true });
 });
