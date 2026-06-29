@@ -179,11 +179,21 @@ const mf = {
         const form = $('login-form');
         form.onsubmit = async (e) => {
             e.preventDefault();
-            const r = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'},
-                body: JSON.stringify({ email: $('login-email').value, senha: $('login-senha').value }) });
-            const d = await r.json().catch(() => ({}));
-            if (r.ok && d.token) { localStorage.setItem(TOKEN_KEY, d.token); location.reload(); }
-            else { const er = $('login-erro'); er.style.display = 'block'; er.textContent = d.erro || 'Falha no login'; }
+            const btn = $('login-submit'), er = $('login-erro');
+            if (btn?.disabled) return;                        // M11: trava duplo-envio
+            if (btn) { btn.disabled = true; btn.textContent = 'Entrando…'; }
+            if (er) er.style.display = 'none';
+            try {
+                const r = await fetch('/api/auth/login', { method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({ email: $('login-email').value, senha: $('login-senha').value }) });
+                const d = await r.json().catch(() => ({}));
+                if (r.ok && d.token) { localStorage.setItem(TOKEN_KEY, d.token); location.reload(); return; }
+                if (er) { er.style.display = 'block'; er.textContent = d.erro || 'Falha no login'; }
+            } catch {
+                if (er) { er.style.display = 'block'; er.textContent = 'Sem conexão com o servidor. Tente de novo.'; }
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Entrar'; }
+            }
         };
     },
 

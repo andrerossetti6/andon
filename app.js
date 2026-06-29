@@ -834,7 +834,7 @@ async function resetarDados() {
         } else {
             mostrarToast('Erro: ' + d.erro, 'erro');
         }
-    } catch(e) { mostrarToast('Erro de conexão: ' + e.message, 'erro'); }
+    } catch(e) { (console.error(e), mostrarToast('Erro de conexão. Tente de novo.', 'erro')); }
 }
 
 async function baixarBackup() {
@@ -851,7 +851,7 @@ async function baixarBackup() {
         URL.revokeObjectURL(url);
         historico.registrar('backup', 'sistema', 'Download JSON completo');
         mostrarToast('✓ Backup baixado com sucesso');
-    } catch(e) { mostrarToast('Erro: ' + e.message, 'erro'); }
+    } catch(e) { (console.error(e), mostrarToast('Erro inesperado. Tente de novo.', 'erro')); }
 }
 
 // ── Exportação XLS ────────────────────────────────────────────────
@@ -3665,7 +3665,7 @@ const cliente = {
                 mostrarToast(res.erro || 'Erro ao salvar dados de cliente', 'erro');
             }
         } catch(e) {
-            mostrarToast('Erro de conexão: ' + e.message, 'erro');
+            (console.error(e), mostrarToast('Erro de conexão. Tente de novo.', 'erro'));
         } finally { this._setSaving(false); }
         await this.carregarHistorico();
     },
@@ -3906,7 +3906,7 @@ function criarModuloArq(id, nomeApi) {
                 const res = await api.post(`/api/${nomeApi}/import`, { nomeArquivo: this._nomeArquivo, linhas: this.rawData.map(r=>({dados:r.dados})) });
                 if (res?.ok) { this._currentId = res.importacaoId; mostrarToast(`✓ ${this.rawData.length.toLocaleString('pt-BR')} registros salvos`); }
                 else alert(`Erro ao salvar. Verifique se as tabelas importacoes_${nomeApi} e dados_${nomeApi} foram criadas no Supabase.`);
-            } catch(e) { mostrarToast('Erro de conexão: ' + e.message, 'erro'); } finally { this._setSaving(false); }
+            } catch(e) { (console.error(e), mostrarToast('Erro de conexão. Tente de novo.', 'erro')); } finally { this._setSaving(false); }
             await this.carregarHistorico();
         },
 
@@ -6436,7 +6436,7 @@ const soepDash = {
                 this._renderAcoes(); this._renderKPIs();
                 mostrarToast('✓ Ação registrada');
             }
-        } catch(e) { mostrarToast('Erro: '+e.message,'erro'); }
+        } catch(e) { (console.error(e), mostrarToast('Erro inesperado. Tente de novo.', 'erro')); }
     },
 
     async concluirAcao(id) {
@@ -6444,7 +6444,7 @@ const soepDash = {
             await api.put(`/api/soep-acoes/${id}`, { status:'concluida' });
             const a=this._acoes.find(x=>x.id===id); if(a) a.status='concluida';
             this._renderAcoes(); this._renderKPIs();
-        } catch(e) { mostrarToast('Erro: '+e.message,'erro'); }
+        } catch(e) { (console.error(e), mostrarToast('Erro inesperado. Tente de novo.', 'erro')); }
     },
 
     async deletarAcao(id) {
@@ -6453,7 +6453,7 @@ const soepDash = {
             await api.delete(`/api/soep-acoes/${id}`);
             this._acoes = this._acoes.filter(a=>a.id!==id);
             this._renderAcoes(); this._renderKPIs();
-        } catch(e) { mostrarToast('Erro: '+e.message,'erro'); }
+        } catch(e) { (console.error(e), mostrarToast('Erro inesperado. Tente de novo.', 'erro')); }
     },
 
     _renderAcoes() {
@@ -7418,7 +7418,7 @@ const preactor = {
             mostrarToast(`Cenário "${nome}" salvo.`, 'ok');
             document.getElementById('tl-cen-nome').value = '';
             await this._carregarCenarios();
-        } catch(e) { mostrarToast('Erro: ' + e.message, 'erro'); }
+        } catch(e) { (console.error(e), mostrarToast('Erro inesperado. Tente de novo.', 'erro')); }
     },
 
     _aplicarCenario(id) {
@@ -7442,7 +7442,7 @@ const preactor = {
             await api.delete(`/api/timeline-cenario/${id}`);
             await this._carregarCenarios();
             mostrarToast('Cenário excluído.', 'ok');
-        } catch(e) { mostrarToast('Erro: ' + e.message, 'erro'); }
+        } catch(e) { (console.error(e), mostrarToast('Erro inesperado. Tente de novo.', 'erro')); }
     },
 };
 

@@ -1649,7 +1649,7 @@ app.post('/api/mf/classificar', auth, mfEscrita, async (req, res) => {
     const { data: defs } = await supabase.from('catalogo_defeito').select('codigo,descricao,categoria,etapa');
     const chave = process.env.ANTHROPIC_API_KEY;
     if (!chave) return res.json({ ok: true, classificados: 0, semChave: true, termos,
-        msg: 'Configure ANTHROPIC_API_KEY no .env para classificação automática. Termos seguem em revisão manual.' });
+        msg: `Classificação automática desligada: defina ANTHROPIC_API_KEY no .env e reinicie o servidor. ${termos.length} termo(s) seguem pendentes até lá.` });
 
     // chamada única ao modelo com a fila inteira
     const prompt = `Você é um especialista em defeitos de malharia têxtil. Receberá:
@@ -1664,10 +1664,11 @@ Responda APENAS em JSON, sem markdown: [{"termo":"...","codigo":"...","confianca
             body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 2000, messages: [{ role: 'user', content: prompt }] }),
         });
         const j = await r.json();
-        if (!r.ok) return res.status(502).json({ erro: 'Anthropic: ' + (j?.error?.message || r.status) });
+        if (!r.ok) { console.error('Anthropic classificar:', j?.error); return res.status(502).json({ erro: 'Classificador indisponível no momento.' }); }
         const txt = (j.content || []).map(b => b.text || '').join('');
         sugestoes = JSON.parse(txt.replace(/```json|```/g, '').trim());
-    } catch (e) { return res.status(502).json({ erro: 'Falha na classificação: ' + e.message }); }
+        if (!Array.isArray(sugestoes)) throw new Error('formato inesperado');
+    } catch (e) { console.error('classificar parse:', e?.message || e); return res.status(502).json({ erro: 'Não consegui interpretar a resposta do classificador. Tente de novo.' }); }
 
     const { data: cat } = await supabase.from('catalogo_defeito').select('id,codigo');
     const idDe = Object.fromEntries((cat || []).map(d => [d.codigo, d.id]));
