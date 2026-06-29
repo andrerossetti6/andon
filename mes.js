@@ -2615,7 +2615,7 @@ const mf = {
         if (!r?.ok) return toast(r?.erro || 'Erro ao importar.', 'erro');
         toast(`Importadas ${r.inseridas} OP(s)` + (r.produtos_criados ? `, ${r.produtos_criados} produto(s) criados` : '') + (r.erros?.length ? `, ${r.erros.length} com erro` : '') + '.', r.erros?.length ? 'aviso' : 'ok');
         $('mf-impops-prev').innerHTML = `<div class="summary-card"><div class="s-label" style="margin-bottom:8px;">RESULTADO</div>
-            <div style="font-size:.85rem;line-height:1.8;">✅ <strong>${r.inseridas}</strong> OP(s) importadas<br>${r.produtos_criados ? `🆕 ${r.produtos_criados} produto(s) criados<br>` : ''}${r.ignoradas ? `⏭ ${r.ignoradas} já existentes (ignoradas)<br>` : ''}${r.erros?.length ? `<span style="color:#f06292;">⚠ ${r.erros.length} com erro:</span><br><span style="font-size:.74rem;color:var(--text-dim);">${r.erros.slice(0, 20).map(esc).join('<br>')}</span>` : ''}</div></div>`;
+            <div style="font-size:.85rem;line-height:1.8;">✅ <strong>${r.inseridas}</strong> OP(s) importadas<br>${r.produtos_criados ? `🆕 ${r.produtos_criados} produto(s) criados<br><span style="font-size:.74rem;color:#ffca28;">⚠ produtos novos entram SEM custo unitário — defina em <strong>Custo da Qualidade</strong>, senão o CNQ desses itens fica R$ 0.</span><br>` : ''}${r.ignoradas ? `⏭ ${r.ignoradas} já existentes (ignoradas)<br>` : ''}${r.erros?.length ? `<span style="color:#f06292;">⚠ ${r.erros.length} com erro:</span><br><span style="font-size:.74rem;color:var(--text-dim);">${r.erros.slice(0, 20).map(esc).join('<br>')}</span>` : ''}</div></div>`;
         this._opsParsed = null;
     },
 

@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ quiet: true });  // {quiet} evita o banner do dotenv poluir o stdout do LaunchAgent
 const express  = require('express');
 const path     = require('path');
 const jwt      = require('jsonwebtoken');
@@ -1279,7 +1279,8 @@ const MF_CADASTROS = { produto:'codigo', maquina:'codigo', operador:'matricula',
 app.post('/api/mf/cadastro/:tabela', auth, mfEscrita, async (req, res) => {
     const t = req.params.tabela;
     if (!MF_CADASTROS[t]) return res.status(400).json({ erro: 'Tabela inválida' });
-    const { data, error } = await supabase.from(t).upsert(req.body, { onConflict: MF_CADASTROS[t] }).select().single();
+    const { criado_em, atualizado_em, ...corpo } = req.body || {};  // o cliente não define os carimbos de auditoria (trigger cuida)
+    const { data, error } = await supabase.from(t).upsert(corpo, { onConflict: MF_CADASTROS[t] }).select().single();
     if (error) return res.status(500).json({ erro: error.message });
     res.json({ ok: true, registro: data });
 });
@@ -1419,6 +1420,11 @@ app.post('/api/mf/ncs', auth, mfEscrita, async (req, res) => {
     if (!b.apontamento_id || !b.defeito_id || !b.qtd_afetada) return res.status(400).json({ erro: 'apontamento_id, defeito_id e qtd_afetada obrigatórios' });
     const { data: defeito, error: eDef } = await supabase.from('catalogo_defeito').select('*').eq('id', b.defeito_id).single();
     if (eDef || !defeito) return res.status(400).json({ erro: 'Defeito não encontrado no catálogo' });
+    // sanidade: qtd afetada não pode passar do planejado da OP (pega erro grosseiro de digitação)
+    const { data: apOp } = await supabase.from('apontamento').select('op:op_id(qtd_planejada)').eq('id', b.apontamento_id).single();
+    const planejado = Number(apOp?.op?.qtd_planejada) || 0;
+    if (planejado > 0 && Number(b.qtd_afetada) > planejado)
+        return res.status(422).json({ erro: `Qtd afetada (${b.qtd_afetada}) maior que o planejado da OP (${planejado}). Confira o valor.` });
     const sevAplicada = b.severidade_aplicada || defeito.severidade;
     const dispFinal   = b.disposicao || defeito.disposicao_padrao || 'segregar';
     // TRAVA DE QUALIDADE: defeito crítico (severidade 4) não pode ser liberado

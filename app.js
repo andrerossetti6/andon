@@ -195,13 +195,13 @@ async function bootstrap() {
 
     // Mostra formulário de login
     const loginView = document.getElementById('view-login');
-    loginView.style.display = 'flex';
+    if (loginView) loginView.style.display = 'flex';
     const statusEl = document.getElementById('login-status');
     const formWrap = document.getElementById('login-form-wrap');
 
     // Pré-ping: acorda o servidor em background enquanto usuário digita credenciais
     if (statusEl) statusEl.textContent = 'Conectando ao servidor...';
-    formWrap.style.display = 'block';
+    if (formWrap) formWrap.style.display = 'block';
     fetch('/api/ping')
         .then(() => { if (statusEl) statusEl.textContent = 'Faça login para continuar.'; })
         .catch(() => { if (statusEl) statusEl.textContent = 'Servidor iniciando, aguarde alguns instantes...'; });
