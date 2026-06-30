@@ -2512,9 +2512,9 @@
             </div>
             <button onclick="preactor.calcular()" style="padding:10px 28px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.85rem;font-weight:700;cursor:pointer;white-space:nowrap;">CALCULAR</button>
             <button onclick="preactor.limparOverrides()" style="padding:10px 16px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:transparent;color:var(--text-dim);font-size:.82rem;cursor:pointer;white-space:nowrap;" title="Remover todas as alocações manuais (drag &amp; drop)">LIMPAR MANUAL</button>
-            <label style="display:flex;align-items:center;gap:7px;font-size:.78rem;color:var(--text-dim);cursor:pointer;white-space:nowrap;" title="Subtrai da carga o que já foi produzido nos apontamentos do MES (por processo)">
-                <input type="checkbox" id="tl-desc-mes" checked style="accent-color:var(--indigo-primary);width:15px;height:15px;cursor:pointer;">
-                Descontar produção apontada (MES)
+            <label style="display:flex;align-items:center;gap:7px;font-size:.78rem;color:var(--text-dim);cursor:pointer;white-space:nowrap;" title="LEGADO: subtrai da carga o que foi apontado no MES embutido antigo (/api/mes). Desligado por padrão — a fábrica de malha aponta no MES Malha Forte (mes.html).">
+                <input type="checkbox" id="tl-desc-mes" style="accent-color:var(--indigo-primary);width:15px;height:15px;cursor:pointer;">
+                Descontar produção apontada (MES legado)
             </label>
         </div>
     </div>

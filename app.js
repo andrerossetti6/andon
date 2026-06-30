@@ -6837,7 +6837,7 @@ const preactor = {
         }
 
         // Desconto da produção apontada no MES (por OP+processo; apontamentos sem OP descontam por código)
-        const descMes = document.getElementById('tl-desc-mes')?.checked ?? true;
+        const descMes = document.getElementById('tl-desc-mes')?.checked ?? false;  // Fase 6: legado desligado por padrão (era cross-domain: descontava órtese × OPs de malha)
         let apontadoOp = {}, apontadoCod = {}, minutosProduzidos = 0;
         if (descMes) {
             const aps = await this._loadApontamentos();
