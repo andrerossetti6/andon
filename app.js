@@ -5501,7 +5501,7 @@ const planoProducao = {
 
     async init() {
         document.getElementById('plano-search')?.addEventListener('input', () => this._renderTabela());
-        await Promise.all([this._loadPlanoFromDB(), this._loadEstMinFromDB()]);
+        await Promise.all([this._loadPlanoFromDB(), this._loadEstMinFromDB(), this._loadRealizado()]);
         this._loadVersoes().catch(() => {});
     },
 
@@ -5559,6 +5559,16 @@ const planoProducao = {
         if (!data) return;
         this._estMin = {};
         data.forEach(r => { this._estMin[r.codigo] = r.quantidade; });
+    },
+
+    // Fase 4 (Chão→Plano): produção REAL apontada no MES, por produto
+    async _loadRealizado() {
+        this._realizado = {};
+        const d = await api.get('/api/mf/erp/confirmacoes').catch(() => null);
+        (d?.confirmacoes || []).forEach(c => {
+            const cod = String(c.produto || '').trim().toUpperCase();
+            if (cod) this._realizado[cod] = (this._realizado[cod] || 0) + (Number(c.qtd_produzida) || 0);
+        });
     },
 
     setQty(cod, mes, qty) {
@@ -5674,6 +5684,7 @@ const planoProducao = {
                 ...r,
                 estqtd:   estMap[r.codigo]||0,
                 opQtd:    opMap[r.codigo]||0,
+                realizado: this._realizado?.[r.codigo]||0,
                 estMin:   this._estMin[r.codigo]||0,
                 sugerido: Math.max(0, r.qty + (this._estMin[r.codigo]||0) - (estMap[r.codigo]||0) - (opMap[r.codigo]||0)),
                 planejado: this._plano[`${this._mesSel}_${r.codigo}`]??''
@@ -5689,7 +5700,7 @@ const planoProducao = {
                 <td style="padding:6px 10px;font-size:.78rem;color:var(--text-dim);">${escHTML(r.segmento||'')}</td>
                 <td style="padding:6px 10px;text-align:right;">${r.qty.toLocaleString('pt-BR')}</td>
                 <td style="padding:6px 10px;text-align:right;color:${r.estqtd<r.qty*.5?'#f06292':'var(--text-primary)'};">${r.estqtd.toLocaleString('pt-BR')}</td>
-                <td style="padding:6px 10px;text-align:right;">${r.opQtd.toLocaleString('pt-BR')}</td>
+                <td style="padding:6px 10px;text-align:right;">${r.opQtd.toLocaleString('pt-BR')}${r.realizado ? `<span style="color:#26a69a;font-size:.66rem;" title="já produzido no MES"> · ✓${r.realizado.toLocaleString('pt-BR')}</span>` : ''}</td>
                 <td style="padding:6px 10px;text-align:right;">
                     <input type="number" min="0" value="${r.estMin||''}" placeholder="0"
                         style="width:68px;padding:3px 7px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:${minCor};font-size:.78rem;text-align:right;"
