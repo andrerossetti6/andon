@@ -1133,6 +1133,14 @@ const cockpit = {
     }
 };
 
+// Fase 3 (Plano→Chão): sequencia a carteira por EDD e empurra a prioridade ao chão (Fila do MES)
+async function sequenciarCarteira() {
+    if (!confirm('Sequenciar a carteira por data de entrega (EDD) e enviar a prioridade para o chão (Fila do operador no MES)?')) return;
+    const r = await api.post('/api/mf/sequenciar-carteira', {});
+    if (r?.ok) mostrarToast(`✓ Sequenciado por EDD: ${r.urgente} urgentes · ${r.alta} alta · ${r.normal} normal — prioridade enviada ao chão.`);
+    else mostrarToast('Erro ao sequenciar carteira.', 'erro');
+}
+
 function navigateTo(viewName) {
     if (viewName !== 'dashboard') localStorage.setItem('sin1_lastView', viewName);
     fecharDetalhe();

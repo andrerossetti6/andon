@@ -1287,6 +1287,22 @@ app.put('/api/mf/ops/:id', auth, mfEscrita, async (req, res) => {
     if (error) return erro500(res, error);
     res.json({ ok: true });
 });
+// Fase 3 (Plano→Chão): sequencia a carteira por EDD (data de entrega) e empurra a
+// prioridade para a Fila do operador. Ranking: 20% mais urgentes→2, 30% seguintes→1.
+app.post('/api/mf/sequenciar-carteira', auth, mfEscrita, async (req, res) => {
+    const dry = !!req.body?.dry;
+    const ops = (await supabase.from('ordem_producao').select('id,data_prevista').neq('status', 'cancelada').neq('status', 'concluida')).data || [];
+    ops.sort((a, b) => { if (!a.data_prevista) return 1; if (!b.data_prevista) return -1; return new Date(a.data_prevista) - new Date(b.data_prevista); });
+    const n = ops.length; let urgente = 0, alta = 0, normal = 0;
+    const prioDe = ops.map((o, i) => {
+        const frac = n > 1 ? i / n : 0;
+        const p = (o.data_prevista && frac < 0.2) ? 2 : (o.data_prevista && frac < 0.5) ? 1 : 0;
+        if (p === 2) urgente++; else if (p === 1) alta++; else normal++;
+        return { id: o.id, p };
+    });
+    if (!dry) for (const p of [0, 1, 2]) { const ids = prioDe.filter(x => x.p === p).map(x => x.id); if (ids.length) await supabase.from('ordem_producao').update({ prioridade: p }).in('id', ids); }
+    res.json({ ok: true, dry, criterio: 'EDD (data de entrega)', urgente, alta, normal, total: n });
+});
 
 // ── Cadastros (escrita genérica, admin) ───────────────────────
 const MF_CADASTROS = { produto:'codigo', maquina:'codigo', operador:'matricula', turno:'codigo', motivo_parada:'codigo', catalogo_defeito:'codigo' };
