@@ -2799,6 +2799,106 @@ app.put('/api/mf/kaizen/:id', auth, mfEscrita, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ═══ LEAN MANUFACTURING ══════════════════════════════════════════════════════
+// VSM — Mapa do Fluxo de Valor: lead time × tempo de valor agregado (%VA) por etapa
+app.get('/api/mf/vsm', auth, async (_q, res) => {
+    const [etapasR, opsR, leadR, temposR] = await Promise.all([
+        supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).order('ordem'),
+        supabase.from('ordem_producao').select('etapa_atual_id,qtd_planejada,etapa_desde').neq('status', 'cancelada').neq('status', 'concluida'),
+        supabase.from('vw_wip_leadtime').select('etapa_id,horas_medias').then(r => r, () => ({ data: [] })),
+        supabase.from('tempo_padrao').select('etapa_id,seg_por_unidade').is('produto_id', null),
+    ]);
+    if (etapasR.error) return erro500(res, etapasR.error);
+    const leadDe = Object.fromEntries((leadR.data || []).map(l => [l.etapa_id, Number(l.horas_medias) || 0]));
+    const segDe = Object.fromEntries((temposR.data || []).map(t => [t.etapa_id, Number(t.seg_por_unidade) || 0]));
+    const wipDe = {};
+    (opsR.data || []).forEach(o => { if (!o.etapa_atual_id) return; const w = (wipDe[o.etapa_atual_id] = wipDe[o.etapa_atual_id] || { ops: 0, qtd: 0, esperaH: 0 }); w.ops++; w.qtd += Number(o.qtd_planejada) || 0; if (o.etapa_desde) w.esperaH += (Date.now() - new Date(o.etapa_desde)) / 3.6e6; });
+    let vaTotal = 0, leadTotal = 0;
+    const etapas = (etapasR.data || []).map(e => {
+        const w = wipDe[e.id] || { ops: 0, qtd: 0, esperaH: 0 };
+        const va_seg = segDe[e.id] || 0;
+        const va_h = va_seg && w.qtd ? va_seg * w.qtd / 3600 : 0;
+        const lead_h = leadDe[e.id] || (w.ops ? w.esperaH / w.ops : 0);
+        vaTotal += va_h; leadTotal += Math.max(lead_h, va_h);
+        return { etapa: e.nome, ordem: e.ordem, wip_ops: w.ops, wip_qtd: Math.round(w.qtd), va_seg_peca: va_seg, va_horas: Math.round(va_h * 10) / 10, lead_horas: Math.round(lead_h * 10) / 10 };
+    });
+    res.json({ etapas, va_total_h: Math.round(vaTotal * 10) / 10, lead_total_h: Math.round(leadTotal * 10) / 10, pct_va: leadTotal > 0 ? Math.round(vaTotal / leadTotal * 1000) / 10 : null });
+});
+
+// Heijunka — nivelamento: distribui a carteira por família entre N períodos
+app.get('/api/mf/heijunka', auth, async (req, res) => {
+    const periodos = Math.max(2, Math.min(12, Number(req.query.periodos) || 5));
+    const ops = (await supabase.from('ordem_producao').select('qtd_planejada, produto:produto_id(marca,codigo)').neq('status', 'cancelada').neq('status', 'concluida')).data || [];
+    const fam = {};
+    ops.forEach(o => { const f = (o.produto?.marca || o.produto?.codigo || '—').toString().trim() || '—'; fam[f] = (fam[f] || 0) + (Number(o.qtd_planejada) || 0); });
+    const familias = Object.entries(fam).map(([nome, total]) => ({ nome, total: Math.round(total), por_periodo: Math.round(total / periodos) })).sort((a, b) => b.total - a.total);
+    const totalGeral = familias.reduce((s, f) => s + f.total, 0);
+    res.json({ periodos, total: totalGeral, por_periodo: Math.round(totalGeral / periodos), familias: familias.slice(0, 25) });
+});
+
+// Yamazumi — carga de cada posto (tempo de ciclo) × takt: Muri (sobrecarga) e ócio
+app.get('/api/mf/yamazumi', auth, async (req, res) => {
+    const demanda = Math.max(0, Number(req.query.demanda) || 0);
+    const horasDia = Math.min(24, Math.max(1, Number(req.query.horas) || 8));
+    const [etapasR, maqsR, temposR] = await Promise.all([
+        supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).order('ordem'),
+        supabase.from('maquina').select('etapa_id,n_pessoas').eq('ativo', true),
+        supabase.from('tempo_padrao').select('etapa_id,seg_por_unidade').is('produto_id', null),
+    ]);
+    if (etapasR.error) return erro500(res, etapasR.error);
+    const postosDe = {}, pessoasDe = {};
+    (maqsR.data || []).forEach(m => { if (!m.etapa_id) return; postosDe[m.etapa_id] = (postosDe[m.etapa_id] || 0) + 1; pessoasDe[m.etapa_id] = (pessoasDe[m.etapa_id] || 0) + (Number(m.n_pessoas) || 1); });
+    const segDe = Object.fromEntries((temposR.data || []).map(t => [t.etapa_id, Number(t.seg_por_unidade) || 0]));
+    const takt = demanda > 0 ? horasDia * 3600 / demanda : null;
+    const etapas = (etapasR.data || []).map(e => {
+        const postos = postosDe[e.id] || 0, seg = segDe[e.id] || 0;
+        const carga = postos > 0 && seg > 0 ? seg / postos : null;
+        const util = (takt && carga) ? Math.round(carga / takt * 100) : null;
+        return { etapa: e.nome, ordem: e.ordem, postos, pessoas: pessoasDe[e.id] || postos, carga_seg: carga ? Math.round(carga * 10) / 10 : null, utilizacao: util, sobrecarga: util != null && util > 100, ocioso: util != null && util < 70 };
+    });
+    res.json({ takt: takt ? Math.round(takt * 10) / 10 : null, demanda, horasDia, etapas });
+});
+
+// 5S — auditoria por área (nota /25)
+app.get('/api/mf/auditoria-5s', auth, async (_q, res) => {
+    const r = await supabase.from('auditoria_5s').select('*, etapa:etapa_id(nome)').order('data_auditoria', { ascending: false }).limit(100);
+    const ind = _viewIndisp(r, 'mes_lean.sql'); if (ind) return res.status(503).json({ erro: ind });
+    if (r.error) return erro500(res, r.error);
+    res.json(r.data || []);
+});
+app.post('/api/mf/auditoria-5s', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {};
+    if (!b.area) return res.status(400).json({ erro: 'area obrigatória' });
+    const row = { area: b.area, etapa_id: b.etapa_id || null, auditor: b.auditor || null, observacao: b.observacao || null };
+    ['seiri', 'seiton', 'seiso', 'seiketsu', 'shitsuke'].forEach(s => { row[s] = (b[s] != null && b[s] !== '') ? Number(b[s]) : null; });
+    const { data, error } = await supabase.from('auditoria_5s').insert(row).select('*').single();
+    if (error) return erro500(res, error);
+    res.json({ ok: true, auditoria: data });
+});
+
+// A3 / PDCA — solução estruturada de problema
+const A3_CAMPOS = ['titulo', 'etapa_id', 'responsavel', 'contexto', 'situacao_atual', 'meta', 'analise', 'contramedidas', 'resultado', 'aprendizado', 'fase'];
+app.get('/api/mf/a3', auth, async (_q, res) => {
+    const r = await supabase.from('a3').select('*, etapa:etapa_id(nome)').order('atualizado_em', { ascending: false });
+    const ind = _viewIndisp(r, 'mes_lean.sql'); if (ind) return res.status(503).json({ erro: ind });
+    if (r.error) return erro500(res, r.error);
+    res.json(r.data || []);
+});
+app.post('/api/mf/a3', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {};
+    if (!b.titulo) return res.status(400).json({ erro: 'titulo obrigatório' });
+    const row = {}; A3_CAMPOS.forEach(f => { if (b[f] !== undefined) row[f] = b[f] || null; }); row.titulo = b.titulo;
+    const { data, error } = await supabase.from('a3').insert(row).select('*').single();
+    if (error) return erro500(res, error);
+    res.json({ ok: true, a3: data });
+});
+app.put('/api/mf/a3/:id', auth, mfEscrita, async (req, res) => {
+    const b = req.body || {}, upd = {}; A3_CAMPOS.forEach(f => { if (b[f] !== undefined) upd[f] = b[f]; });
+    const { error } = await supabase.from('a3').update(upd).eq('id', req.params.id);
+    if (error) return erro500(res, error);
+    res.json({ ok: true });
+});
+
 // ── Setup / SMED (#3): tempo de troca de artigo (paradas categoria 'setup') ──
 app.get('/api/mf/setup', auth, async (req, res) => {
     const dias = Math.min(90, Math.max(7, Number(req.query.dias) || 14));

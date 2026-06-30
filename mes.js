@@ -224,7 +224,7 @@ const mf = {
     tab(name) {
         // destaca o item correspondente na sidebar
         document.querySelectorAll('#app-sidebar [data-mftab]').forEach(li => li.classList.toggle('active', li.dataset.mftab === name));
-        ['painel','wip','prazo','flxt','capac','andon','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','setup','cil','cad','rastreio','mat','doc','crono','balanc','produtiv','custo','melhoria','integ','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
+        ['painel','wip','prazo','flxt','capac','andon','estrat','fila','apont','ncs','rnc','ind','cnq','cep','etiq','oms','tpm','setup','cil','cad','rastreio','mat','doc','crono','balanc','produtiv','custo','melhoria','vsm','heijunka','yamazumi','cincos','a3','integ','impops','import'].forEach(t => { const p = $('mf-pan-' + t); if (p) p.style.display = t === name ? 'block' : 'none'; });
         if (this._andonTimer && name !== 'andon') { clearInterval(this._andonTimer); this._andonTimer = null; }
         if (name === 'painel') this.renderPainel();
         if (name === 'wip')    this.renderWip();
@@ -239,6 +239,11 @@ const mf = {
         if (name === 'produtiv') this.renderProdutiv();
         if (name === 'custo')  this.renderCusto();
         if (name === 'melhoria') this.renderMelhoria();
+        if (name === 'vsm')      this.renderVsm();
+        if (name === 'heijunka') this.renderHeijunka();
+        if (name === 'yamazumi') this.renderYamazumi();
+        if (name === 'cincos')   this.renderCincoS();
+        if (name === 'a3')       this.renderA3();
         if (name === 'integ')  this.renderIntegracoes();
         if (name === 'prazo')  this.renderPrazo();
         if (name === 'flxt')   this.renderFluxoTempo();
@@ -1043,6 +1048,170 @@ const mf = {
         if (r?.ok) this.renderMelhoria();
     },
     async moverKaizen(id, status) { const r = await api.put('/api/mf/kaizen/' + id, { status }); if (r?.ok) this.renderMelhoria(); },
+
+    // ═══ LEAN MANUFACTURING ═════════════════════════════════════════════════════
+    // VSM — Mapa do Fluxo de Valor
+    async renderVsm() {
+        const pan = $('mf-pan-vsm');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando...</div>`;
+        const d = await api.get('/api/mf/vsm');
+        if (!d || !Array.isArray(d.etapas)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Indisponível.</div>`; return; }
+        const maxLead = Math.max(1, ...d.etapas.map(e => e.lead_horas || 0));
+        const linhas = d.etapas.map(e => {
+            const wLead = e.lead_horas ? Math.round(e.lead_horas / maxLead * 100) : 0, wVa = e.lead_horas ? Math.round((e.va_horas || 0) / maxLead * 100) : 0;
+            return `<div style="margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;font-size:.82rem;margin-bottom:3px;"><span>${e.ordem}. ${esc(e.etapa)}</span>
+                    <span style="color:var(--text-dim);">WIP ${e.wip_ops} OP${e.wip_ops !== 1 ? 's' : ''}${e.wip_qtd ? ' · ' + e.wip_qtd.toLocaleString('pt-BR') : ''} · lead ${e.lead_horas}h${e.va_horas ? ' · VA ' + e.va_horas + 'h' : ''}</span></div>
+                <div style="height:16px;background:var(--bg-card);border-radius:4px;overflow:hidden;position:relative;"><div style="height:100%;width:${wLead}%;background:#30363d;"></div><div style="height:100%;width:${wVa}%;background:#26a69a;position:absolute;top:0;left:0;"></div></div></div>`;
+        }).join('');
+        pan.innerHTML = `
+            <div class="summary-card" style="margin-bottom:14px;"><div class="s-label">🌊 VSM — MAPA DO FLUXO DE VALOR</div>
+                <p style="font-size:.8rem;color:var(--text-dim);margin:8px 0 0;">Lead time (cinza) × valor agregado (verde) por etapa. O que está fora do verde é <strong>espera = desperdício</strong>.</p>
+                <div style="display:flex;gap:24px;margin-top:12px;flex-wrap:wrap;">
+                    <div><div style="font-size:1.5rem;font-weight:800;color:#26c6da;">${d.lead_total_h}h</div><div style="font-size:.66rem;color:var(--text-dim);">LEAD TIME TOTAL</div></div>
+                    <div><div style="font-size:1.5rem;font-weight:800;color:#26a69a;">${d.va_total_h}h</div><div style="font-size:.66rem;color:var(--text-dim);">VALOR AGREGADO</div></div>
+                    <div><div style="font-size:1.5rem;font-weight:800;color:${d.pct_va == null ? 'var(--text-dim)' : d.pct_va < 20 ? '#f06292' : '#ffca28'};">${d.pct_va != null ? d.pct_va + '%' : '—'}</div><div style="font-size:.66rem;color:var(--text-dim);">% VALOR AGREGADO</div></div></div></div>
+            ${d.etapas.some(e => e.lead_horas || e.wip_ops) ? `<div class="summary-card">${linhas}</div>` : `<div class="summary-card" style="color:var(--text-dim);text-align:center;padding:28px;">Sem fluxo ainda. O VSM se preenche quando as OPs entrarem no WIP e o chão apontar (defina o tempo-padrão e jogue OPs no fluxo).</div>`}`;
+    },
+
+    // Heijunka — nivelamento
+    async renderHeijunka() {
+        const pan = $('mf-pan-heijunka');
+        const per = this._heijPer || 5;
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando...</div>`;
+        const d = await api.get('/api/mf/heijunka?periodos=' + per);
+        if (!d || !Array.isArray(d.familias)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Indisponível.</div>`; return; }
+        const cols = Array.from({ length: per }, (_, i) => `<th style="padding:6px 8px;text-align:center;">P${i + 1}</th>`).join('');
+        const rows = d.familias.map(f => `<tr style="border-bottom:1px solid rgba(255,255,255,.05);">
+            <td style="padding:6px 8px;">${esc(f.nome)}</td><td style="padding:6px 8px;text-align:right;color:var(--text-dim);">${f.total.toLocaleString('pt-BR')}</td>
+            ${Array.from({ length: per }, () => `<td style="padding:6px 8px;text-align:center;font-weight:600;color:#26c6da;">${f.por_periodo.toLocaleString('pt-BR')}</td>`).join('')}</tr>`).join('');
+        pan.innerHTML = `
+            <div class="summary-card" style="margin-bottom:14px;"><div class="s-label" style="margin-bottom:8px;">📦 HEIJUNKA — NIVELAMENTO DA PRODUÇÃO</div>
+                <p style="font-size:.8rem;color:var(--text-dim);margin:0 0 10px;">Distribui a carteira por família de forma <strong>nivelada</strong> entre os períodos — em vez de lotões, um pouco de cada (reduz pico de setup e estoque).</p>
+                <div style="display:flex;gap:8px;align-items:center;"><span class="mf-label" style="margin:0;">PERÍODOS</span>
+                    <input id="mf-heij-per" type="number" min="2" max="12" value="${per}" class="mf-input" style="max-width:80px;">
+                    <button class="btn primary" style="font-size:.8rem;" onclick="mf._heijCalc()">Nivelar</button>
+                    <span style="margin-left:auto;font-size:.82rem;color:var(--text-dim);">${d.total.toLocaleString('pt-BR')} un · ~${d.por_periodo.toLocaleString('pt-BR')}/período</span></div></div>
+            <div class="summary-card" style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                <thead><tr style="color:var(--text-dim);text-align:left;border-bottom:1px solid var(--border-color);"><th style="padding:6px 8px;">Família</th><th style="padding:6px 8px;text-align:right;">Total</th>${cols}</tr></thead>
+                <tbody>${rows || `<tr><td colspan="${per + 2}" style="padding:14px;color:var(--text-dim);">Sem carteira.</td></tr>`}</tbody></table></div>`;
+    },
+    _heijCalc() { this._heijPer = Math.max(2, Math.min(12, +$('mf-heij-per').value || 5)); this.renderHeijunka(); },
+
+    // Yamazumi — carga de operador × takt
+    async renderYamazumi() {
+        const pan = $('mf-pan-yamazumi');
+        const dem = this._yamaDem || 0, horas = this._yamaH || 8;
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando...</div>`;
+        const d = await api.get(`/api/mf/yamazumi?demanda=${dem}&horas=${horas}`);
+        if (!d || !Array.isArray(d.etapas)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Indisponível.</div>`; return; }
+        const max = Math.max(100, ...d.etapas.map(e => e.utilizacao || 0));
+        const barras = d.etapas.map(e => {
+            const w = e.utilizacao ? Math.round(e.utilizacao / max * 100) : 0, cor = e.sobrecarga ? '#f06292' : e.ocioso ? '#ffca28' : e.utilizacao != null ? '#26a69a' : '#30363d';
+            return `<div style="margin-bottom:10px;">
+                <div style="display:flex;justify-content:space-between;font-size:.8rem;margin-bottom:3px;"><span>${e.ordem}. ${esc(e.etapa)} ${e.sobrecarga ? '🔴 Muri' : e.ocioso ? '🟡 ocioso' : ''}</span>
+                    <span style="color:var(--text-dim);">${e.postos} posto(s)/${e.pessoas} pess.${e.carga_seg != null ? ' · ' + e.carga_seg + 's/pç' : ' · sem tempo-padrão'}${e.utilizacao != null ? ' · ' + e.utilizacao + '%' : ''}</span></div>
+                <div style="height:15px;background:var(--bg-card);border-radius:4px;overflow:hidden;"><div style="height:100%;width:${w}%;background:${cor};"></div></div></div>`;
+        }).join('');
+        const taktTxt = d.takt ? `<div style="font-size:.82rem;color:#26c6da;margin-bottom:10px;">Takt = <strong>${d.takt}s/peça</strong>. Acima = sobrecarga (Muri 🔴); muito abaixo = ócio 🟡 — redistribua tarefas/pessoas.</div>` : `<div style="font-size:.8rem;color:var(--text-dim);margin-bottom:10px;">Informe a demanda/dia pra ver a carga de cada posto contra o takt.</div>`;
+        pan.innerHTML = `
+            <div class="summary-card" style="margin-bottom:14px;"><div class="s-label" style="margin-bottom:10px;">👷 YAMAZUMI — BALANCEAMENTO DE OPERADORES</div>
+                <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+                    <div><span class="mf-label">DEMANDA (peças/dia)</span><input id="mf-yama-dem" type="number" min="0" class="mf-input" value="${dem}" style="max-width:150px;"></div>
+                    <div><span class="mf-label">HORAS/DIA</span><input id="mf-yama-h" type="number" min="1" max="24" class="mf-input" value="${horas}" style="max-width:100px;"></div>
+                    <button class="btn primary" style="font-size:.8rem;" onclick="mf._yamaCalc()">Calcular</button></div></div>
+            <div class="summary-card">${taktTxt}${barras}</div>`;
+    },
+    _yamaCalc() { this._yamaDem = +$('mf-yama-dem').value || 0; this._yamaH = +$('mf-yama-h').value || 8; this.renderYamazumi(); },
+
+    // 5S — auditoria por área
+    async renderCincoS() {
+        const pan = $('mf-pan-cincos');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando...</div>`;
+        const [aud, etapas] = await Promise.all([api.get('/api/mf/auditoria-5s'), api.get('/api/mf/etapas-processo')]);
+        if (!Array.isArray(aud)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Indisponível — rode <strong>mes_lean.sql</strong>.</div>`; return; }
+        const etOpt = `<option value="">— área/etapa —</option>` + (etapas || []).map(e => `<option value="${e.id}">${e.ordem}. ${esc(e.nome)}</option>`).join('');
+        const sLabels = [['seiri', 'Seiri (utilização)'], ['seiton', 'Seiton (organização)'], ['seiso', 'Seiso (limpeza)'], ['seiketsu', 'Seiketsu (padrão)'], ['shitsuke', 'Shitsuke (disciplina)']];
+        const sInputs = sLabels.map(([k, lbl]) => `<div><span class="mf-label" style="font-size:.6rem;">${lbl}</span><input id="mf-5s-${k}" type="number" min="0" max="5" class="mf-input" placeholder="0-5"></div>`).join('');
+        const lista = aud.map(a => {
+            const cor = a.nota >= 20 ? '#26a69a' : a.nota >= 13 ? '#ffca28' : '#f06292';
+            return `<tr style="border-bottom:1px solid rgba(255,255,255,.05);">
+                <td style="padding:6px 8px;">${esc(a.area)}${a.etapa?.nome ? ' · ' + esc(a.etapa.nome) : ''}</td>
+                <td style="padding:6px 8px;font-size:.74rem;color:var(--text-dim);">${a.data_auditoria}${a.auditor ? ' · ' + esc(a.auditor) : ''}</td>
+                <td style="padding:6px 8px;text-align:center;font-size:.74rem;">${a.seiri ?? '—'}/${a.seiton ?? '—'}/${a.seiso ?? '—'}/${a.seiketsu ?? '—'}/${a.shitsuke ?? '—'}</td>
+                <td style="padding:6px 8px;text-align:right;font-weight:700;color:${cor};">${a.nota}/25</td></tr>`;
+        }).join('');
+        pan.innerHTML = `
+            <div class="summary-card" style="margin-bottom:14px;"><div class="s-label" style="margin-bottom:10px;">🧹 5S — AUDITORIA POR ÁREA (cada S de 0 a 5 → nota /25)</div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(115px,1fr));gap:8px;margin-bottom:8px;">
+                    <input id="mf-5s-area" class="mf-input" placeholder="Área *"><select id="mf-5s-etapa" class="mf-input">${etOpt}</select>
+                    <input id="mf-5s-auditor" class="mf-input" placeholder="Auditor">${sInputs}</div>
+                <textarea id="mf-5s-obs" class="mf-input" placeholder="Observações..." style="width:100%;min-height:46px;margin-bottom:8px;"></textarea>
+                <button class="btn primary" style="font-size:.8rem;" onclick="mf.salvar5s()">Salvar auditoria</button></div>
+            <div class="s-label" style="margin:6px 0 8px;">AUDITORIAS (${aud.length})</div>
+            ${aud.length ? `<div class="summary-card" style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.84rem;">
+                <thead><tr style="color:var(--text-dim);text-align:left;border-bottom:1px solid var(--border-color);"><th style="padding:6px 8px;">Área</th><th style="padding:6px 8px;">Data</th><th style="padding:6px 8px;text-align:center;">5S (ri/ton/so/ketsu/tsuke)</th><th style="padding:6px 8px;text-align:right;">Nota</th></tr></thead>
+                <tbody>${lista}</tbody></table></div>` : '<div class="summary-card" style="color:var(--text-dim);">Nenhuma auditoria ainda.</div>'}`;
+    },
+    async salvar5s() {
+        const area = $('mf-5s-area').value.trim();
+        if (!area) return toast('Área obrigatória.', 'erro');
+        const body = { area, etapa_id: $('mf-5s-etapa').value || null, auditor: $('mf-5s-auditor').value || null, observacao: $('mf-5s-obs').value || null };
+        ['seiri', 'seiton', 'seiso', 'seiketsu', 'shitsuke'].forEach(s => { const v = $('mf-5s-' + s).value; body[s] = v === '' ? null : Math.max(0, Math.min(5, +v)); });
+        const r = await api.post('/api/mf/auditoria-5s', body);
+        toast(r?.ok ? 'Auditoria salva.' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
+        if (r?.ok) this.renderCincoS();
+    },
+
+    // A3 / PDCA
+    async renderA3() {
+        const pan = $('mf-pan-a3');
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando...</div>`;
+        const a3s = await api.get('/api/mf/a3');
+        if (!Array.isArray(a3s)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Indisponível — rode <strong>mes_lean.sql</strong>.</div>`; return; }
+        this._a3cache = a3s;
+        const faseLabel = { plan: '📋 Plan', do: '🔧 Do', check: '🔍 Check', act: '✅ Act', concluido: '🏁 Concluído' };
+        const cards = a3s.map(a => `<div class="summary-card" style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><strong style="font-size:.92rem;">${esc(a.titulo)}</strong>
+                <span style="font-size:.72rem;color:var(--text-dim);">${a.etapa?.nome ? esc(a.etapa.nome) + ' · ' : ''}${a.responsavel ? esc(a.responsavel) + ' · ' : ''}<span style="color:#26c6da;">${faseLabel[a.fase] || a.fase}</span></span></div>
+            ${a.situacao_atual ? `<div style="font-size:.8rem;color:var(--text-dim);margin-top:6px;"><strong>Problema:</strong> ${esc(a.situacao_atual).slice(0, 140)}</div>` : ''}
+            <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap;">${['plan', 'do', 'check', 'act', 'concluido'].map(f => `<button onclick="mf.moverA3('${a.id}','${f}')" style="background:${a.fase === f ? '#26c6da' : 'var(--bg-card)'};color:${a.fase === f ? '#fff' : 'var(--text-dim)'};border:1px solid var(--border-color);border-radius:4px;cursor:pointer;font-size:.68rem;padding:2px 7px;">${faseLabel[f]}</button>`).join('')}
+                <button onclick="mf.formA3('${a.id}')" style="margin-left:auto;background:none;border:none;color:#26c6da;cursor:pointer;font-size:.72rem;">editar ▸</button></div></div>`).join('');
+        pan.innerHTML = `
+            <div class="summary-card" style="margin-bottom:14px;"><div class="s-label" style="margin-bottom:8px;">📄 A3 / PDCA — SOLUÇÃO ESTRUTURADA DE PROBLEMA</div>
+                <p style="font-size:.8rem;color:var(--text-dim);margin:0 0 8px;">Uma página por problema: contexto → situação → meta → análise → contramedidas → resultado → padronizar. Acompanhe pela fase PDCA.</p>
+                <button class="btn primary" style="font-size:.8rem;" onclick="mf.formA3()">+ Novo A3</button></div>
+            ${cards || '<div class="summary-card" style="color:var(--text-dim);">Nenhum A3 ainda.</div>'}`;
+    },
+    async formA3(id) {
+        const a = id ? (this._a3cache || []).find(x => x.id === id) || {} : {};
+        const etapas = await api.get('/api/mf/etapas-processo') || [];
+        const etOpt = `<option value="">— etapa —</option>` + etapas.map(e => `<option value="${e.id}"${a.etapa_id === e.id ? ' selected' : ''}>${e.ordem}. ${esc(e.nome)}</option>`).join('');
+        const fld = (k, lbl, ph) => `<div style="margin-bottom:8px;"><span class="mf-label">${lbl}</span><textarea id="mf-a3-${k}" class="mf-input" style="width:100%;min-height:44px;" placeholder="${ph}">${esc(a[k] || '')}</textarea></div>`;
+        this._modal(`<div class="s-label" style="margin-bottom:10px;">${id ? 'EDITAR' : 'NOVO'} A3 / PDCA</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+                <input id="mf-a3-titulo" class="mf-input" placeholder="Título *" value="${esc(a.titulo || '')}">
+                <input id="mf-a3-responsavel" class="mf-input" placeholder="Responsável" value="${esc(a.responsavel || '')}">
+                <select id="mf-a3-etapa" class="mf-input" style="grid-column:1/-1;">${etOpt}</select></div>
+            ${fld('contexto', '1. Contexto (por quê)', 'Background do problema')}
+            ${fld('situacao_atual', '2. Situação atual', 'O problema hoje, com dados')}
+            ${fld('meta', '3. Meta', 'Objetivo mensurável')}
+            ${fld('analise', '4. Análise (causa raiz)', '5-porquês / Ishikawa')}
+            ${fld('contramedidas', '5. Contramedidas (Do)', 'Plano de ação')}
+            ${fld('resultado', '6. Resultado (Check)', 'O que mudou')}
+            ${fld('aprendizado', '7. Padronizar (Act)', 'Próximos passos / padrão')}
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:8px;"><button class="btn secondary" onclick="mf._fecharModal()">Cancelar</button><button class="btn primary" onclick="mf.salvarA3('${id || ''}')">Salvar</button></div>`);
+    },
+    async salvarA3(id) {
+        const titulo = $('mf-a3-titulo').value.trim();
+        if (!titulo) return toast('Título obrigatório.', 'erro');
+        const body = { titulo, responsavel: $('mf-a3-responsavel').value || null, etapa_id: $('mf-a3-etapa').value || null };
+        ['contexto', 'situacao_atual', 'meta', 'analise', 'contramedidas', 'resultado', 'aprendizado'].forEach(k => { body[k] = $('mf-a3-' + k).value || null; });
+        const r = id ? await api.put('/api/mf/a3/' + id, body) : await api.post('/api/mf/a3', body);
+        toast(r?.ok ? 'A3 salvo.' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
+        if (r?.ok) { this._fecharModal(); this.renderA3(); }
+    },
+    async moverA3(id, fase) { const r = await api.put('/api/mf/a3/' + id, { fase }); if (r?.ok) this.renderA3(); },
 
     // ═══ APONTAMENTO ═══════════════════════════════════════════════════════════
     async renderApont() {

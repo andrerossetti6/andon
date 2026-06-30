@@ -140,6 +140,19 @@
                 </ul>
             </nav>
 
+            <nav class="nav-section" id="nav-section-lean">
+                <h3 class="nav-section-header" data-key="mf-lean" onclick="toggleNavSection(this)">
+                    LEAN <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-vsm" data-mftab="vsm" onclick="mf.tab('vsm')"><div class="item-content">VSM (Fluxo de Valor)</div></li>
+                    <li id="nav-heijunka" data-mftab="heijunka" onclick="mf.tab('heijunka')"><div class="item-content">Heijunka (Nivelamento)</div></li>
+                    <li id="nav-yamazumi" data-mftab="yamazumi" onclick="mf.tab('yamazumi')"><div class="item-content">Yamazumi (Operadores)</div></li>
+                    <li id="nav-cincos" data-mftab="cincos" onclick="mf.tab('cincos')"><div class="item-content">5S (Auditoria)</div></li>
+                    <li id="nav-a3" data-mftab="a3" onclick="mf.tab('a3')"><div class="item-content">A3 / PDCA</div></li>
+                </ul>
+            </nav>
+
             <nav class="nav-section" id="nav-section-dados">
                 <h3 class="nav-section-header" data-key="mf-dados" onclick="toggleNavSection(this)">
                     DADOS <span class="nav-toggle">▾</span>
@@ -209,6 +222,11 @@
         <div id="mf-pan-produtiv" style="display:none;"></div>
         <div id="mf-pan-custo"    style="display:none;"></div>
         <div id="mf-pan-melhoria" style="display:none;"></div>
+        <div id="mf-pan-vsm"      style="display:none;"></div>
+        <div id="mf-pan-heijunka" style="display:none;"></div>
+        <div id="mf-pan-yamazumi" style="display:none;"></div>
+        <div id="mf-pan-cincos"   style="display:none;"></div>
+        <div id="mf-pan-a3"       style="display:none;"></div>
         <div id="mf-pan-integ"  style="display:none;"></div>
         <div id="mf-pan-impops" style="display:none;"></div>
         <div id="mf-pan-import" style="display:none;"></div>
