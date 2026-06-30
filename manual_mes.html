@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Manual do MES — Malha Forte · Execução de Produção</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', Arial, sans-serif; font-size: 10.5pt; line-height: 1.6; color: #1a1a2e; background: #fff; }
+
+  .cover { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
+    background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 60%, #16213e 100%); padding: 80px 72px; page-break-after: always; position: relative; overflow: hidden; }
+  .cover::before { content: ''; position: absolute; top: -100px; right: -100px; width: 500px; height: 500px; border-radius: 50%; background: radial-gradient(circle, rgba(38,198,218,.22) 0%, transparent 70%); }
+  .cover::after { content: ''; position: absolute; bottom: -80px; left: 200px; width: 350px; height: 350px; border-radius: 50%; background: radial-gradient(circle, rgba(124,77,255,.15) 0%, transparent 70%); }
+  .cover-tag { font-size: 9pt; font-weight: 700; letter-spacing: 3px; color: #26c6da; text-transform: uppercase; margin-bottom: 20px; position: relative; }
+  .cover h1 { font-size: 40pt; font-weight: 800; color: #fff; line-height: 1.1; margin-bottom: 14px; position: relative; }
+  .cover h1 span { color: #26c6da; }
+  .cover .sub { font-size: 13pt; color: rgba(255,255,255,.7); margin-bottom: 48px; position: relative; max-width: 600px; }
+  .cover-meta { display: flex; gap: 48px; position: relative; }
+  .cover-meta-label { font-size: 8pt; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #26c6da; margin-bottom: 4px; }
+  .cover-meta-val { font-size: 10pt; font-weight: 600; color: rgba(255,255,255,.75); }
+
+  .page { padding: 44px 60px; }
+  .section-header { display: flex; align-items: center; gap: 14px; margin-bottom: 26px; padding-bottom: 14px; border-bottom: 2px solid #f0f0f8; page-break-after: avoid; }
+  .section-num { width: 36px; height: 36px; border-radius: 8px; background: #26c6da; color: #fff; font-size: 13pt; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .section-header h2 { font-size: 16pt; font-weight: 800; color: #1a1a2e; }
+  .section-header .section-badge { margin-left: auto; font-size: 7.5pt; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #26a69a; background: rgba(38,166,154,.08); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(38,166,154,.2); }
+  h3 { font-size: 11pt; font-weight: 700; color: #2d2d4e; margin: 22px 0 9px; page-break-after: avoid; }
+  h3::before { content: '▸ '; color: #26c6da; }
+  p { margin-bottom: 10px; color: #3a3a5c; }
+  ul, ol { margin: 0 0 12px 22px; color: #3a3a5c; }
+  li { margin-bottom: 5px; }
+  strong { color: #1a1a2e; }
+  code { background: #f4f4fc; padding: 1px 6px; border-radius: 4px; font-size: 8.8pt; color: #7c4dff; font-family: monospace; }
+
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 18px; font-size: 9.5pt; page-break-inside: avoid; }
+  th { background: #f4f4fc; color: #2d2d4e; font-weight: 700; text-align: left; padding: 9px 12px; border-bottom: 2px solid #e0e0f0; font-size: 8.5pt; letter-spacing: .5px; text-transform: uppercase; }
+  td { padding: 8px 12px; border-bottom: 1px solid #f0f0f8; color: #3a3a5c; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td strong { color: #1a1a2e; font-weight: 600; }
+
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 8pt; font-weight: 700; }
+  .badge-red { background: #fef2f2; color: #dc2626; } .badge-yellow { background: #fffbeb; color: #d97706; }
+  .badge-green { background: #f0fdf4; color: #16a34a; } .badge-blue { background: #eff6ff; color: #2563eb; }
+
+  .callout { border-left: 4px solid #26c6da; background: rgba(38,198,218,.06); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 14px 0; page-break-inside: avoid; }
+  .callout.warn { border-color: #f59e0b; background: rgba(245,158,11,.06); }
+  .callout.danger { border-color: #dc2626; background: rgba(220,38,38,.05); }
+  .callout.ok { border-color: #16a34a; background: rgba(22,163,74,.05); }
+  .callout-title { font-size: 8.5pt; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 5px; color: #0e7490; }
+  .callout.warn .callout-title { color: #b45309; } .callout.danger .callout-title { color: #dc2626; } .callout.ok .callout-title { color: #16a34a; }
+  .callout p { margin: 0; font-size: 9.5pt; }
+
+  .pipeline { display: flex; align-items: center; margin: 18px 0; page-break-inside: avoid; flex-wrap: wrap; gap: 4px 0; }
+  .pipe-step { flex: 1; min-width: 92px; text-align: center; padding: 12px 6px; background: #f4f4fc; border: 1px solid #e0e0f0; border-radius: 8px; }
+  .pipe-step .pipe-icon { font-size: 15pt; display: block; margin-bottom: 4px; }
+  .pipe-step .pipe-label { font-size: 8pt; font-weight: 700; color: #2d2d4e; }
+  .pipe-step .pipe-sub { font-size: 7pt; color: #8b8bae; margin-top: 2px; }
+  .pipe-arrow { font-size: 13pt; color: #c0c0e0; padding: 0 3px; flex-shrink: 0; }
+
+  .formula { background: #f4f4fc; border: 1px solid #e0e0f0; border-radius: 8px; padding: 12px 16px; margin: 12px 0; font-size: 10pt; color: #2d2d4e; page-break-inside: avoid; }
+  .formula b { color: #7c4dff; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .toc { columns: 2; column-gap: 40px; font-size: 10pt; }
+  .toc a { color: #2d2d4e; text-decoration: none; display: block; padding: 4px 0; border-bottom: 1px dotted #e0e0f0; }
+  .toc a b { color: #26c6da; }
+  .foot { text-align: center; color: #8b8bae; font-size: 8.5pt; padding: 30px; border-top: 1px solid #f0f0f8; margin-top: 20px; }
+
+  @media print { .page { padding: 30px 36px; } .section-header { page-break-after: avoid; } table, .callout, .pipeline, .formula { page-break-inside: avoid; } }
+</style>
+</head>
+<body>
+
+<!-- ─────────────── CAPA ─────────────── -->
+<div class="cover">
+  <div class="cover-tag">MES · Chão de Fábrica</div>
+  <h1>Manual do <span>MES Malha&nbsp;Forte</span></h1>
+  <div class="sub">Execução de Produção · Apontamento, Qualidade, OEE e Engenharia de Processos — o aplicativo do operador e do gestor de chão.</div>
+  <div class="cover-meta">
+    <div class="cover-meta-item"><div class="cover-meta-label">Sistema</div><div class="cover-meta-val">MES Malha Forte</div></div>
+    <div class="cover-meta-item"><div class="cover-meta-label">Acesso</div><div class="cover-meta-val">/mes.html (PWA)</div></div>
+    <div class="cover-meta-item"><div class="cover-meta-label">Funciona</div><div class="cover-meta-val">Offline (sincroniza sozinho)</div></div>
+  </div>
+</div>
+
+<!-- ─────────────── ÍNDICE ─────────────── -->
+<div class="page">
+  <div class="section-header"><div class="section-num">★</div><h2>Índice</h2></div>
+  <div class="toc">
+    <a href="#s1"><b>1.</b> O que é o MES e como entrar</a>
+    <a href="#s2"><b>2.</b> O fluxo do operador (essencial)</a>
+    <a href="#s3"><b>3.</b> Painel</a>
+    <a href="#s4"><b>4.</b> Execução: Fila, Apontamento, NC, RNC</a>
+    <a href="#s5"><b>5.</b> Visão geral: WIP, Prazo, Fluxo, Andon</a>
+    <a href="#s6"><b>6.</b> Indicadores: OEE e Custo da Qualidade</a>
+    <a href="#s7"><b>7.</b> Manutenção (TPM)</a>
+    <a href="#s8"><b>8.</b> Engenharia de Processos e Métodos</a>
+    <a href="#s9"><b>9.</b> Dados: Fio, Documentos, Integrações, OPs</a>
+    <a href="#s10"><b>10.</b> Rastreabilidade</a>
+    <a href="#s11"><b>11.</b> Conceitos-chave</a>
+    <a href="#s12"><b>12.</b> Dicas, FAQ e o que depende de você</a>
+  </div>
+  <div class="callout"><div class="callout-title">Dois jeitos de usar</div>
+    <p><strong>Operador (tablet/celular no chão):</strong> usa principalmente <em>Fila</em>, <em>Apontamento</em>, <em>Andon</em> e <em>Instrução</em>. <strong>Gestor (PC):</strong> usa Painel, Indicadores, Manutenção e Engenharia. É o mesmo aplicativo — cada perfil olha as telas que precisa.</p>
+  </div>
+</div>
+
+<!-- ─────────────── 1 ─────────────── -->
+<div class="page" id="s1">
+  <div class="section-header"><div class="section-num">1</div><h2>O que é o MES e como entrar</h2><span class="section-badge">Início</span></div>
+  <p>O <strong>MES Malha Forte</strong> é o sistema de <strong>execução de produção</strong> da fábrica: o operador aponta o que produz, registra paradas e não conformidades, e o sistema calcula OEE, qualidade e custos em cima desses apontamentos. É um <strong>PWA</strong> (aplicativo web instalável) que <strong>funciona offline</strong> — tudo o que você registra entra numa fila e sobe sozinho quando a internet volta.</p>
+
+  <h3>Princípio: captura única</h3>
+  <p>Cada <strong>sessão de apontamento</strong> (uma OP + máquina + operador + turno) é a raiz de tudo. Paradas, NCs e medições penduram nessa sessão. Os indicadores (OEE, CNQ, CEP, cronoanálise) são <strong>consultas</strong> sobre esses apontamentos — você não digita o OEE, ele é calculado do que foi apontado.</p>
+
+  <h3>Como acessar</h3>
+  <table>
+    <tr><th>Forma</th><th>Como</th></tr>
+    <tr><td><strong>Login normal</strong></td><td>Abrir <code>/mes.html</code> e entrar com e-mail e senha (o mesmo login do SIGS).</td></tr>
+    <tr><td><strong>Link com token</strong></td><td><code>/mes.html?token=...</code> — abre já logado, sem digitar senha (útil pra deixar o tablet pronto).</td></tr>
+    <tr><td><strong>Modo quiosque</strong></td><td><code>/mes.html?maquina=STOLL-01</code> — fixa a máquina daquele tablet, agilizando o apontamento na estação.</td></tr>
+    <tr><td><strong>Instalar como app</strong></td><td>No navegador do tablet: menu → "Adicionar à tela de início". Vira um app com ícone, abre em tela cheia e funciona offline.</td></tr>
+  </table>
+
+  <div class="callout warn"><div class="callout-title">Selo de sincronização</div>
+    <p>No topo da tela há um selo: <span class="badge badge-green">✓ sincronizado</span>, <span class="badge badge-yellow">⏳ sincronizando N</span> ou <span class="badge badge-red">⚠ offline · N na fila</span>. Enquanto houver itens na fila, eles ainda não chegaram ao servidor — mas <strong>não se perdem</strong>: sobem quando a rede voltar.</p>
+  </div>
+</div>
+
+<!-- ─────────────── 2 ─────────────── -->
+<div class="page" id="s2">
+  <div class="section-header"><div class="section-num">2</div><h2>O fluxo do operador (essencial)</h2><span class="section-badge">Coração do MES</span></div>
+  <p>É isso que o operador faz no dia a dia, na estação dele:</p>
+  <div class="pipeline">
+    <div class="pipe-step"><span class="pipe-icon">①</span><span class="pipe-label">Escolher a OP</span><span class="pipe-sub">Fila / Apontamento</span></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step"><span class="pipe-icon">▶</span><span class="pipe-label">Iniciar sessão</span><span class="pipe-sub">OP+máquina+turno</span></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step"><span class="pipe-icon">🛠</span><span class="pipe-label">Produzir e apontar</span><span class="pipe-sub">qtd boa/refugo</span></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step"><span class="pipe-icon">⚠</span><span class="pipe-label">Eventos</span><span class="pipe-sub">parada / NC / medir</span></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step"><span class="pipe-icon">✓</span><span class="pipe-label">Fechar sessão</span><span class="pipe-sub">avança no fluxo</span></div>
+  </div>
+
+  <h3>Passo a passo</h3>
+  <ol>
+    <li><strong>Nova sessão de apontamento</strong> (aba <em>Apontamento</em>): escolha a <strong>OP</strong>, a <strong>máquina</strong>, o <strong>operador</strong> e o <strong>turno</strong>. A etapa preenche sozinha pela máquina. Toque em <strong>Iniciar Sessão</strong> — ela aparece na hora na lista de sessões abertas (mesmo offline).</li>
+    <li><strong>Aponte as quantidades</strong> conforme produz: <strong>QTD BOA</strong>, <strong>REFUGO</strong>, <strong>RETRABALHO</strong>. Toque em <strong>💾 Salvar qtd</strong> de tempos em tempos. <em>(O que você digita não se perde se a tela atualizar.)</em></li>
+    <li><strong>Registre os eventos</strong> que acontecerem (botões na sessão):
+      <ul>
+        <li><strong>⏸ Registrar parada</strong> — escolha o motivo; a parada fica aberta até você fechá-la.</li>
+        <li><strong>⚠ Registrar NC</strong> — não conformidade: escolha o <strong>defeito do catálogo</strong>, a quantidade afetada, a disposição e tire <strong>foto</strong> se quiser.</li>
+        <li><strong>📏 Medir</strong> — registra uma medição (gramatura/largura) que alimenta o CEP.</li>
+        <li><strong>🆘 Andon</strong> — chama ajuda/supervisor (parada, qualidade, material).</li>
+        <li><strong>📦 Fio</strong> — registra consumo de fio na sessão.</li>
+        <li><strong>📄 Instrução</strong> — abre a instrução de trabalho daquele produto/etapa.</li>
+      </ul>
+    </li>
+    <li><strong>Fechar sessão</strong> (✓): confirma o encerramento. Se a opção <strong>"avançar no fluxo"</strong> estiver marcada, a OP move para a próxima etapa do processo.</li>
+  </ol>
+
+  <div class="callout ok"><div class="callout-title">Funciona sem internet</div>
+    <p>Pode apontar, registrar parada, NC, fechar sessão — tudo offline. Cada ação vira um item na fila com um identificador único; quando a rede volta, sobe sozinho, sem duplicar. Um item com erro no servidor <strong>não trava</strong> os outros.</p>
+  </div>
+  <div class="callout warn"><div class="callout-title">Travas de segurança</div>
+    <p>Fechar sessão <strong>pede confirmação</strong> (evita toque acidental). Botões têm trava de <strong>duplo-toque</strong> (não cria sessão/NC duplicada). NC <strong>exige um defeito do catálogo</strong> e a quantidade não pode passar do planejado da OP.</p>
+  </div>
+</div>
+
+<!-- ─────────────── 3 ─────────────── -->
+<div class="page" id="s3">
+  <div class="section-header"><div class="section-num">3</div><h2>Painel</h2><span class="section-badge">Visão geral</span></div>
+  <p>A tela inicial. Mostra o estado da fábrica de relance:</p>
+  <ul>
+    <li><strong>Saudação</strong> + data.</li>
+    <li><strong>KPIs:</strong> Carteira (OPs ativas), Produtos, WIP ativo, Sessões ativas, Andon aberto · OEE médio, Custo da qualidade, NCs, RNCs, Etiquetas. Cada cartão é clicável e leva à tela.</li>
+    <li><strong>Últimas atividades:</strong> as sessões de apontamento mais recentes (✓ finalizada / ▶ em curso).</li>
+    <li><strong>Alertas:</strong> o que exige ação (estoque, qualidade, metas).</li>
+    <li><strong>Fluxo do sistema:</strong> tira de status — Cadastros → Carteira → Fila/WIP → Apontamento → Qualidade → Indicadores (bolinha verde = tem dado).</li>
+    <li><strong>Acesso rápido</strong> e <strong>Fluxo do processo</strong> (as etapas, editável).</li>
+  </ul>
+  <div class="callout"><div class="callout-title">Fluxo do processo</div>
+    <p>As 8 etapas da fábrica: <strong>Tecelagem → Passadoria → Soldagem → Costura Manual → Costura Automática → Silicone → Revisão → Embalagem</strong>. Dá pra renomear, reordenar e adicionar etapas no próprio Painel.</p>
+  </div>
+</div>
+
+<!-- ─────────────── 4 ─────────────── -->
+<div class="page" id="s4">
+  <div class="section-header"><div class="section-num">4</div><h2>Execução</h2><span class="section-badge">Fila · Apontamento · NC · RNC</span></div>
+
+  <h3>Fila de OPs</h3>
+  <p>A carteira de ordens. Filtra, mostra a <strong>ordem sugerida (EDD — por prazo de entrega)</strong>, deixa editar a <strong>prioridade</strong> (normal / alta / urgente) e <strong>jogar OPs no fluxo em lote</strong>. A prioridade pode vir do planejamento (botão "Priorizar p/ chão" no SIGS) ou ser ajustada aqui.</p>
+
+  <h3>Apontamento</h3>
+  <p>Onde o operador abre e gerencia as sessões (ver Seção 2). A lista de OPs filtra pela etapa da máquina; o turno e o operador são pré-preenchidos.</p>
+
+  <h3>Não Conformidades (NC)</h3>
+  <p>Toda NC é de um <strong>defeito do catálogo</strong> (nunca texto livre). Você informa a quantidade afetada, a <strong>disposição</strong> (liberar / retrabalhar / refugar / segregar / reclassificar) e pode anexar foto. A <strong>severidade é congelada</strong> no momento do registro.</p>
+  <table>
+    <tr><th>Conceito</th><th>O que é</th></tr>
+    <tr><td><strong>Severidade</strong></td><td>1 a 4. Defeito crítico (4) <strong>não pode ser liberado</strong> — o sistema bloqueia.</td></tr>
+    <tr><td><strong>Gatilho de RNC</strong></td><td>Ao gravar a NC, o sistema avalia volume (qtd/%) e recorrência. Se estourar, marca para abrir uma RNC formal automaticamente.</td></tr>
+    <tr><td><strong>Foto</strong></td><td>Vai comprimida para o armazenamento; a NC guarda só a referência.</td></tr>
+  </table>
+
+  <h3>Ações Corretivas (RNC / CAPA)</h3>
+  <p>O ciclo formal de tratamento: <span class="badge badge-blue">aberta</span> → <span class="badge badge-blue">em análise</span> → <span class="badge badge-yellow">em ação</span> → <span class="badge badge-yellow">verificação</span> → <span class="badge badge-green">fechada</span>. Tem <strong>análise de causa raiz</strong> com método (5-porquês / Ishikawa) e ação corretiva. Abre sozinha quando o gatilho dispara.</p>
+</div>
+
+<!-- ─────────────── 5 ─────────────── -->
+<div class="page" id="s5">
+  <div class="section-header"><div class="section-num">5</div><h2>Visão geral do fluxo</h2><span class="section-badge">WIP · Prazo · Andon</span></div>
+  <table>
+    <tr><th>Tela</th><th>Pra que serve</th></tr>
+    <tr><td><strong>Kanban WIP (Fluxo)</strong></td><td>Quadro por etapa: quais OPs estão em cada estágio. Mostra onde o trabalho está parado (gargalo).</td></tr>
+    <tr><td><strong>Andon (chamados)</strong></td><td>Mural em tempo real dos chamados do chão (ajuda/parada/qualidade/material), com <strong>escalonamento por tempo</strong> (🟢 &lt;5min · 🟡 &lt;15min · 🔴 +15min). Atualiza sozinho a cada 8s; tem badge na barra lateral.</td></tr>
+    <tr><td><strong>Prazo &amp; Risco</strong></td><td>Semáforo de cada OP: previsão de entrega × lead time. Vê o que está em risco de atrasar.</td></tr>
+    <tr><td><strong>Fluxo no Tempo</strong></td><td>Throughput por dia, WIP por etapa e o gargalo ao longo de 7/14/30 dias.</td></tr>
+    <tr><td><strong>Capacidade × Demanda</strong></td><td>Por etapa: horas necessárias (backlog) vs. disponíveis. Mostra dias para zerar a fila.</td></tr>
+  </table>
+</div>
+
+<!-- ─────────────── 6 ─────────────── -->
+<div class="page" id="s6">
+  <div class="section-header"><div class="section-num">6</div><h2>Indicadores</h2><span class="section-badge">OEE · CNQ</span></div>
+  <h3>OEE &amp; Qualidade</h3>
+  <p>O OEE é calculado <strong>por máquina</strong>, das três dimensões:</p>
+  <div class="formula"><b>OEE</b> = Disponibilidade × Performance × Qualidade<br>
+    <span style="font-size:9pt;color:#6b6b8c;">Disponibilidade = tempo produzindo ÷ tempo de sessão · Performance = produção real ÷ capacidade · Qualidade = boas ÷ total produzido</span></div>
+  <p>Inclui Pareto de defeitos e resumo de qualidade. Tudo derivado dos apontamentos — aparece quando o chão começa a apontar.</p>
+  <h3>Custo da Qualidade (CNQ)</h3>
+  <p>Quanto a não qualidade custa: <code>qtd afetada × custo unitário × fator da disposição</code> (refugar pesa mais que retrabalhar). Depende do <strong>custo unitário cadastrado</strong> no produto.</p>
+</div>
+
+<!-- ─────────────── 7 ─────────────── -->
+<div class="page" id="s7">
+  <div class="section-header"><div class="section-num">7</div><h2>Manutenção (TPM)</h2><span class="section-badge">Confiabilidade</span></div>
+  <table>
+    <tr><th>Tela</th><th>O que faz</th></tr>
+    <tr><td><strong>Etiquetas de Anomalia</strong></td><td>Registra anomalias da máquina (com foto) — o "cartão" da manutenção autônoma.</td></tr>
+    <tr><td><strong>Ordens de Manutenção</strong></td><td>Abrir → iniciar → concluir. Calcula o <strong>tempo de reparo</strong> automaticamente.</td></tr>
+    <tr><td><strong>Indicadores TPM</strong></td><td><strong>MTTR</strong> (tempo médio de reparo), <strong>MTBF</strong> (tempo médio entre falhas), cumprimento de CIL, etiquetas abertas.</td></tr>
+    <tr><td><strong>Setup (SMED)</strong></td><td>Mede o tempo de troca de artigo (paradas de categoria "setup"): total, média e maiores ofensores.</td></tr>
+    <tr><td><strong>Checklist CIL</strong></td><td>Limpeza, Inspeção e Lubrificação — execução dos checklists de rotina.</td></tr>
+    <tr><td><strong>Cadastros</strong></td><td>Componentes, peças e planos de manutenção.</td></tr>
+  </table>
+</div>
+
+<!-- ─────────────── 8 ─────────────── -->
+<div class="page" id="s8">
+  <div class="section-header"><div class="section-num">8</div><h2>Engenharia de Processos e Métodos</h2><span class="section-badge">Tempos · Custo · Melhoria</span></div>
+  <p>O ciclo do engenheiro industrial, todo em cima dos apontamentos:</p>
+
+  <h3>Cronoanálise</h3>
+  <p>Compara o <strong>tempo real medido</strong> (duração da sessão − paradas ÷ produzido) com o <strong>tempo-padrão</strong>, por produto/etapa, e mostra o <strong>desvio %</strong>. Botão <strong>"adotar medido"</strong> atualiza o padrão a partir do chão — sem chutar números.</p>
+
+  <h3>Balanceamento &amp; Takt</h3>
+  <p>Informe a <strong>demanda/dia</strong> e as horas. O sistema calcula o <strong>takt</strong> (ritmo que a demanda exige) e o <strong>tempo de ciclo</strong> de cada etapa (tempo-padrão ÷ postos). Posto com ciclo acima do takt é <strong>gargalo 🔴</strong>.</p>
+  <div class="formula"><b>Takt</b> = tempo disponível ÷ demanda &nbsp;·&nbsp; <b>Ciclo do posto</b> = tempo-padrão ÷ nº de postos</div>
+
+  <h3>Produtividade por operador</h3>
+  <p>Peças boas/hora, refugo% e retrabalho% <strong>por pessoa</strong> (não só por máquina). Mostra quem rende e se o gargalo é a máquina ou a gente.</p>
+
+  <h3>Custeio por OP</h3>
+  <p>Custo cheio = <strong>mão de obra</strong> (horas × R$/h) + <strong>máquina-hora</strong> + <strong>material</strong> + <strong>refugo</strong>. As taxas R$/h de operador e máquina são <strong>cadastradas por você</strong> nessa tela (o sistema não inventa).</p>
+
+  <h3>Melhoria contínua (FMEA + Kaizen)</h3>
+  <p><strong>FMEA de processo:</strong> mapeia modos de falha por etapa com <strong>RPN = Severidade × Ocorrência × Detecção</strong> (1–10 cada) — prioriza o que tratar. <strong>Funil Kaizen:</strong> ideia → teste → padrão → descartado.</p>
+</div>
+
+<!-- ─────────────── 9 ─────────────── -->
+<div class="page" id="s9">
+  <div class="section-header"><div class="section-num">9</div><h2>Dados</h2><span class="section-badge">Fio · Documentos · Integrações</span></div>
+  <table>
+    <tr><th>Tela</th><th>O que faz</th></tr>
+    <tr><td><strong>Materiais (Fio)</strong></td><td>Estoque de fio, recebimento de lotes e consumo. O consumo na sessão baixa o saldo disponível.</td></tr>
+    <tr><td><strong>Documentos / Instruções</strong></td><td>Cadastra instruções de trabalho (texto ou link/PDF), por produto e/ou etapa. O operador vê na sessão (botão 📄 Instrução).</td></tr>
+    <tr><td><strong>Integrações (ERP / Máquina)</strong></td><td>Endereço para a máquina/CLP enviar a contagem automática (chave de API), e exportação das confirmações de produção para o ERP.</td></tr>
+    <tr><td><strong>Importar OPs (ERP)</strong></td><td>Importa o relatório de Ordens de Produção do ERP (cria produtos e OPs novas).</td></tr>
+  </table>
+  <div class="callout"><div class="callout-title">Contagem automática (Stoll)</div>
+    <p>A máquina/gateway pode enviar a quantidade produzida direto pro sistema (<code>POST /api/mf/maquina-contagem</code> com a chave). A produção soma sozinha na sessão aberta da máquina — acaba a digitação no maior estágio. A chave fica na tela de Integrações (só admin vê).</p>
+  </div>
+</div>
+
+<!-- ─────────────── 10 ─────────────── -->
+<div class="page" id="s10">
+  <div class="section-header"><div class="section-num">10</div><h2>Rastreabilidade</h2><span class="section-badge">Genealogia</span></div>
+  <p>Busca por código da peça/produto e mostra a <strong>genealogia</strong>: por onde passou no fluxo, lotes de fio consumidos, NCs e apontamentos relacionados. Base para <strong>recall</strong> e investigação de qualidade.</p>
+</div>
+
+<!-- ─────────────── 11 ─────────────── -->
+<div class="page" id="s11">
+  <div class="section-header"><div class="section-num">11</div><h2>Conceitos-chave</h2><span class="section-badge">Glossário</span></div>
+  <table>
+    <tr><th>Termo</th><th>Significado</th></tr>
+    <tr><td><strong>Captura única</strong></td><td>O apontamento é a raiz; todos os indicadores são consultas sobre ele. Não se digita indicador.</td></tr>
+    <tr><td><strong>OEE</strong></td><td>Eficiência global do equipamento = Disponibilidade × Performance × Qualidade.</td></tr>
+    <tr><td><strong>WIP</strong></td><td>Work in Process — o que está em produção entre as etapas.</td></tr>
+    <tr><td><strong>Takt</strong></td><td>Ritmo que a demanda exige (tempo ÷ demanda). Referência para balancear a linha.</td></tr>
+    <tr><td><strong>EDD</strong></td><td>Earliest Due Date — sequenciar por prazo de entrega (o mais atrasado primeiro).</td></tr>
+    <tr><td><strong>RNC / CAPA</strong></td><td>Relatório de Não Conformidade / ação corretiva e preventiva.</td></tr>
+    <tr><td><strong>CEP / Cpk</strong></td><td>Controle Estatístico do Processo — capabilidade a partir das medições.</td></tr>
+    <tr><td><strong>SMED</strong></td><td>Troca rápida de ferramenta — reduzir o tempo de setup.</td></tr>
+    <tr><td><strong>FMEA / RPN</strong></td><td>Análise de modos de falha; RPN = Severidade × Ocorrência × Detecção.</td></tr>
+    <tr><td><strong>MTTR / MTBF</strong></td><td>Tempo médio de reparo / entre falhas (confiabilidade).</td></tr>
+  </table>
+</div>
+
+<!-- ─────────────── 12 ─────────────── -->
+<div class="page" id="s12">
+  <div class="section-header"><div class="section-num">12</div><h2>Dicas, FAQ e o que depende de você</h2><span class="section-badge">Operação</span></div>
+
+  <h3>Perguntas frequentes</h3>
+  <table>
+    <tr><th>Pergunta</th><th>Resposta</th></tr>
+    <tr><td>A internet caiu. Posso apontar?</td><td><strong>Sim.</strong> Tudo fica na fila e sobe quando a rede voltar. O selo no topo mostra quantos itens estão pendentes.</td></tr>
+    <tr><td>Apontei errado, fechei a sessão.</td><td>Fechar pede confirmação justamente pra evitar isso. Se precisar corrigir, chame o gestor (ajuste pelo apontamento/indicadores).</td></tr>
+    <tr><td>A tela não atualizou depois de uma mudança.</td><td>Force a atualização: <strong>Ctrl/Cmd + Shift + R</strong> (recarrega a versão nova do app).</td></tr>
+    <tr><td>O OEE/custo está vazio.</td><td>Eles aparecem quando há produção apontada. Sem apontamento, mostram "aguardando".</td></tr>
+    <tr><td>Não acho um defeito na NC.</td><td>O defeito tem que estar no <strong>catálogo</strong>. Peça ao gestor para cadastrá-lo (Cadastros).</td></tr>
+  </table>
+
+  <h3>O que precisa ser cadastrado (não se inventa número)</h3>
+  <div class="callout warn"><div class="callout-title">Para os indicadores funcionarem</div>
+    <p><strong>Tempo-padrão</strong> por etapa (ou deixe a Cronoanálise estabelecer pelo medido) · <strong>Taxas R$/h</strong> de operador e máquina (em Custeio) · <strong>Custo unitário</strong> dos produtos (para o CNQ) · <strong>Catálogo de defeitos</strong> e <strong>motivos de parada</strong>.</p>
+  </div>
+
+  <div class="callout ok"><div class="callout-title">Resumo de bolso para o operador</div>
+    <p><strong>Iniciar sessão → produzir e salvar quantidade → registrar parada/NC quando acontecer → fechar sessão.</strong> O resto o sistema calcula. Pode trabalhar offline.</p>
+  </div>
+
+  <div class="foot">Manual do MES Malha Forte · Execução de Produção · gerado para a operação de chão e gestão.<br>Para o sistema de planejamento (vendas, S&amp;OP, TOC, Preactor) consulte o Manual do SIGS.</div>
+</div>
+
+</body>
+</html>
