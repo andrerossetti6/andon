@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Piloto de Apontamento</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', Arial, sans-serif; font-size: 10.5pt; line-height: 1.6; color: #1a1a2e; background: #fff; }
+
+  /* ── CAPA ── */
+  .cover { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
+    background: linear-gradient(135deg, #0a1a16 0%, #0f2420 55%, #123a30 100%); padding: 80px 72px; page-break-after: always; position: relative; overflow: hidden; }
+  .cover::before { content: ''; position: absolute; top: -100px; right: -100px; width: 500px; height: 500px; border-radius: 50%; background: radial-gradient(circle, rgba(38,166,154,.32) 0%, transparent 70%); }
+  .cover::after { content: ''; position: absolute; bottom: -80px; left: 200px; width: 350px; height: 350px; border-radius: 50%; background: radial-gradient(circle, rgba(38,166,154,.14) 0%, transparent 70%); }
+  .cover-tag { font-size: 9pt; font-weight: 700; letter-spacing: 3px; color: #26a69a; text-transform: uppercase; margin-bottom: 20px; position: relative; }
+  .cover h1 { font-size: 42pt; font-weight: 800; color: #fff; line-height: 1.1; margin-bottom: 14px; position: relative; }
+  .cover h1 span { color: #26a69a; }
+  .cover .sub { font-size: 13pt; color: rgba(255,255,255,.7); margin-bottom: 48px; position: relative; max-width: 620px; }
+  .cover-meta { display: flex; gap: 48px; position: relative; }
+  .cover-meta-label { font-size: 8pt; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #26a69a; margin-bottom: 4px; }
+  .cover-meta-val { font-size: 10pt; font-weight: 600; color: rgba(255,255,255,.75); }
+
+  /* ── LAYOUT ── */
+  .page { padding: 48px 64px; }
+  .section-header { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; padding-bottom: 14px; border-bottom: 2px solid #eef4f2; page-break-after: avoid; }
+  .section-num { width: 36px; height: 36px; border-radius: 8px; background: #26a69a; color: #fff; font-size: 13pt; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .section-header h2 { font-size: 16pt; font-weight: 800; color: #1a1a2e; }
+  .section-header .section-badge { margin-left: auto; font-size: 7.5pt; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #1e8479; background: rgba(38,166,154,.09); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(38,166,154,.25); }
+  h3 { font-size: 11pt; font-weight: 700; color: #17352f; margin: 24px 0 10px; page-break-after: avoid; }
+  h3::before { content: '▸ '; color: #26a69a; }
+  p { margin-bottom: 10px; color: #3a3a5c; }
+  ul, ol { margin: 0 0 12px 22px; color: #3a3a5c; } li { margin-bottom: 5px; }
+  strong { color: #1a1a2e; }
+  code { background: #eef7f5; padding: 1px 6px; border-radius: 4px; font-size: 8.8pt; color: #1e8479; font-family: monospace; }
+
+  /* ── TABELAS ── */
+  table { width: 100%; border-collapse: collapse; margin: 14px 0 20px; font-size: 9.5pt; page-break-inside: avoid; }
+  th { background: #eef4f2; color: #17352f; font-weight: 700; text-align: left; padding: 9px 12px; border-bottom: 2px solid #dbe8e5; font-size: 8.5pt; letter-spacing: .5px; text-transform: uppercase; }
+  td { padding: 8px 12px; border-bottom: 1px solid #eef4f2; color: #3a3a5c; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td strong { color: #1a1a2e; font-weight: 600; }
+
+  /* ── BADGES ── */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 8pt; font-weight: 700; }
+  .badge-red { background: #fef2f2; color: #dc2626; } .badge-yellow { background: #fffbeb; color: #d97706; }
+  .badge-green { background: #f0fdf4; color: #16a34a; } .badge-blue { background: #eff6ff; color: #2563eb; }
+
+  /* ── CALLOUT ── */
+  .callout { border-left: 4px solid #26a69a; background: rgba(38,166,154,.06); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; page-break-inside: avoid; }
+  .callout.warn { border-color: #f59e0b; background: rgba(245,158,11,.06); }
+  .callout.danger { border-color: #dc2626; background: rgba(220,38,38,.05); }
+  .callout.ok { border-color: #16a34a; background: rgba(22,163,74,.05); }
+  .callout-title { font-size: 8.5pt; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 5px; color: #1e8479; }
+  .callout.warn .callout-title { color: #b45309; } .callout.danger .callout-title { color: #dc2626; } .callout.ok .callout-title { color: #16a34a; }
+  .callout p { margin: 0; font-size: 9.5pt; }
+
+  /* ── PIPELINE ── */
+  .pipeline { display: flex; align-items: center; margin: 20px 0; page-break-inside: avoid; flex-wrap: wrap; gap: 4px 0; }
+  .pipe-step { flex: 1; min-width: 92px; text-align: center; padding: 14px 8px; background: #eef4f2; border: 1px solid #dbe8e5; border-radius: 8px; }
+  .pipe-step .pipe-icon { font-size: 16pt; display: block; margin-bottom: 4px; }
+  .pipe-step .pipe-label { font-size: 8pt; font-weight: 700; color: #17352f; }
+  .pipe-step .pipe-sub { font-size: 7pt; color: #6d8a84; margin-top: 2px; }
+  .pipe-arrow { font-size: 14pt; color: #a9cfc8; padding: 0 3px; flex-shrink: 0; }
+
+  /* ── CHECKLIST ── */
+  .check { list-style: none; margin-left: 0; }
+  .check li { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; border-bottom: 1px solid #f0f5f4; }
+  .check li::before { content: '☐'; color: #26a69a; font-size: 12pt; line-height: 1; flex-shrink: 0; }
+  .check li.done::before { content: '☑'; }
+
+  .step { display: flex; gap: 14px; margin: 14px 0; page-break-inside: avoid; }
+  .step-n { width: 30px; height: 30px; border-radius: 50%; background: #26a69a; color: #fff; font-weight: 800; font-size: 11pt; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .step-b { flex: 1; } .step-b .step-t { font-weight: 700; color: #17352f; margin-bottom: 2px; }
+
+  .foot { text-align: center; color: #6d8a84; font-size: 8.5pt; padding: 30px; border-top: 1px solid #eef4f2; margin-top: 20px; }
+
+  @media print { .page { padding: 30px 36px; } .section-header { page-break-after: avoid; } table, .callout, .pipeline, .step { page-break-inside: avoid; } }
+</style>
+</head>
+<body>
+
+<!-- ─────────────── CAPA ─────────────── -->
+<div class="cover">
+  <div class="cover-tag">Roteiro Operacional</div>
+  <h1>Piloto de <span>Apontamento</span></h1>
+  <div class="sub">Uma máquina, um turno. O caminho mais curto para destravar OEE, VSM e realizado com dado real — em vez de telas “aguardando apontamento”.</div>
+  <div class="cover-meta">
+    <div class="cover-meta-item"><div class="cover-meta-label">Escopo</div><div class="cover-meta-val">1 máquina · 1 turno</div></div>
+    <div class="cover-meta-item"><div class="cover-meta-label">Onde</div><div class="cover-meta-val">MES Malha Forte (mes.html)</div></div>
+    <div class="cover-meta-item"><div class="cover-meta-label">Meta</div><div class="cover-meta-val">1º OEE/VSM reais</div></div>
+  </div>
+</div>
+
+<!-- ─────────────── 1. POR QUE UM PILOTO ─────────────── -->
+<div class="page" id="s1">
+  <div class="section-header"><div class="section-num">1</div><h2>Por que um piloto</h2><span class="section-badge">Contexto</span></div>
+
+  <p>O sistema está pronto: cadastros, WIP, OEE, VSM, qualidade e a integração Plano↔Chão já funcionam. O que falta é <strong>dado do chão</strong> — hoje há <strong>zero apontamentos</strong>, então toda a camada de medição aparece como “aguardando apontamento”. Nenhum código resolve isso; só o chão apontando resolve.</p>
+
+  <p>O piloto reduz o risco: em vez de “ligar tudo de uma vez”, <strong>uma máquina aponta um turno</strong>. No fim do dia você valida OEE, VSM e realizado com número de verdade, aprende os tropeços e só então expande para as outras estações.</p>
+
+  <div class="callout"><div class="callout-title">Captura única</div><p>Um apontamento (OP + máquina + operador + turno) é a raiz de tudo. OEE, WIP, VSM, CNQ e o realizado no Plano são <strong>consultas</strong> sobre ele. Aponte certo uma vez e todos os indicadores se preenchem sozinhos.</p></div>
+</div>
+
+<!-- ─────────────── 2. PRÉ-REQUISITOS ─────────────── -->
+<div class="page" id="s2">
+  <div class="section-header"><div class="section-num">2</div><h2>Antes do piloto (pré-requisitos)</h2><span class="section-badge">Checklist</span></div>
+
+  <p>Situação atual dos cadastros (verificada no banco). Quase tudo pronto — falta <strong>um</strong> item que trava metade dos indicadores.</p>
+
+  <table>
+    <tr><th>Cadastro</th><th>Estado</th><th>Precisa para</th></tr>
+    <tr><td><strong>Produtos</strong></td><td><span class="badge badge-green">177 ✓</span></td><td>identificar o que a OP produz</td></tr>
+    <tr><td><strong>Máquinas</strong></td><td><span class="badge badge-green">32 ✓</span></td><td>escolher a máquina do piloto</td></tr>
+    <tr><td><strong>Operadores</strong></td><td><span class="badge badge-green">4 ✓</span></td><td>quem aponta</td></tr>
+    <tr><td><strong>Turnos</strong></td><td><span class="badge badge-green">3 ✓</span></td><td>janela do apontamento</td></tr>
+    <tr><td><strong>Ordens de Produção</strong></td><td><span class="badge badge-green">259 ✓</span></td><td>o trabalho a apontar</td></tr>
+    <tr><td><strong>Tempo-padrão</strong></td><td><span class="badge badge-red">0 ✗</span></td><td><strong>OEE (performance) e VA do VSM</strong></td></tr>
+  </table>
+
+  <div class="callout danger"><div class="callout-title">O único bloqueio real</div><p>Sem <code>tempo_padrao</code>, o OEE calcula só <strong>disponibilidade × qualidade</strong> (a parte de <em>performance</em> fica cega) e o VSM mostra <strong>0% de valor agregado</strong>. <strong>Registre ao menos o tempo-padrão da etapa do piloto</strong> antes de começar — é o item que faz o piloto valer.</p></div>
+
+  <h3>Passo zero: registre o tempo-padrão da etapa piloto</h3>
+  <p>Escolha <strong>uma etapa</strong> (ex.: Tecelagem, o gargalo típico) e cadastre o tempo-padrão dela em <strong>MES › Engenharia › Cronoanálise</strong> (ou tempo por unidade em <code>tempo_padrao</code>). Não precisa ser perfeito no dia 1 — precisa <strong>existir</strong>, para o OEE de performance sair do zero. Refine depois com a própria cronoanálise do chão.</p>
+
+  <ul class="check">
+    <li>Máquina do piloto escolhida (de preferência a etapa gargalo)</li>
+    <li>Operador do piloto identificado e com login no MES</li>
+    <li>Turno correto selecionável</li>
+    <li>OP(s) do dia daquela máquina existem e estão liberadas</li>
+    <li><strong>Tempo-padrão da etapa cadastrado</strong> (passo zero)</li>
+    <li>Dispositivo com o MES aberto na estação (celular/tablet/PC)</li>
+  </ul>
+
+  <div class="callout ok"><div class="callout-title">Offline não trava</div><p>O MES do operador é <strong>offline-first</strong>: se a rede cair, o apontamento fica numa fila local e sincroniza sozinho quando voltar. O piloto não depende de Wi-Fi perfeito no chão.</p></div>
+</div>
+
+<!-- ─────────────── 3. O DIA DO PILOTO ─────────────── -->
+<div class="page" id="s3">
+  <div class="section-header"><div class="section-num">3</div><h2>O dia do piloto, passo a passo</h2><span class="section-badge">Execução</span></div>
+
+  <p>Um ciclo simples, repetido pelo turno. O operador faz tudo pelo MES na estação.</p>
+
+  <div class="step"><div class="step-n">1</div><div class="step-b"><div class="step-t">Abrir a sessão</div>No início do turno, abrir um apontamento: escolher <strong>OP + máquina + operador + turno</strong>. Isso “liga” o cronômetro da estação.</div></div>
+  <div class="step"><div class="step-n">2</div><div class="step-b"><div class="step-t">Apontar produção</div>Conforme produz, registrar <strong>quantidade boa</strong> e, se houver, <strong>refugo</strong> e <strong>retrabalho</strong>. Pode apontar em partes ao longo do turno — não precisa esperar o fim.</div></div>
+  <div class="step"><div class="step-n">3</div><div class="step-b"><div class="step-t">Registrar parada (quando parar)</div>Toda parada relevante entra com <strong>motivo</strong> (falta de material, manutenção, setup, etc.). É isso que alimenta a <strong>disponibilidade</strong> do OEE e o Andon.</div></div>
+  <div class="step"><div class="step-n">4</div><div class="step-b"><div class="step-t">Registrar defeito/NC (quando achar)</div>Defeito sempre do <strong>catálogo</strong> (nunca texto livre), com <strong>foto</strong> se der. Volume ou recorrência disparam RNC sozinhos. Isso alimenta CNQ, CEP e qualidade.</div></div>
+  <div class="step"><div class="step-n">5</div><div class="step-b"><div class="step-t">FECHAR a sessão no fim do turno</div><strong>O passo mais importante.</strong> Fechar a sessão grava a hora de fim (<code>datahora_fim</code>) — e é isso que destrava <strong>lead time (VSM), realizado por mês (Plano) e o OEE do período</strong>. Sessão que fica aberta não vira indicador.</div></div>
+
+  <div class="callout warn"><div class="callout-title">Não deixe a sessão aberta</div><p>Apontamento sem hora de fim conta como “em andamento” — o WIP mostra, mas o <strong>lead histórico e o realizado do mês ficam vazios</strong>. Fechar ao fim do turno é o que transforma o dia em número medido.</p></div>
+</div>
+
+<!-- ─────────────── 4. RESULTADO ─────────────── -->
+<div class="page" id="s4">
+  <div class="section-header"><div class="section-num">4</div><h2>Critério de sucesso e onde ler</h2><span class="section-badge">Validação</span></div>
+
+  <p>O piloto deu certo se, no fim do turno, estes números <strong>saírem do “aguardando”</strong>:</p>
+
+  <table>
+    <tr><th>Indicador</th><th>Onde aparece</th><th>Depende de</th></tr>
+    <tr><td><strong>OEE medido</strong></td><td>MES › Indicadores · SIGS › Home / Reunião</td><td>produção + paradas + refugo (+ tempo-padrão p/ performance)</td></tr>
+    <tr><td><strong>WIP</strong> (OPs no fluxo)</td><td>MES › WIP · SIGS › Cockpit</td><td>sessão aberta na etapa</td></tr>
+    <tr><td><strong>VSM</strong> (lead + % VA)</td><td>MES › VSM</td><td>sessão <strong>fechada</strong> + tempo-padrão</td></tr>
+    <tr><td><strong>Realizado no Plano</strong></td><td>SIGS › Plano de Produção</td><td>sessão fechada (datahora_fim)</td></tr>
+    <tr><td><strong>Qualidade</strong> (CNQ/CEP)</td><td>MES › CNQ · CEP</td><td>NCs registradas do catálogo</td></tr>
+  </table>
+
+  <div class="callout ok"><div class="callout-title">Sinal de sucesso</div><p>Na Home do SIGS, o card de OEE deixa de dizer “aguardando apontamento” e mostra um <strong>%</strong>; o WIP mostra as <strong>OPs no fluxo</strong>. No MES, o VSM ganha barras de lead e um <strong>% de valor agregado</strong> diferente de zero.</p></div>
+
+  <h3>Erros comuns (e como evitar)</h3>
+  <ul>
+    <li><strong>Esquecer de fechar a sessão</strong> → lead e realizado ficam vazios. Feche sempre no fim do turno.</li>
+    <li><strong>Não ter tempo-padrão</strong> → OEE sem performance e VSM 0% VA. Faça o passo zero.</li>
+    <li><strong>Digitar defeito em texto livre</strong> → não existe: escolha do catálogo, senão não alimenta CNQ/CEP.</li>
+    <li><strong>Apontar na OP errada</strong> → o realizado vai para o produto errado. Confira OP + máquina ao abrir.</li>
+    <li><strong>Parada sem motivo</strong> → disponibilidade fica distorcida. Todo tempo parado precisa de motivo.</li>
+  </ul>
+
+  <h3>Depois do piloto</h3>
+  <p>Com um turno validado: (1) ajuste o tempo-padrão com a cronoanálise real, (2) replique o mesmo ritual para a próxima estação do fluxo, (3) acompanhe pela Reunião Diária. Etapa por etapa, o VSM inteiro e o OEE por máquina vão se preenchendo com dado de verdade.</p>
+
+  <div class="foot">Piloto de Apontamento · MES Malha Forte · o objetivo é o primeiro número medido, não a perfeição.</div>
+</div>
+
+</body>
+</html>

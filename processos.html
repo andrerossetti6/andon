@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Processos</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', Arial, sans-serif; font-size: 10.5pt; line-height: 1.6; color: #1a1a2e; background: #fff; }
+
+  /* ── CAPA ── */
+  .cover { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
+    background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 60%, #16213e 100%); padding: 80px 72px; page-break-after: always; position: relative; overflow: hidden; }
+  .cover::before { content: ''; position: absolute; top: -100px; right: -100px; width: 500px; height: 500px; border-radius: 50%; background: radial-gradient(circle, rgba(240,98,146,.30) 0%, transparent 70%); }
+  .cover::after { content: ''; position: absolute; bottom: -80px; left: 200px; width: 350px; height: 350px; border-radius: 50%; background: radial-gradient(circle, rgba(240,98,146,.14) 0%, transparent 70%); }
+  .cover-tag { font-size: 9pt; font-weight: 700; letter-spacing: 3px; color: #f06292; text-transform: uppercase; margin-bottom: 20px; position: relative; }
+  .cover h1 { font-size: 42pt; font-weight: 800; color: #fff; line-height: 1.1; margin-bottom: 14px; position: relative; }
+  .cover h1 span { color: #f06292; }
+  .cover .sub { font-size: 13pt; color: rgba(255,255,255,.7); margin-bottom: 48px; position: relative; max-width: 600px; }
+  .cover-meta { display: flex; gap: 48px; position: relative; }
+  .cover-meta-label { font-size: 8pt; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #f06292; margin-bottom: 4px; }
+  .cover-meta-val { font-size: 10pt; font-weight: 600; color: rgba(255,255,255,.75); }
+
+  /* ── LAYOUT ── */
+  .page { padding: 48px 64px; }
+  .section-header { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; padding-bottom: 14px; border-bottom: 2px solid #f0f0f8; page-break-after: avoid; }
+  .section-num { width: 36px; height: 36px; border-radius: 8px; background: #6366f1; color: #fff; font-size: 13pt; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .section-header h2 { font-size: 16pt; font-weight: 800; color: #1a1a2e; }
+  .section-header .section-badge { margin-left: auto; font-size: 7.5pt; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #6366f1; background: rgba(99,102,241,.08); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(99,102,241,.2); }
+  h3 { font-size: 11pt; font-weight: 700; color: #2d2d4e; margin: 24px 0 10px; page-break-after: avoid; }
+  h3::before { content: '▸ '; color: #6366f1; }
+  p { margin-bottom: 10px; color: #3a3a5c; }
+  ul, ol { margin: 0 0 12px 22px; color: #3a3a5c; } li { margin-bottom: 5px; }
+  strong { color: #1a1a2e; }
+  code { background: #f4f4fc; padding: 1px 6px; border-radius: 4px; font-size: 8.8pt; color: #6366f1; font-family: monospace; }
+
+  /* ── TABELAS ── */
+  table { width: 100%; border-collapse: collapse; margin: 14px 0 20px; font-size: 9.5pt; page-break-inside: avoid; }
+  th { background: #f4f4fc; color: #2d2d4e; font-weight: 700; text-align: left; padding: 9px 12px; border-bottom: 2px solid #e0e0f0; font-size: 8.5pt; letter-spacing: .5px; text-transform: uppercase; }
+  td { padding: 8px 12px; border-bottom: 1px solid #f0f0f8; color: #3a3a5c; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td strong { color: #1a1a2e; font-weight: 600; }
+
+  /* ── BADGES ── */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 8pt; font-weight: 700; }
+  .badge-red { background: #fef2f2; color: #dc2626; } .badge-yellow { background: #fffbeb; color: #d97706; }
+  .badge-green { background: #f0fdf4; color: #16a34a; } .badge-blue { background: #eff6ff; color: #2563eb; }
+
+  /* ── CALLOUT ── */
+  .callout { border-left: 4px solid #6366f1; background: rgba(99,102,241,.05); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; page-break-inside: avoid; }
+  .callout.warn { border-color: #f59e0b; background: rgba(245,158,11,.06); }
+  .callout.danger { border-color: #dc2626; background: rgba(220,38,38,.05); }
+  .callout.ok { border-color: #16a34a; background: rgba(22,163,74,.05); }
+  .callout-title { font-size: 8.5pt; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 5px; color: #6366f1; }
+  .callout.warn .callout-title { color: #b45309; } .callout.danger .callout-title { color: #dc2626; } .callout.ok .callout-title { color: #16a34a; }
+  .callout p { margin: 0; font-size: 9.5pt; }
+
+  /* ── PIPELINE ── */
+  .pipeline { display: flex; align-items: center; margin: 20px 0; page-break-inside: avoid; flex-wrap: wrap; gap: 4px 0; }
+  .pipe-step { flex: 1; min-width: 92px; text-align: center; padding: 14px 8px; background: #f4f4fc; border: 1px solid #e0e0f0; border-radius: 8px; }
+  .pipe-step .pipe-icon { font-size: 16pt; display: block; margin-bottom: 4px; }
+  .pipe-step .pipe-label { font-size: 8pt; font-weight: 700; color: #2d2d4e; }
+  .pipe-step .pipe-sub { font-size: 7pt; color: #8b8bae; margin-top: 2px; }
+  .pipe-arrow { font-size: 14pt; color: #c0c0e0; padding: 0 3px; flex-shrink: 0; }
+
+  .formula { background: #f4f4fc; border: 1px solid #e0e0f0; border-radius: 8px; padding: 12px 16px; margin: 12px 0; font-size: 10pt; color: #2d2d4e; page-break-inside: avoid; }
+  .formula b { color: #6366f1; }
+  .foot { text-align: center; color: #8b8bae; font-size: 8.5pt; padding: 30px; border-top: 1px solid #f0f0f8; margin-top: 20px; }
+
+  @media print { .page { padding: 30px 36px; } .section-header { page-break-after: avoid; } table, .callout, .pipeline, .formula { page-break-inside: avoid; } }
+</style>
+</head>
+<body>
+
+<!-- ─────────────── CAPA ─────────────── -->
+<div class="cover">
+  <div class="cover-tag">Mapa de Processos</div>
+  <h1>Processos <span>Malha Forte</span></h1>
+  <div class="sub">O fluxo produtivo da malha de compressão — da tecelagem à expedição — e como cada etapa é medida no MES.</div>
+  <div class="cover-meta">
+    <div class="cover-meta-item"><div class="cover-meta-label">Escopo</div><div class="cover-meta-val">8 etapas de produção</div></div>
+    <div class="cover-meta-item"><div class="cover-meta-label">Sistema</div><div class="cover-meta-val">MES Malha Forte</div></div>
+    <div class="cover-meta-item"><div class="cover-meta-label">Base</div><div class="cover-meta-val">etapa_processo (Supabase)</div></div>
+  </div>
+</div>
+
+<!-- ─────────────── 1. VISÃO GERAL ─────────────── -->
+<div class="page" id="s1">
+  <div class="section-header"><div class="section-num">1</div><h2>Visão geral do fluxo</h2><span class="section-badge">Fluxo</span></div>
+
+  <p>A produção da malha de compressão segue uma sequência fixa de <strong>8 etapas</strong>, cadastradas em <code>etapa_processo</code> e usadas pelo MES para roteirizar cada Ordem de Produção (OP). A OP entra na primeira etapa e avança pelo fluxo até a expedição; em cada estação o operador <strong>aponta</strong> o que produziu, e é desse apontamento que saem WIP, OEE, lead time e qualidade.</p>
+
+  <div class="pipeline">
+    <div class="pipe-step"><span class="pipe-icon">🧶</span><span class="pipe-label">1. Tecelagem</span><span class="pipe-sub">tricô Stoll</span></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step"><span class="pipe-icon">🔥</span><span class="pipe-label">2. Passadoria</span><span class="pipe-sub">termofixação</span></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step"><span class="pipe-icon">⚡</span><span class="pipe-label">3. Soldagem</span><span class="pipe-sub">união/vedação</span></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step"><span class="pipe-icon">🪡</span><span class="pipe-label">4. Costura Manual</span><span class="pipe-sub">acabamento</span></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step"><span class="pipe-icon">🧵</span><span class="pipe-label">5. Costura Autom.</span><span class="pipe-sub">costura seriada</span></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step"><span class="pipe-icon">💧</span><span class="pipe-label">6. Silicone</span><span class="pipe-sub">banda de fixação</span></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step"><span class="pipe-icon">🔍</span><span class="pipe-label">7. Revisão</span><span class="pipe-sub">inspeção</span></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step"><span class="pipe-icon">📦</span><span class="pipe-label">8. Embalagem</span><span class="pipe-sub">expedição</span></div>
+  </div>
+
+  <div class="callout"><div class="callout-title">Captura única</div><p>Cada etapa gera um registro de <strong>apontamento</strong> (sessão: OP + máquina + operador + turno). Todos os indicadores — OEE, WIP, VSM, CNQ, CEP — são <strong>consultas sobre esses apontamentos</strong>, nunca números digitados à parte. Sem apontamento, os indicadores ficam “aguardando dado”.</p></div>
+
+  <h3>O que este documento é (e o que não é)</h3>
+  <p>Este é o <strong>mapa dos processos</strong>: o papel de cada etapa no fluxo, seus pontos de controle e onde o dado real vive no sistema. Ele <strong>não</strong> fixa tempos-padrão, temperaturas ou parâmetros de máquina — esses valores são propriedade de cada produto/etapa e vivem no MES (instrução de trabalho, cronoanálise), que é a fonte da verdade e muda com o tempo.</p>
+
+  <div class="callout warn"><div class="callout-title">Parâmetros específicos</div><p>Tempo-padrão, receita de máquina e critérios de aceitação por produto <strong>não</strong> estão aqui de propósito. Consulte-os em <strong>MES › Documentos</strong> (instrução de trabalho por produto/etapa) e <strong>MES › Engenharia › Cronoanálise</strong>.</p></div>
+</div>
+
+<!-- ─────────────── 2. AS 8 ETAPAS ─────────────── -->
+<div class="page" id="s2">
+  <div class="section-header"><div class="section-num">2</div><h2>As oito etapas</h2><span class="section-badge">Detalhe</span></div>
+
+  <h3>1 · Tecelagem</h3>
+  <p>Tricô da peça nas máquinas <strong>Stoll</strong>, formando a malha com a compressão graduada do produto. É a etapa que define a geometria e a curva de compressão, e costuma ser o <strong>gargalo</strong> do fluxo — por isso o SIGS traz um detalhamento de capacidade <em>por modelo Stoll</em>.</p>
+  <ul>
+    <li><strong>Entra:</strong> fio/matéria-prima e a OP com o modelo Stoll do código.</li>
+    <li><strong>Sai:</strong> painel/peça tricotada.</li>
+    <li><strong>Controle:</strong> conformidade da malha (falhas de tricô, tensão, medidas).</li>
+  </ul>
+  <div class="callout"><div class="callout-title">Toque digital</div><p>Capacidade por modelo em <strong>SIGS › TOC</strong>; tempo de tecelagem por código no Banco de Dados. Gargalo calculado leva o OEE <em>nominal</em> da máquina (planejamento).</p></div>
+
+  <h3>2 · Passadoria</h3>
+  <p>Tratamento térmico que <strong>estabiliza a malha</strong> (termofixação/passagem), fixando dimensões e acabamento antes das etapas de união. Garante que a peça mantenha medida e caimento.</p>
+  <ul>
+    <li><strong>Entra:</strong> peça tricotada.</li>
+    <li><strong>Sai:</strong> peça estabilizada, pronta para união.</li>
+    <li><strong>Controle:</strong> dimensional e aspecto após o calor.</li>
+  </ul>
+
+  <h3>3 · Soldagem</h3>
+  <p><strong>Une e veda</strong> componentes da peça sem (ou antes de) costura, conforme o produto. Etapa crítica de resistência da junção.</p>
+  <ul>
+    <li><strong>Entra:</strong> peça estabilizada.</li>
+    <li><strong>Sai:</strong> peça com junções soldadas.</li>
+    <li><strong>Controle:</strong> resistência e vedação da solda.</li>
+  </ul>
+
+  <h3>4 · Costura Manual</h3>
+  <p>Costura e <strong>acabamento manual</strong> — pontos, arremates e detalhes que dependem de habilidade do operador. Absorve a variabilidade que a costura seriada não cobre.</p>
+  <ul>
+    <li><strong>Entra:</strong> peça soldada.</li>
+    <li><strong>Sai:</strong> peça com acabamento manual.</li>
+    <li><strong>Controle:</strong> qualidade do ponto e do arremate.</li>
+  </ul>
+
+  <h3>5 · Costura Automática</h3>
+  <p>Costura <strong>seriada em máquina</strong>, para volumes e padrões repetíveis. Ganha produtividade onde o padrão é estável.</p>
+  <ul>
+    <li><strong>Entra:</strong> peça em acabamento.</li>
+    <li><strong>Sai:</strong> peça costurada.</li>
+    <li><strong>Controle:</strong> uniformidade da costura, tensão da linha.</li>
+  </ul>
+
+  <h3>6 · Silicone</h3>
+  <p>Aplicação da <strong>banda de silicone</strong> (fixação / antideslizante) que segura a peça no lugar durante o uso. Etapa de valor direto para o usuário final.</p>
+  <ul>
+    <li><strong>Entra:</strong> peça costurada.</li>
+    <li><strong>Sai:</strong> peça com banda de silicone.</li>
+    <li><strong>Controle:</strong> aderência, posição e cura do silicone.</li>
+  </ul>
+
+  <h3>7 · Revisão</h3>
+  <p><strong>Inspeção final</strong> da peça. É aqui que os defeitos são pegos e viram <strong>Não Conformidade (NC)</strong> — sempre do <em>catálogo de defeitos</em>, nunca texto livre — alimentando CNQ, RNC e os gatilhos de qualidade.</p>
+  <ul>
+    <li><strong>Entra:</strong> peça pronta.</li>
+    <li><strong>Sai:</strong> peça aprovada (ou segregada para retrabalho/refugo).</li>
+    <li><strong>Controle:</strong> conformidade total ao padrão do produto.</li>
+  </ul>
+  <div class="callout ok"><div class="callout-title">Toque digital</div><p>Defeito sempre do <strong>catálogo</strong> (<code>catalogo_defeito</code>); severidade congelada no registro; fotos vão para o Storage. Volume/recorrência disparam <strong>RNC</strong> automaticamente.</p></div>
+
+  <h3>8 · Embalagem</h3>
+  <p><strong>Embala e identifica</strong> a peça aprovada para expedição — o ponto de saída do fluxo. Fecha a OP no chão.</p>
+  <ul>
+    <li><strong>Entra:</strong> peça aprovada na revisão.</li>
+    <li><strong>Sai:</strong> produto embalado e etiquetado, pronto para expedir.</li>
+    <li><strong>Controle:</strong> conferência de quantidade, etiqueta e rastreabilidade.</li>
+  </ul>
+</div>
+
+<!-- ─────────────── 3. ONDE O DADO VIVE ─────────────── -->
+<div class="page" id="s3">
+  <div class="section-header"><div class="section-num">3</div><h2>Onde o dado de cada processo vive</h2><span class="section-badge">Sistema</span></div>
+
+  <p>Cada etapa acima tem um reflexo digital. A tabela liga o processo ao módulo do sistema que guarda o dado real — a fonte da verdade que você deve consultar em vez de estimar.</p>
+
+  <table>
+    <tr><th>Precisa de…</th><th>Onde está</th><th>Origem</th></tr>
+    <tr><td><strong>Tempo-padrão da etapa</strong></td><td>MES › Engenharia › Cronoanálise</td><td><code>tempo_padrao</code></td></tr>
+    <tr><td><strong>Instrução de trabalho</strong> (parâmetros, receita)</td><td>MES › Documentos (por produto/etapa)</td><td><code>documento</code></td></tr>
+    <tr><td><strong>WIP</strong> (OPs em cada etapa agora)</td><td>MES › WIP · SIGS › Cockpit</td><td>apontamento + OP</td></tr>
+    <tr><td><strong>OEE medido</strong> (real)</td><td>MES › Indicadores · SIGS › Home/Reunião</td><td>vw_oee (apontamento)</td></tr>
+    <tr><td><strong>Lead time / gargalo do fluxo</strong></td><td>MES › VSM · SIGS › TOC</td><td>vw_wip_leadtime</td></tr>
+    <tr><td><strong>Defeitos / qualidade</strong></td><td>MES › NCs · CNQ · CEP</td><td>nao_conformidade + catalogo_defeito</td></tr>
+    <tr><td><strong>Balanceamento (takt/operadores)</strong></td><td>MES › Engenharia › Yamazumi/Balanceamento</td><td>tempo_padrao + demanda</td></tr>
+    <tr><td><strong>Risco do processo</strong></td><td>MES › Engenharia › FMEA</td><td>fmea (S×O×D)</td></tr>
+  </table>
+
+  <div class="callout danger"><div class="callout-title">Não invente número</div><p>Se um tempo, custo ou OEE não estiver no módulo correspondente, ele ainda <strong>não foi medido</strong> — o certo é apontar no chão até o dado existir, não preencher com estimativa. Indicador vazio é honesto; indicador chutado engana o plano.</p></div>
+
+  <h3>Do plano ao chão e de volta</h3>
+  <p>O fluxo de processos conversa com o planejamento nos dois sentidos: o <strong>Plano de Produção</strong> sequência a carteira por prazo (EDD) e joga prioridade no chão (Plano→Chão); o <strong>realizado</strong> apontado no MES volta para o Plano e para a Reunião (Chão→Plano). É o mesmo apontamento das 8 etapas fechando o ciclo.</p>
+
+  <div class="foot">Processos Malha Forte · ancorado nas 8 etapas de <code>etapa_processo</code> · parâmetros específicos vivem no MES.</div>
+</div>
+
+</body>
+</html>
