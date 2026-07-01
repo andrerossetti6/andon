@@ -690,58 +690,51 @@ const homeDash = {
 
     async _oeeAsync() {
         try {
-            const [oeeData, wipData] = await Promise.all([
-                api.get('/api/mes/oee'),
-                api.get('/api/mes/wip')
+            // Fase 6: fonte ÚNICA do Malha Forte (painel = OEE medido · wip = OPs no fluxo). Sem mais /api/mes legado.
+            const [painel, wipData] = await Promise.all([
+                api.get('/api/mf/painel').catch(() => null),
+                api.get('/api/mf/wip').catch(() => null),
             ]);
 
             const oeeEl   = document.getElementById('home-oee');
             const oeeSub  = document.getElementById('home-oee-sub');
             const oeeCard = document.getElementById('home-card-oee');
-            if (oeeEl && oeeData) {
-                const v = Math.round((oeeData.oee || 0) * 10) / 10;
-                if (v > 0) {
+            if (oeeEl) {
+                const v = (painel && painel.oee_medio != null) ? Math.round(painel.oee_medio * 10) / 10 : null;
+                if (v != null && v > 0) {
                     const color = v >= 85 ? '#26a69a' : v >= 65 ? '#ffca28' : '#f06292';
                     oeeEl.textContent = v + '%';
                     oeeEl.style.color = color;
                     if (oeeCard) oeeCard.style.borderTop = `3px solid ${color}`;
-                    if (oeeSub) oeeSub.textContent = `D: ${Math.round((oeeData.disponibilidade||0)*10)/10}% × Q: ${Math.round((oeeData.qualidade||0)*10)/10}%`;
+                    if (oeeSub) oeeSub.textContent = 'OEE medido no MES';
                 } else {
                     oeeEl.textContent = '—';
-                    if (oeeSub) oeeSub.textContent = 'sem apontamentos finalizados';
+                    oeeEl.style.color = '#8b949e';
+                    if (oeeSub) oeeSub.textContent = 'aguardando apontamento';
+                    if (oeeCard) oeeCard.style.borderTop = '3px solid rgba(255,255,255,.08)';
                 }
             }
 
             const wipEl   = document.getElementById('home-wip');
             const wipSub  = document.getElementById('home-wip-sub');
             const wipCard = document.getElementById('home-card-wip');
-            if (wipEl && Array.isArray(wipData)) {
-                const ativos  = wipData.filter(a => a.status === 'em_andamento').length;
-                const parados = wipData.filter(a => a.status === 'parado').length;
-                if (wipData.length > 0) {
-                    wipEl.textContent = wipData.length;
-                    const color = parados > 0 ? '#ffca28' : '#26c6da';
-                    wipEl.style.color = color;
-                    if (wipCard) wipCard.style.borderTop = `3px solid ${color}`;
-                    if (wipSub) wipSub.textContent = `${ativos} ativos · ${parados} pausados`;
-                    if (parados > 0) {
-                        const alertasEl = document.getElementById('home-alertas');
-                        if (alertasEl) {
-                            const div = document.createElement('div');
-                            div.onclick = () => navigateTo('mes');
-                            div.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:rgba(255,255,255,.03);border-radius:6px;cursor:pointer;border-left:3px solid #ffca28;margin-top:6px;';
-                            div.innerHTML = `${DOT.warn}<span style="font-size:.78rem;color:#e6edf3;">${parados} apontamento(s) MES em PARADA</span>`;
-                            alertasEl.appendChild(div);
-                        }
-                    }
+            if (wipEl) {
+                const board    = Array.isArray(wipData?.board) ? wipData.board : [];
+                const totalOps = board.reduce((s, b) => s + (b.ops || 0), 0);
+                const sessoes  = painel?.sessoes_abertas || 0;
+                if (totalOps > 0) {
+                    wipEl.textContent = totalOps;
+                    wipEl.style.color = '#26c6da';
+                    if (wipCard) wipCard.style.borderTop = '3px solid #26c6da';
+                    if (wipSub) wipSub.textContent = `OPs no fluxo${sessoes ? ` · ${sessoes} em apontamento` : ''}`;
                 } else {
                     wipEl.textContent = '0';
                     wipEl.style.color = '#8b949e';
-                    if (wipSub) wipSub.textContent = 'nenhum em andamento';
+                    if (wipSub) wipSub.textContent = 'nenhuma OP no fluxo';
                     if (wipCard) wipCard.style.borderTop = '3px solid rgba(255,255,255,.08)';
                 }
             }
-        } catch { /* MES tables may not exist yet */ }
+        } catch { /* MES Malha Forte ainda não inicializado */ }
     }
 };
 
@@ -6862,21 +6855,10 @@ const preactor = {
             });
         }
 
-        // Desconto da produção apontada no MES (por OP+processo; apontamentos sem OP descontam por código)
-        const descMes = document.getElementById('tl-desc-mes')?.checked ?? false;  // Fase 6: legado desligado por padrão (era cross-domain: descontava órtese × OPs de malha)
-        let apontadoOp = {}, apontadoCod = {}, minutosProduzidos = 0;
-        if (descMes) {
-            const aps = await this._loadApontamentos();
-            aps.forEach(a => {
-                const pid = this._procTextoParaId(a.processo);
-                const qtd = Number(a.qtd_produzida) || 0;
-                if (!pid || qtd <= 0) return;
-                const cod = String(a.cod || '').trim().toUpperCase();
-                const nop = String(a.op_numero || '').trim();
-                if (nop) apontadoOp[`${nop}|${pid}`] = (apontadoOp[`${nop}|${pid}`] || 0) + qtd;
-                else if (cod) apontadoCod[`${cod}|${pid}`] = (apontadoCod[`${cod}|${pid}`] || 0) + qtd;
-            });
-        }
+        // Fase 6: desconto de produção apontada APOSENTADO — era cross-domain (descontava órtese × OPs
+        // de malha do MES legado /api/mes). A fábrica de malha aponta no MES Malha Forte (mes.html);
+        // o realizado correto entra pelo Plano de Produção (Chão→Plano).
+        const minutosProduzidos = 0;
 
         const finishSem  = {};
         const lastFamilia = {};
@@ -6892,22 +6874,7 @@ const preactor = {
                 const tempoUn = this._getTempoProc(ordem.dados, pid);
                 if (!tempoUn) return;
 
-                // Quantidade restante = planejada − já produzida neste processo (MES)
-                let qtyRest = ordem.qty;
-                if (descMes) {
-                    const nop = String(ordem.nop || '').trim();
-                    if (nop && apontadoOp[`${nop}|${pid}`] > 0) {
-                        const usa = Math.min(qtyRest, apontadoOp[`${nop}|${pid}`]);
-                        qtyRest -= usa;
-                    }
-                    const ck = `${ordem.codigo}|${pid}`;
-                    if (qtyRest > 0 && apontadoCod[ck] > 0) {
-                        const usa = Math.min(qtyRest, apontadoCod[ck]);
-                        qtyRest -= usa;
-                        apontadoCod[ck] -= usa; // pool por código é consumido entre ordens
-                    }
-                    minutosProduzidos += tempoUn * (ordem.qty - qtyRest);
-                }
+                const qtyRest = ordem.qty;  // Fase 6: sem desconto do MES legado (ver nota acima)
                 if (qtyRest <= 0) {
                     // Processo já concluído no chão de fábrica — não ocupa capacidade nem atrasa a cadeia
                     finishSem[id][pid] = anteriorFim;
@@ -6960,12 +6927,6 @@ const preactor = {
             const nOver = ordens.filter(o => o._overflow).length;
             mostrarToast(`${nOver} orden${nOver>1?'s':''} (${(minutosOverflow/60).toFixed(0)}h) não couberam em ${nSemanas} semanas — aumente o horizonte.`, 'aviso');
         }
-    },
-
-    // ── MES → desconto de produção apontada ──────────────────────
-    async _loadApontamentos() {
-        const data = await api.get('/api/mes/apontamentos');
-        return data || [];
     },
 
     // Mapeia o nome livre do processo do MES (cadastro) para o id fixo da sequência
@@ -11173,12 +11134,29 @@ const mes = {
     _timerIds: {},
     _modalAptId: null,
 
+    // Fase 6: tela legada de apontamento APOSENTADA. A fábrica aponta no MES Malha Forte (mes.html),
+    // que é offline-first e alimenta WIP/OEE/realizado. Esta tela virou um ponteiro — não faz mais
+    // chamadas a /api/mes/*. Métodos legados abaixo ficam inertes (sem gatilho de UI).
     async init() {
-        if (!this._processos.length) {
-            const data = await api.get('/api/processos-config');
-            this._processos = data || [];
-        }
-        await this.mudarAba(this._aba);
+        const tabbar = document.getElementById('mes-tab-apt')?.parentElement;
+        if (tabbar) tabbar.style.display = 'none';
+        ['wip','oee'].forEach(p => { const el = document.getElementById(`mes-pane-${p}`); if (el) el.style.display = 'none'; });
+        const apt = document.getElementById('mes-pane-apt');
+        if (apt) apt.style.display = 'block';
+        const el = document.getElementById('mes-apt-content');
+        if (!el) return;
+        el.style.textAlign = 'left';
+        el.innerHTML = `<div style="max-width:640px;margin:36px auto;text-align:center;">
+            <div style="font-size:2.4rem;margin-bottom:10px;">🧵</div>
+            <h2 style="color:#fff;font-size:1.15rem;margin:0 0 8px;">Movido para o <span style="color:var(--indigo-primary);">MES Malha Forte</span></h2>
+            <p style="color:#8b949e;font-size:.9rem;line-height:1.6;margin:0 0 20px;">
+                O apontamento de chão, o WIP e o OEE agora vivem no <strong>MES Malha Forte</strong> — offline-first,
+                com catálogo de defeitos, NCs, paradas e indicadores em tempo real. Esta tela antiga foi <strong>aposentada</strong>
+                e não recebe mais apontamentos.
+            </p>
+            <a href="mes.html" style="display:inline-block;padding:11px 26px;border-radius:9px;background:var(--indigo-btn);color:#fff;font-size:.9rem;font-weight:700;text-decoration:none;">Abrir MES Malha Forte →</a>
+            <div style="margin-top:14px;"><a href="#" onclick="navigateTo('cockpit');return false;" style="color:#26c6da;font-size:.82rem;text-decoration:none;">ou ver o Cockpit integrado no SIGS</a></div>
+        </div>`;
     },
 
     mudarAba(aba) {
@@ -11201,7 +11179,7 @@ const mes = {
     },
 
     async atualizar() {
-        await this.mudarAba(this._aba);
+        await this.init();  // Fase 6: tela aposentada — apenas re-renderiza o ponteiro
     },
 
     _fmtElapsed(inicio) {
@@ -11862,16 +11840,23 @@ const reuniaoDiaria = {
         const hoje = agora.toISOString().slice(0, 10);
 
         try {
-            const [wip, oeeHoje, aptHoje] = await Promise.all([
-                api.get('/api/mes/wip'),
-                api.get(`/api/mes/oee?data_inicio=${hoje}&data_fim=${hoje}`),
-                api.get(`/api/mes/apontamentos?data_inicio=${hoje}&data_fim=${hoje}&status=finalizado`)
+            // Fase 6: fonte ÚNICA do Malha Forte (painel = OEE medido · wip = OPs no fluxo · confirmações = produção do dia)
+            const [painel, wipData, conf] = await Promise.all([
+                api.get('/api/mf/painel').catch(() => null),
+                api.get('/api/mf/wip').catch(() => null),
+                api.get('/api/mf/erp/confirmacoes').catch(() => null),
             ]);
 
-            const ativos  = (wip || []).filter(a => a.status === 'em_andamento');
-            const parados = (wip || []).filter(a => a.status === 'parado');
-            const qtdHoje = (aptHoje || []).reduce((s, a) => s + (a.qtd_produzida || 0), 0);
-            const refHoje = (aptHoje || []).reduce((s, a) => s + (a.qtd_refugo || 0), 0);
+            const board   = Array.isArray(wipData?.board) ? wipData.board : [];
+            const wipOps  = board.reduce((s, b) => s + (b.ops || 0), 0);
+            const sessoes = painel?.sessoes_abertas || 0;
+            const oeeVal  = (painel && painel.oee_medio != null) ? painel.oee_medio : 0;
+
+            // Produção do dia: confirmações cujo último apontamento é hoje
+            const doDia   = (conf?.confirmacoes || []).filter(c => String(c.ultima_producao || '').slice(0, 10) === hoje);
+            const qtdHoje = doDia.reduce((s, c) => s + (Number(c.qtd_produzida) || 0), 0);
+            const refHoje = doDia.reduce((s, c) => s + (Number(c.qtd_refugo) || 0), 0);
+            const opsHoje = doDia.length;
 
             // Gargalo do TOC (in-memory)
             const gargaloProc = toc._resultProcs?.filter(p => !p.semDados)
@@ -11880,16 +11865,8 @@ const reuniaoDiaria = {
             // Alertas (recomputa síncrono)
             const alertas = this._alertas();
 
-            // Paradas ativas com detalhes
-            const paradasAtivas = parados.map(a => {
-                const ult = (a.paradas_mes || []).find(p => !p.fim);
-                return { ...a, paradaAtual: ult };
-            });
-
             body.innerHTML = this._html({
-                ativos, parados, paradasAtivas,
-                oeeHoje, qtdHoje, refHoje, aptHoje: aptHoje || [],
-                gargaloProc, alertas
+                wipOps, sessoes, oeeVal, qtdHoje, refHoje, opsHoje, gargaloProc, alertas
             });
 
         } catch (e) {
@@ -11928,10 +11905,8 @@ const reuniaoDiaria = {
         return alertas;
     },
 
-    _html({ ativos, parados, paradasAtivas, oeeHoje, qtdHoje, refHoje, aptHoje, gargaloProc, alertas }) {
-        const oee = Math.round(oeeHoje?.oee || 0);
-        const D   = Math.round(oeeHoje?.disponibilidade || 0);
-        const Q   = Math.round(oeeHoje?.qualidade || 0);
+    _html({ wipOps, sessoes, oeeVal, qtdHoje, refHoje, opsHoje, gargaloProc, alertas }) {
+        const oee = Math.round(oeeVal || 0);
         const corOEE = oee >= 85 ? '#3fb950' : oee >= 65 ? '#ffca28' : '#f06292';
 
         const gPct  = gargaloProc ? Math.round((gargaloProc.util||0)*100) : null;
@@ -11955,19 +11930,19 @@ const reuniaoDiaria = {
             ${card(`
                 ${kpiLabel('WIP Agora')}
                 <div style="display:flex;align-items:baseline;gap:12px;">
-                    ${kpiVal(ativos.length + parados.length, ativos.length+parados.length > 0 ? '#26c6da' : '#8b949e')}
-                    <div style="font-size:.85rem;color:#8b949e;">apontamentos</div>
+                    ${kpiVal(wipOps, wipOps > 0 ? '#26c6da' : '#8b949e')}
+                    <div style="font-size:.85rem;color:#8b949e;">OPs no fluxo</div>
                 </div>
-                ${kpiSub(`<span style="color:#3fb950;">▶ ${ativos.length} rodando</span> &nbsp;·&nbsp; <span style="color:${parados.length > 0 ? '#ffca28' : '#8b949e'};">⏸ ${parados.length} pausados</span>`)}
+                ${kpiSub(`<span style="color:${sessoes > 0 ? '#3fb950' : '#8b949e'};">▶ ${sessoes} em apontamento agora</span>`)}
             `, 'rgba(38,198,218,.05)', 'rgba(38,198,218,.15)')}
 
             ${card(`
-                ${kpiLabel('OEE Hoje')}
+                ${kpiLabel('OEE Medido')}
                 <div style="display:flex;align-items:baseline;gap:12px;">
                     ${kpiVal(oee > 0 ? oee + '%' : '—', corOEE)}
                     <div style="font-size:.85rem;color:#8b949e;">${oee >= 85 ? 'Classe mundial' : oee >= 65 ? 'Aceitável' : oee > 0 ? 'Atenção' : 'sem dados'}</div>
                 </div>
-                ${kpiSub(oee > 0 ? `Disponibilidade: <strong style="color:#e6edf3;">${D}%</strong> &nbsp;·&nbsp; Qualidade: <strong style="color:#e6edf3;">${Q}%</strong>` : 'Inicie apontamentos no MES')}
+                ${kpiSub(oee > 0 ? 'medido no MES Malha Forte' : 'aguardando apontamento no MES')}
             `, `rgba(${oee >= 85 ? '63,185,80' : oee >= 65 ? '255,202,40' : '240,98,146'},.04)`, `rgba(${oee >= 85 ? '63,185,80' : oee >= 65 ? '255,202,40' : '240,98,146'},.15)`)}
 
             ${card(`
@@ -11982,9 +11957,9 @@ const reuniaoDiaria = {
 
         // ── Row 2: KPIs de produção do dia ──
         const row2 = `<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
-            ${card(`${kpiLabel('Produzido Hoje')} ${kpiVal(qtdHoje.toLocaleString('pt-BR'), '#26c6da', '2rem')} ${kpiSub('unidades finalizadas')}`)}
+            ${card(`${kpiLabel('Produzido Hoje')} ${kpiVal(qtdHoje.toLocaleString('pt-BR'), '#26c6da', '2rem')} ${kpiSub('unidades boas (MES)')}`)}
             ${card(`${kpiLabel('Refugo Hoje')} ${kpiVal(refHoje.toLocaleString('pt-BR'), refHoje > 0 ? '#f06292' : '#3fb950', '2rem')} ${kpiSub(qtdHoje > 0 ? ((refHoje/qtdHoje*100).toFixed(1) + '% do produzido') : '—')}`)}
-            ${card(`${kpiLabel('OPs Finalizadas Hoje')} ${kpiVal(aptHoje.length, '#a5b4fc', '2rem')} ${kpiSub('apontamentos encerrados')}`)}
+            ${card(`${kpiLabel('OPs com Produção Hoje')} ${kpiVal(opsHoje, '#a5b4fc', '2rem')} ${kpiSub('OPs que apontaram hoje')}`)}
         </div>`;
 
         // ── Row 3: Alertas ──
@@ -12005,27 +11980,8 @@ const reuniaoDiaria = {
             <div style="display:flex;flex-direction:column;gap:7px;">${alertasHTML}</div>
         `);
 
-        // ── Row 4: Paradas ativas ──
-        let row4 = '';
-        if (paradasAtivas.length > 0) {
-            const rows = paradasAtivas.map(a => {
-                const par = a.paradaAtual;
-                const desde = par?.inicio ? this._fmtHora(par.inicio) : '—';
-                return `<div style="display:grid;grid-template-columns:120px 140px 90px 1fr auto;gap:12px;align-items:center;padding:10px 14px;background:rgba(255,202,40,.04);border-radius:8px;border-left:3px solid #ffca28;">
-                    <span style="font-size:.78rem;font-weight:700;color:#e6edf3;">${escHTML(a.op_numero || a.cod)}</span>
-                    <span style="font-size:.78rem;color:#8b949e;">${escHTML(a.processo)}</span>
-                    <span style="font-size:.75rem;color:#ffca28;">desde ${desde}</span>
-                    <span style="font-size:.78rem;color:#e6edf3;">${escHTML(par?.motivo || '—')}</span>
-                    <button onclick="reuniaoDiaria.fechar();navigateTo('mes')" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(255,202,40,.3);background:transparent;color:#ffca28;font-size:.7rem;cursor:pointer;">Ver MES</button>
-                </div>`;
-            }).join('');
-
-            row4 = card(`
-                <div style="font-size:.7rem;font-weight:700;letter-spacing:1.5px;color:#ffca28;text-transform:uppercase;margin-bottom:12px;">⏸ Paradas Ativas Agora</div>
-                <div style="display:flex;flex-direction:column;gap:6px;">${rows}</div>
-            `, 'rgba(255,202,40,.03)', 'rgba(255,202,40,.12)');
-        }
-
-        return row1 + row2 + row3 + row4;
+        // Fase 6: row de "Paradas Ativas" (modelo de sessão do MES legado) removida — as paradas agora
+        // vivem no MES Malha Forte (Andon), fora deste resumo de reunião.
+        return row1 + row2 + row3;
     }
 };

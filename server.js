@@ -977,6 +977,13 @@ app.get('/api/maquinas-unificado', auth, async (req, res) => {
     });
 });
 
+// ╔══════════════════════════════════════════════════════════════════════════╗
+// ║ LEGADO / DEPRECADO (Fase 6) — MES embutido do SIGS (tabelas plurais        ║
+// ║ apontamentos/paradas_mes). A fábrica de malha aponta no MES Malha Forte     ║
+// ║ (/api/mf/*, mes.html). O front do SIGS NÃO chama mais estes endpoints —     ║
+// ║ a tela 'mes' virou ponteiro e Home/Reunião/Preactor usam /api/mf/*.         ║
+// ║ Mantidos apenas para preservar os registros históricos; não estender.       ║
+// ╚══════════════════════════════════════════════════════════════════════════╝
 // ── MES — APONTAMENTOS ──────────────────────────────────────────
 app.get('/api/mes/apontamentos', auth, async (req, res) => {
     let q = supabase.from('apontamentos')
