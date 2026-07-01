@@ -55,7 +55,12 @@ async function batchInsert(tabela, importacaoTabela, importacaoId, rows, batchSi
 
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
-app.use(express.static(__dirname, { etag: false, lastModified: false, setHeaders: res => res.set('Cache-Control', 'no-store') }));
+// M13: não servir código do servidor / schema publicamente (só assets do front)
+app.use((req, res, next) => {
+    if (/\.sql$|(^|\/)(server|db|mes_seed|generate_graph)\.js$|(^|\/)package(-lock)?\.json$/i.test(req.path)) return res.status(404).end();
+    next();
+});
+app.use(express.static(__dirname, { etag: false, lastModified: false, dotfiles: 'ignore', setHeaders: res => res.set('Cache-Control', 'no-store') }));
 
 // ── Middleware de autenticação ────────────────────────────────
 function auth(req, res, next) {
@@ -1266,23 +1271,22 @@ app.get('/api/mf/motivos',   auth, (_q, res) => mfLista(res, 'motivo_parada', '*
 app.get('/api/mf/defeitos',  auth, (_q, res) => mfLista(res, 'catalogo_defeito', '*', 'descricao'));
 
 app.get('/api/mf/ops', auth, async (req, res) => {
-    let q = supabase.from('ordem_producao').select('*, produto:produto_id(codigo,descricao,unidade_medida,marca,cor,tamanho), etapa:etapa_atual_id(nome,ordem)').limit(1000);
-    if (req.query.status) q = q.eq('status', req.query.status);
-    const { data, error } = await q;
-    if (error) {
+    try {  // paginado (sem teto de 1000) + ordenado
+        const cols = '*, produto:produto_id(codigo,descricao,unidade_medida,marca,cor,tamanho), etapa:etapa_atual_id(nome,ordem)';
+        const data = await fetchAllSelect('ordem_producao', cols, q => { q = q.order('criado_em', { ascending: false }); if (req.query.status) q = q.eq('status', req.query.status); return q; });
+        return res.json(data);
+    } catch (e) {
         // fallback se as colunas novas (etapa_atual) ainda não existirem
-        const r2 = await supabase.from('ordem_producao').select('*, produto:produto_id(codigo,descricao,unidade_medida)').order('criado_em', { ascending: false }).limit(1000);
-        if (r2.error) return res.status(500).json({ erro: r2.error.message });
-        return res.json(r2.data || []);
+        try { return res.json(await fetchAllSelect('ordem_producao', '*, produto:produto_id(codigo,descricao,unidade_medida)', q => q.order('criado_em', { ascending: false }))); }
+        catch (e2) { return erro500(res, e2); }
     }
-    res.json(data || []);
 });
 
 // atualiza campos de uma OP (prioridade, status, datas)
 app.put('/api/mf/ops/:id', auth, mfEscrita, async (req, res) => {
     const upd = {};
     ['prioridade', 'status', 'data_prevista', 'data_abertura'].forEach(f => { if (req.body[f] !== undefined) upd[f] = req.body[f]; });
-    if (upd.prioridade !== undefined) upd.prioridade = Number(upd.prioridade) || 0;
+    if (upd.prioridade !== undefined) upd.prioridade = Math.max(0, Math.min(2, Number(upd.prioridade) || 0));  // clamp 0-2 (M1)
     const { error } = await supabase.from('ordem_producao').update(upd).eq('id', req.params.id);
     if (error) return erro500(res, error);
     res.json({ ok: true });
@@ -1291,7 +1295,9 @@ app.put('/api/mf/ops/:id', auth, mfEscrita, async (req, res) => {
 // prioridade para a Fila do operador. Ranking: 20% mais urgentes→2, 30% seguintes→1.
 app.post('/api/mf/sequenciar-carteira', auth, mfEscrita, async (req, res) => {
     const dry = !!req.body?.dry;
-    const ops = (await supabase.from('ordem_producao').select('id,data_prevista').neq('status', 'cancelada').neq('status', 'concluida')).data || [];
+    let ops;
+    try { ops = await fetchAllSelect('ordem_producao', 'id,data_prevista', q => q.neq('status', 'cancelada').neq('status', 'concluida')); }  // paginado + erro tratado (A2/A4)
+    catch (e) { return erro500(res, e); }
     ops.sort((a, b) => { if (!a.data_prevista) return 1; if (!b.data_prevista) return -1; return new Date(a.data_prevista) - new Date(b.data_prevista); });
     const n = ops.length; let urgente = 0, alta = 0, normal = 0;
     const prioDe = ops.map((o, i) => {
@@ -1300,7 +1306,10 @@ app.post('/api/mf/sequenciar-carteira', auth, mfEscrita, async (req, res) => {
         if (p === 2) urgente++; else if (p === 1) alta++; else normal++;
         return { id: o.id, p };
     });
-    if (!dry) for (const p of [0, 1, 2]) { const ids = prioDe.filter(x => x.p === p).map(x => x.id); if (ids.length) await supabase.from('ordem_producao').update({ prioridade: p }).in('id', ids); }
+    if (!dry) for (const p of [0, 1, 2]) {
+        const ids = prioDe.filter(x => x.p === p).map(x => x.id);
+        if (ids.length) { const { error } = await supabase.from('ordem_producao').update({ prioridade: p }).in('id', ids); if (error) return erro500(res, error); }
+    }
     res.json({ ok: true, dry, criterio: 'EDD (data de entrega)', urgente, alta, normal, total: n });
 });
 
@@ -1536,13 +1545,14 @@ async function mfFotoUrl(armazenado) {
 app.post('/api/mf/fotos', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.nc_id || !b.url) return res.status(400).json({ erro: 'nc_id e url obrigatórios' });
+    if (!/^[0-9a-f-]{36}$/i.test(String(b.nc_id))) return res.status(400).json({ erro: 'nc_id inválido' });  // M12: bloqueia path traversal na chave do Storage
     let urlFinal = b.url, tamanho = b.tamanho_bytes || null;
     // data URL (base64) → upload ao Storage privado; guarda só o CAMINHO
     const m = /^data:(image\/\w+);base64,(.+)$/s.exec(b.url || '');
     if (m) {
         const mime = m[1], buffer = Buffer.from(m[2], 'base64');
         const ext = mime.split('/')[1].replace('jpeg', 'jpg');
-        const nomeBase = b.id || Date.now();
+        const nomeBase = /^[a-z0-9-]{1,40}$/i.test(String(b.id)) ? b.id : Date.now();  // M12: sanitiza o nome
         const caminho = `nc/${b.nc_id}/${nomeBase}.${ext}`;
         const { error: upErr } = await supabase.storage.from(MF_BUCKET).upload(caminho, buffer, { contentType: mime, upsert: true });
         if (upErr) return res.status(500).json({ erro: 'Falha no upload da foto: ' + upErr.message });
@@ -2137,6 +2147,9 @@ app.get('/api/mf/painel', auth, async (_q, res) => {
         supabase.from('ordem_manutencao').select('id', { count: 'exact', head: true }).not('status', 'in', '(concluida,cancelada)'),
         supabase.from('apontamento').select('id', { count: 'exact', head: true }).is('datahora_fim', null),
     ]);
+    // M2: se as views não existem, avisa (não devolve zeros silenciosos como 'tudo ok')
+    const erroView = [oee, cnq, qual, rnc].find(r => r.error && /schema cache|does not exist|relation/i.test(r.error.message || ''));
+    if (erroView) return res.status(503).json({ erro: 'Views do painel ainda não criadas — rode os SQLs (mes_indicadores/mes_rnc/mes_metas).' });
     const oeeVals = (oee.data || []).map(o => o.oee).filter(v => v != null);
     res.json({
         oee_medio: oeeVals.length ? Math.round(oeeVals.reduce((s, v) => s + v, 0) / oeeVals.length) : null,
@@ -2595,10 +2608,11 @@ app.post('/api/mf/importar-ops', auth, mfEscrita, async (req, res) => {
     // dedup por número dentro do próprio arquivo (mantém o primeiro)
     const vistos = new Set(); const limpas = [];
     for (const r of rows) { const n = String(r.numero || '').trim(); if (!n || vistos.has(n)) continue; vistos.add(n); limpas.push(r); }
-    const { data: existsOps, error: eOps } = await supabase.from('ordem_producao').select('numero');
-    if (eOps) return res.status(500).json({ erro: eOps.message });
+    let existsOps, prods;
+    try {  // paginado (sem teto de 1000) — senão OP/produto além de 1000 é tratado como novo → duplica (A6)
+        [existsOps, prods] = await Promise.all([fetchAllSelect('ordem_producao', 'numero'), fetchAllSelect('produto', 'id,codigo')]);
+    } catch (e) { return erro500(res, e); }
     const opSet = new Set((existsOps || []).map(o => String(o.numero)));
-    const { data: prods } = await supabase.from('produto').select('id,codigo');
     const prodMap = new Map((prods || []).map(p => [String(p.codigo), p.id]));
     const novas = [], existentes = [], prodNovos = new Map();
     for (const r of limpas) {
@@ -2650,8 +2664,13 @@ app.post('/api/mf/maquina-contagem', mfMaquinaAuth, async (req, res) => {
 });
 // ── #5 ERP write-back: confirmações de produção (OPs + produzido) p/ o ERP ────
 app.get('/api/mf/erp/confirmacoes', auth, async (req, res) => {
-    const ops = (await supabase.from('ordem_producao').select('id,numero,status,qtd_planejada,unidade,data_abertura,data_prevista, produto:produto_id(codigo)').neq('status', 'cancelada')).data || [];
-    const aps = (await supabase.from('apontamento').select('op_id,qtd_boa,qtd_refugo,qtd_retrabalho,datahora_fim')).data || [];
+    let ops, aps;
+    try {  // paginado (sem teto de 1000) — senão o realizado do Plano subconta (A3)
+        [ops, aps] = await Promise.all([
+            fetchAllSelect('ordem_producao', 'id,numero,status,qtd_planejada,unidade,data_abertura,data_prevista, produto:produto_id(codigo)', q => q.neq('status', 'cancelada')),
+            fetchAllSelect('apontamento', 'op_id,qtd_boa,qtd_refugo,qtd_retrabalho,datahora_fim'),
+        ]);
+    } catch (e) { return erro500(res, e); }
     const byOp = {};
     aps.forEach(a => { const o = (byOp[a.op_id] = byOp[a.op_id] || { boa: 0, refugo: 0, retrab: 0, ultima: null }); o.boa += Number(a.qtd_boa || 0); o.refugo += Number(a.qtd_refugo || 0); o.retrab += Number(a.qtd_retrabalho || 0); if (a.datahora_fim && (!o.ultima || a.datahora_fim > o.ultima)) o.ultima = a.datahora_fim; });
     let conf = ops.map(o => { const p = byOp[o.id] || { boa: 0, refugo: 0, retrab: 0, ultima: null }; return { op: o.numero, produto: o.produto?.codigo || null, status: o.status, unidade: o.unidade, qtd_planejada: Number(o.qtd_planejada), qtd_produzida: p.boa, qtd_refugo: p.refugo, qtd_retrabalho: p.retrab, ultima_producao: p.ultima }; });
@@ -2673,6 +2692,7 @@ app.get('/api/mf/documentos', auth, async (req, res) => {
 app.post('/api/mf/documentos', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.titulo || (!b.url && !b.conteudo)) return res.status(400).json({ erro: 'título e (url ou conteúdo) obrigatórios' });
+    if (b.url && !/^https?:\/\//i.test(String(b.url).trim())) return res.status(400).json({ erro: 'URL deve começar com http:// ou https:// (A7)' });  // bloqueia javascript:/data:
     let produto_id = b.produto_id || null;
     if (!produto_id && b.produto_codigo) { const { data: pr } = await supabase.from('produto').select('id').eq('codigo', b.produto_codigo).limit(1).single(); if (!pr) return res.status(400).json({ erro: 'código de produto não encontrado' }); produto_id = pr.id; }
     const { data, error } = await supabase.from('documento').insert({ titulo: b.titulo, produto_id, etapa_id: b.etapa_id || null, url: b.url || null, conteudo: b.conteudo || null }).select().single();
@@ -2722,33 +2742,34 @@ app.get('/api/mf/balanceamento', auth, async (req, res) => {
     res.json({ takt: takt ? Math.round(takt * 10) / 10 : null, demanda, horasDia, gargalo: gargalo?.etapa || null, etapas });
 });
 
-// 3) Produtividade por operador
-app.get('/api/mf/produtividade', auth, async (_q, res) => {
+// 3) Produtividade por operador (admin — expõe desempenho individual, B9)
+app.get('/api/mf/produtividade', auth, adminOnly, async (_q, res) => {
     const r = await supabase.from('vw_produtividade_operador').select('*').order('pecas_por_hora', { ascending: false, nullsFirst: false });
     const ind = _viewIndisp(r, 'mes_engenharia.sql'); if (ind) return res.status(503).json({ erro: ind });
     if (r.error) return erro500(res, r.error);
     res.json(r.data || []);
 });
 
-// 4) Custeio real por OP + cadastro de taxas (R$/h) — taxas são do usuário
-app.get('/api/mf/custo', auth, async (_q, res) => {
+// 4) Custeio real por OP + cadastro de taxas (R$/h) — admin (custo/salário, B9)
+app.get('/api/mf/custo', auth, adminOnly, async (_q, res) => {
     const r = await supabase.from('vw_custo_op').select('*').order('custo_total', { ascending: false, nullsFirst: false });
     const ind = _viewIndisp(r, 'mes_engenharia.sql'); if (ind) return res.status(503).json({ erro: ind });
     if (r.error) return erro500(res, r.error);
     res.json(r.data || []);
 });
-app.get('/api/mf/custo/taxas', auth, async (_q, res) => {
+app.get('/api/mf/custo/taxas', auth, adminOnly, async (_q, res) => {
     const [ops, maqs] = await Promise.all([
         supabase.from('operador').select('id,nome,custo_hora').eq('ativo', true).order('nome'),
         supabase.from('maquina').select('id,codigo,nome,custo_hora').eq('ativo', true).order('codigo'),
     ]);
     res.json({ operadores: ops.data || [], maquinas: maqs.data || [] });
 });
-app.put('/api/mf/custo/taxa/:tipo/:id', auth, mfEscrita, async (req, res) => {
+app.put('/api/mf/custo/taxa/:tipo/:id', auth, adminOnly, async (req, res) => {  // admin (define taxa/salário, B9)
     const tabela = req.params.tipo === 'operador' ? 'operador' : req.params.tipo === 'maquina' ? 'maquina' : null;
     if (!tabela) return res.status(400).json({ erro: 'tipo inválido' });
-    const v = Number(req.body?.custo_hora);
-    if (!(v >= 0)) return res.status(400).json({ erro: 'custo_hora inválido' });
+    const raw = req.body?.custo_hora;
+    let v = null;  // null = limpar a taxa (M11)
+    if (raw != null && raw !== '') { v = Number(raw); if (!(v >= 0)) return res.status(400).json({ erro: 'custo_hora inválido' }); }
     const { error } = await supabase.from(tabela).update({ custo_hora: v }).eq('id', req.params.id);
     if (error) return erro500(res, error);
     res.json({ ok: true });
@@ -2764,8 +2785,11 @@ app.get('/api/mf/fmea', auth, async (_q, res) => {
 app.post('/api/mf/fmea', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.modo_falha) return res.status(400).json({ erro: 'modo_falha obrigatório' });
-    const row = { etapa_id: b.etapa_id || null, modo_falha: b.modo_falha, efeito: b.efeito || null, causa: b.causa || null,
-        severidade: b.severidade || null, ocorrencia: b.ocorrencia || null, deteccao: b.deteccao || null, acao: b.acao || null };
+    const sod = {};  // M6: valida faixa 1-10 (senão viola o CHECK e vira 500 opaco)
+    for (const k of ['severidade', 'ocorrencia', 'deteccao']) {
+        if (b[k] != null && b[k] !== '') { const v = Math.round(Number(b[k])); if (!(v >= 1 && v <= 10)) return res.status(400).json({ erro: `${k} deve ser inteiro de 1 a 10` }); sod[k] = v; } else sod[k] = null;
+    }
+    const row = { etapa_id: b.etapa_id || null, modo_falha: b.modo_falha, efeito: b.efeito || null, causa: b.causa || null, ...sod, acao: b.acao || null };
     const { data, error } = await supabase.from('fmea').insert(row).select().single();
     if (error) return erro500(res, error);
     res.json({ ok: true, fmea: data });
@@ -2828,7 +2852,9 @@ app.get('/api/mf/vsm', auth, async (_q, res) => {
 // Heijunka — nivelamento: distribui a carteira por família entre N períodos
 app.get('/api/mf/heijunka', auth, async (req, res) => {
     const periodos = Math.max(2, Math.min(12, Number(req.query.periodos) || 5));
-    const ops = (await supabase.from('ordem_producao').select('qtd_planejada, produto:produto_id(marca,codigo)').neq('status', 'cancelada').neq('status', 'concluida')).data || [];
+    let ops;
+    try { ops = await fetchAllSelect('ordem_producao', 'qtd_planejada, produto:produto_id(marca,codigo)', q => q.neq('status', 'cancelada').neq('status', 'concluida')); }  // pagina + trata erro (M7)
+    catch (e) { return erro500(res, e); }
     const fam = {};
     ops.forEach(o => { const f = (o.produto?.marca || o.produto?.codigo || '—').toString().trim() || '—'; fam[f] = (fam[f] || 0) + (Number(o.qtd_planejada) || 0); });
     const familias = Object.entries(fam).map(([nome, total]) => ({ nome, total: Math.round(total), por_periodo: Math.round(total / periodos) })).sort((a, b) => b.total - a.total);
@@ -2870,7 +2896,9 @@ app.post('/api/mf/auditoria-5s', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.area) return res.status(400).json({ erro: 'area obrigatória' });
     const row = { area: b.area, etapa_id: b.etapa_id || null, auditor: b.auditor || null, observacao: b.observacao || null };
-    ['seiri', 'seiton', 'seiso', 'seiketsu', 'shitsuke'].forEach(s => { row[s] = (b[s] != null && b[s] !== '') ? Number(b[s]) : null; });
+    for (const s of ['seiri', 'seiton', 'seiso', 'seiketsu', 'shitsuke']) {  // M5: valida faixa 0-5 (senão viola o CHECK → 500 opaco)
+        if (b[s] != null && b[s] !== '') { const v = Math.round(Number(b[s])); if (!(v >= 0 && v <= 5)) return res.status(400).json({ erro: `${s} deve ser inteiro de 0 a 5` }); row[s] = v; } else row[s] = null;
+    }
     const { data, error } = await supabase.from('auditoria_5s').insert(row).select('*').single();
     if (error) return erro500(res, error);
     res.json({ ok: true, auditoria: data });

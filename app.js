@@ -5049,7 +5049,7 @@ toc._calcDiasUteisDoMes = async function(mesStr) {
         const dow = dt.getDay();
         if (dow === 0 || dow === 6) continue; // fim de semana
         const iso = `${ano}-${String(mes).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-        if (!this._feriadosCache.has(iso)) uteis++;
+        if (!(this._feriadosCache || new Set()).has(iso)) uteis++;  // A1: guard se feriados falharam (não quebra o heatmap do S&OP)
     }
     return uteis;
 };

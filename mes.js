@@ -518,7 +518,7 @@ const mf = {
             const cor = this._filaStatusCor(o.status);
             const foraFluxo = !o.etapa_atual_id && !['concluida', 'cancelada'].includes(o.status);
             const pos = o.etapa ? `${o.etapa.ordem}. ${esc(o.etapa.nome)}` : '<span style="color:var(--text-dim);">fora do fluxo</span>';
-            const p = Number(o.prioridade || 0);
+            const p = Math.max(0, Math.min(2, Number(o.prioridade) || 0));  // M1: clampa 0-2 (PR só tem essas chaves)
             return `<tr style="border-bottom:1px solid rgba(255,255,255,.04);border-left:3px solid ${PR[p][1]};">
                 <td style="padding:6px 8px;">${foraFluxo ? `<input type="checkbox" ${this._filaSel.has(o.id) ? 'checked' : ''} onchange="mf._filaToggle('${o.id}')">` : ''}</td>
                 <td style="padding:6px 8px;color:var(--text-dim);text-align:right;">${or === 'seq' ? i + 1 : '·'}</td>
@@ -550,10 +550,11 @@ const mf = {
         this._filaTabela();
     },
     async salvarPrioridade(id, v) {
-        const o = (this._fila || []).find(x => x.id === id); if (o) o.prioridade = Number(v);  // atualiza local
+        const o = (this._fila || []).find(x => x.id === id); const antes = o ? o.prioridade : undefined;
+        if (o) o.prioridade = Number(v);  // atualiza local (otimista)
         this._filaTabela();  // re-ordena na hora (a OP pula para a posição certa)
         const r = await api.put('/api/mf/ops/' + id, { prioridade: Number(v) });
-        if (!r?.ok) toast(r?.erro || 'Erro ao salvar prioridade.', 'erro');
+        if (!r?.ok) { if (o) o.prioridade = antes; this._filaTabela(); toast(r?.erro || 'Erro ao salvar prioridade.', 'erro'); }  // B2: reverte se falhar
     },
     async filaJogarFluxo() {
         const ids = [...this._filaSel]; if (!ids.length) return;
@@ -982,9 +983,10 @@ const mf = {
             : `<div class="summary-card" style="color:var(--text-dim);text-align:center;padding:24px;">Sem produção apontada ainda — o custo por OP aparece quando houver apontamento.</div>`}`;
     },
     async salvarTaxa(tipo, id, val) {
-        const r = await api.put(`/api/mf/custo/taxa/${tipo}/${id}`, { custo_hora: +val || 0 });
-        toast(r?.ok ? 'Taxa salva.' : 'Erro.', r?.ok ? 'ok' : 'erro');
-        if (r?.ok) this.renderCusto();
+        const custo = (val === '' || val == null) ? null : (Number(val) >= 0 ? Number(val) : 0);  // M11: vazio limpa (null)
+        const r = await api.put(`/api/mf/custo/taxa/${tipo}/${id}`, { custo_hora: custo });
+        toast(r?.ok ? 'Taxa salva.' : (r?.erro || 'Erro.'), r?.ok ? 'ok' : 'erro');
+        // B7: não re-renderiza (perderia edição em campo vizinho); a tabela de custo atualiza ao reabrir a aba
     },
 
     // 5) Melhoria contínua — FMEA + Kaizen
@@ -1070,7 +1072,7 @@ const mf = {
                 <div style="display:flex;gap:24px;margin-top:12px;flex-wrap:wrap;">
                     <div><div style="font-size:1.5rem;font-weight:800;color:#26c6da;">${d.lead_total_h}h</div><div style="font-size:.66rem;color:var(--text-dim);">LEAD TIME TOTAL</div></div>
                     <div><div style="font-size:1.5rem;font-weight:800;color:#26a69a;">${d.va_total_h}h</div><div style="font-size:.66rem;color:var(--text-dim);">VALOR AGREGADO</div></div>
-                    <div><div style="font-size:1.5rem;font-weight:800;color:${d.pct_va == null ? 'var(--text-dim)' : d.pct_va < 20 ? '#f06292' : '#ffca28'};">${d.pct_va != null ? d.pct_va + '%' : '—'}</div><div style="font-size:.66rem;color:var(--text-dim);">% VALOR AGREGADO</div></div></div></div>
+                    <div><div style="font-size:1.5rem;font-weight:800;color:${d.pct_va == null ? 'var(--text-dim)' : d.pct_va < 15 ? '#f06292' : d.pct_va < 30 ? '#ffca28' : '#26a69a'};">${d.pct_va != null ? d.pct_va + '%' : '—'}</div><div style="font-size:.66rem;color:var(--text-dim);">% VALOR AGREGADO</div></div></div></div>
             ${d.etapas.some(e => e.lead_horas || e.wip_ops) ? `<div class="summary-card">${linhas}</div>` : `<div class="summary-card" style="color:var(--text-dim);text-align:center;padding:28px;">Sem fluxo ainda. O VSM se preenche quando as OPs entrarem no WIP e o chão apontar (defina o tempo-padrão e jogue OPs no fluxo).</div>`}`;
     },
 
