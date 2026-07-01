@@ -1064,11 +1064,11 @@ app.get('/api/mes/wip', auth, async (_req, res) => {
 app.get('/api/mes/oee', auth, async (req, res) => {
     const dataIni = req.query.data_inicio || new Date(Date.now() - 7*24*60*60*1000).toISOString().slice(0,10);
     const dataFim = req.query.data_fim    || new Date().toISOString().slice(0,10);
-    const { data: apts } = await supabase.from('apontamentos')
-        .select('processo,inicio,fim,qtd_produzida,qtd_refugo,paradas_mes(duracao_min,motivo,tipo)')
-        .gte('inicio', dataIni)
-        .lte('inicio', dataFim + 'T23:59:59')
-        .eq('status', 'finalizado');
+    let apts;
+    try {  // paginado (sem teto de 1000) — senão o OEE do período subconta silenciosamente
+        apts = await fetchAllSelect('apontamentos', 'processo,inicio,fim,qtd_produzida,qtd_refugo,paradas_mes(duracao_min,motivo,tipo)',
+            q => q.gte('inicio', dataIni).lte('inicio', dataFim + 'T23:59:59').eq('status', 'finalizado'));
+    } catch (e) { return erro500(res, e); }
     if (!apts?.length) return res.json({ oee:0, disponibilidade:0, qualidade:0, processos:{}, motivos:[] });
 
     const byProc = {};
@@ -1145,7 +1145,16 @@ app.get('/api/backup', auth, adminOnly, async (_req, res) => {
 });
 
 // ── GET /api/setup — verifica tabelas e retorna SQL faltante ─────
-app.get('/api/setup', async (_req, res) => {
+app.get('/api/setup', async (req, res) => {
+    // Página navegável direto pela URL (o browser não manda o header JWT), então não usa o middleware auth.
+    // Mas o SQL de correção expõe o schema (CREATE TABLE + DISABLE RLS) — só é servido a um ADMIN autenticado
+    // (token via header OU ?token=). Anônimo vê apenas os nomes das tabelas faltando. (review baixa: server.js:1148)
+    const isAdmin = (() => {
+        try {
+            const t = req.headers.authorization?.split(' ')[1] || req.query.token;
+            return !!(t && jwt.verify(t, process.env.JWT_SECRET)?.perfil === 'admin');
+        } catch { return false; }
+    })();
     const TABELAS = [
         { nome: 'importacoes',          sql: `CREATE TABLE IF NOT EXISTS importacoes (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome_arquivo TEXT NOT NULL, usuario_id UUID REFERENCES usuarios(id), total_linhas INTEGER DEFAULT 0, anos TEXT[] DEFAULT '{}', criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE importacoes DISABLE ROW LEVEL SECURITY;` },
         { nome: 'vendas',               sql: `CREATE TABLE IF NOT EXISTS vendas (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), importacao_id UUID REFERENCES importacoes(id) ON DELETE CASCADE, codigo TEXT, descricao TEXT, modelo TEXT, segmento TEXT, tamanho TEXT, marca TEXT, meses JSONB DEFAULT '{}', quantidade NUMERIC(14,2) DEFAULT 0, valor NUMERIC(14,2) DEFAULT 0); CREATE INDEX IF NOT EXISTS idx_vendas_importacao ON vendas(importacao_id); ALTER TABLE vendas DISABLE ROW LEVEL SECURITY;` },
@@ -1217,12 +1226,13 @@ ${todasOk
     <h3>⚠️ ${faltando.length} tabela${faltando.length > 1 ? 's' : ''} faltando</h3>
     <ul>${faltando.map(t => `<li>${t.nome}</li>`).join('')}</ul>
   </div>
-  <h3 style="margin-bottom:8px;">Como corrigir — copie e execute no Supabase SQL Editor:</h3>
+  ${isAdmin ? `<h3 style="margin-bottom:8px;">Como corrigir — copie e execute no Supabase SQL Editor:</h3>
   <div class="step">1. Acesse <b>supabase.com/dashboard</b> → seu projeto → <b>SQL Editor</b> → <b>New query</b></div>
   <div class="step">2. Cole o SQL abaixo e clique em <b>Run</b></div>
   <div class="step">3. Recarregue esta página para confirmar que ficou tudo OK</div>
   <textarea id="sql">${sqlCompleto}</textarea>
   <button onclick="navigator.clipboard.writeText(document.getElementById('sql').value).then(()=>this.textContent='✓ Copiado!')">Copiar SQL</button>`
+  : `<div class="step">O SQL de correção só é exibido para um administrador autenticado. Abra esta página logado como admin no SIGS (ou acrescente <b>?token=SEU_TOKEN</b> à URL).</div>`}`
 }
 </body></html>`);
 });
@@ -2368,14 +2378,18 @@ app.get('/api/mf/wip', auth, async (_q, res) => {
     const etapasR = await supabase.from('etapa_processo').select('id,nome,ordem,cor,limite_wip').eq('ativo', true).order('ordem');
     if (etapasR.error && /schema cache|does not exist|column/i.test(etapasR.error.message || '')) return res.status(503).json({ erro: 'WIP não inicializado. Rode mes_wip_unificado.sql.' });
     if (etapasR.error) return res.status(500).json({ erro: etapasR.error.message });
-    const opsR = await supabase.from('ordem_producao').select('id,numero,qtd_planejada,unidade,status,etapa_atual_id,etapa_desde, produto:produto_id(descricao)').not('status', 'in', '(concluida,cancelada)');
-    if (opsR.error && /column|does not exist/i.test(opsR.error.message || '')) return res.status(503).json({ erro: 'WIP não inicializado. Rode mes_wip_unificado.sql.' });
+    let ops;
+    try {  // paginado (sem teto de 1000) — senão o board perde OPs em carteira grande
+        ops = await fetchAllSelect('ordem_producao', 'id,numero,qtd_planejada,unidade,status,etapa_atual_id,etapa_desde, produto:produto_id(descricao)', q => q.not('status', 'in', '(concluida,cancelada)'));
+    } catch (e) {
+        if (/column|does not exist/i.test(e.message || '')) return res.status(503).json({ erro: 'WIP não inicializado. Rode mes_wip_unificado.sql.' });
+        return erro500(res, e);
+    }
     const [abertasR, ltR, tpR] = await Promise.all([
         supabase.from('apontamento').select('op_id,etapa_id, operador:operador_id(nome)').is('datahora_fim', null),  // sessões abertas = em processo
         supabase.from('vw_wip_leadtime').select('*'),
         supabase.from('vw_wip_throughput').select('*'),
     ]);
-    const ops = opsR.data || [];
     const sessByOp = {}; (abertasR.data || []).forEach(a => { sessByOp[a.op_id] = a; });
     const lt = Object.fromEntries((ltR.data || []).map(r => [r.etapa_id, r]));
     const tp = Object.fromEntries((tpR.data || []).map(r => [r.etapa_id, r]));
@@ -2682,11 +2696,14 @@ app.post('/api/mf/maquina-contagem', mfMaquinaAuth, async (req, res) => {
 });
 // ── #5 ERP write-back: confirmações de produção (OPs + produzido) p/ o ERP ────
 app.get('/api/mf/erp/confirmacoes', auth, async (req, res) => {
+    // ?desde=YYYY-MM-DD escopa os apontamentos por datahora_fim (a Reunião usa 'hoje' e evita
+    // baixar a tabela inteira a cada 30s). Sem o param, traz o histórico todo (Plano precisa p/ realizado por mês).
+    const desde = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.desde || '')) ? req.query.desde : null;
     let ops, aps;
     try {  // paginado (sem teto de 1000) — senão o realizado do Plano subconta (A3)
         [ops, aps] = await Promise.all([
             fetchAllSelect('ordem_producao', 'id,numero,status,qtd_planejada,unidade,data_abertura,data_prevista, produto:produto_id(codigo)', q => q.neq('status', 'cancelada')),
-            fetchAllSelect('apontamento', 'op_id,qtd_boa,qtd_refugo,qtd_retrabalho,datahora_fim'),
+            fetchAllSelect('apontamento', 'op_id,qtd_boa,qtd_refugo,qtd_retrabalho,datahora_fim', q => desde ? q.gte('datahora_fim', desde) : q),
         ]);
     } catch (e) { return erro500(res, e); }
     const byOp = {};

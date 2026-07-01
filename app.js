@@ -20,6 +20,13 @@ function escHTML(s) {
     return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 }
 
+// Escapa string para uso DENTRO de onclick="fn('...')" / onchange etc. — sobrevive ao
+// decode do atributo: escapa barra e aspa p/ o parser JS, depois escHTML p/ o parser HTML.
+// Sem isso, aspa em dado importado (código/segmento/descrição) quebra o handler e injeta JS.
+function escJS(s) {
+    return escHTML(String(s ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+}
+
 // Normalização de chave única — remove acentos, espaços e caracteres especiais
 function normalizeKey(k) {
     return String(k).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9]/g,'');
@@ -2312,16 +2319,16 @@ const vendas = {
                 ? Math.round(this.mediaMeses.reduce((s, k) => s + (r[k] || 0), 0) / nMedia)
                 : null;
             return `
-            <tr onclick="abrirDetalhe('${r.descricao.replace(/'/g, "\\'")}','${r.segmento}')">
+            <tr onclick="abrirDetalhe('${escJS(r.descricao)}','${escJS(r.segmento)}')">
                 <td class="td-code">${escHTML(r.codigo)}</td>
                 <td class="td-desc">${escHTML(r.descricao)}</td>
-                <td>${r.modelo}</td>
-                <td><span class="seg-badge">${r.segmento}</span></td>
-                <td>${r.marca || '<span style="opacity:.3">—</span>'}</td>
-                <td class="td-center">${r.tamanho}</td>
+                <td>${escHTML(r.modelo)}</td>
+                <td><span class="seg-badge">${escHTML(r.segmento)}</span></td>
+                <td>${r.marca ? escHTML(r.marca) : '<span style="opacity:.3">—</span>'}</td>
+                <td class="td-center">${escHTML(r.tamanho)}</td>
                 ${extras.map(c => {
                     const v = (r._extras || {})[c];
-                    return `<td>${v || '<span style="opacity:.3">—</span>'}</td>`;
+                    return `<td>${v ? escHTML(v) : '<span style="opacity:.3">—</span>'}</td>`;
                 }).join('')}
                 ${cols.map(c => {
                     const v   = r[c.key];
@@ -4048,7 +4055,7 @@ const disponibilidade = {
             return `<tr>
                 <td style="font-family:monospace;color:#26c6da;">${fmt}</td>
                 <td style="color:var(--text-dim);">${dia}</td>
-                <td style="font-weight:500;">${f.nome}</td>
+                <td style="font-weight:500;">${escHTML(f.nome)}</td>
                 <td><span class="fer-tipo-badge ${tipoClass(f.tipo)}">${f.tipo}</span></td>
                 <td class="td-center"><button onclick="disponibilidade.excluirFeriado('${f.id}')"
                     style="background:none;border:none;color:#f06292;cursor:pointer;font-size:0.85rem;padding:4px 8px;">✕</button></td>
@@ -4271,7 +4278,7 @@ const disponibilidade = {
             }
             return `<div class="tur-card">
                 <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-                    <span class="tur-card-nome">${t.nome}</span>
+                    <span class="tur-card-nome">${escHTML(t.nome)}</span>
                     <div style="display:flex;gap:6px;">
                         <button onclick="disponibilidade.editarTurno('${t.id}')"
                             style="background:none;border:none;color:#8b949e;cursor:pointer;padding:0;line-height:1;" title="Editar">
@@ -5363,7 +5370,7 @@ const previsao = {
                     const f=sku.meses[m.mes]; const qty=f?f.qty:0;
                     return `<td style="padding:5px 10px;text-align:right;">
                         <input type="number" value="${qty}" min="0" style="width:72px;padding:3px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:4px;color:${f?.isOverride?'var(--indigo-primary)':'var(--text-primary)'};font-size:.78rem;text-align:right;"
-                            onchange="previsao._setOverride('${m.mes}_${sku.codigo}','${sku.codigo}','${m.mes}',this.value)">
+                            onchange="previsao._setOverride('${m.mes}_${escJS(sku.codigo)}','${escJS(sku.codigo)}','${m.mes}',this.value)">
                     </td>`;
                 }).join('');
                 const total  = this._nextMonths.reduce((s,m)=>s+(sku.meses[m.mes]?.qty||0),0);
@@ -5730,7 +5737,7 @@ const planoProducao = {
                 <td style="padding:6px 10px;text-align:right;">
                     <input type="number" min="0" value="${r.estMin||''}" placeholder="0"
                         style="width:68px;padding:3px 7px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:${minCor};font-size:.78rem;text-align:right;"
-                        onchange="planoProducao.setEstMin('${r.codigo}',parseInt(this.value)||0)">
+                        onchange="planoProducao.setEstMin('${escJS(r.codigo)}',parseInt(this.value)||0)">
                 </td>
                 <td style="padding:6px 10px;text-align:right;color:var(--indigo-primary);font-weight:600;">${r.sugerido.toLocaleString('pt-BR')}</td>
                 ${this._versaoSel ? (() => {
@@ -5744,7 +5751,7 @@ const planoProducao = {
                 <td style="padding:6px 10px;text-align:right;">
                     <input type="number" min="0" value="${r.planejado}" placeholder="${r.sugerido}"
                         style="width:80px;padding:4px 8px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:${planCor};font-size:.82rem;font-weight:600;text-align:right;"
-                        onchange="planoProducao.setQty('${r.codigo}','${this._mesSel}',parseInt(this.value)||0)">
+                        onchange="planoProducao.setQty('${escJS(r.codigo)}','${this._mesSel}',parseInt(this.value)||0)">
                 </td>
             </tr>`;
         }).join('');
@@ -11844,7 +11851,7 @@ const reuniaoDiaria = {
             const [painel, wipData, conf] = await Promise.all([
                 api.get('/api/mf/painel').catch(() => null),
                 api.get('/api/mf/wip').catch(() => null),
-                api.get('/api/mf/erp/confirmacoes').catch(() => null),
+                api.get('/api/mf/erp/confirmacoes?desde=' + hoje).catch(() => null),  // escopa: só produção de hoje (poll 30s barato)
             ]);
 
             const board   = Array.isArray(wipData?.board) ? wipData.board : [];

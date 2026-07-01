@@ -5,6 +5,9 @@
 // ── Helpers básicos ─────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+// Seguro DENTRO de onclick="fn('...')": escapa barra/aspa p/ o parser JS e DEPOIS esc() p/ o HTML.
+// (esc() antes do replace de aspa não protege — o &#39; é decodificado de volta para ' no atributo.)
+const escJS = s => esc(String(s ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
 const TOKEN_KEY = 'sin1_token';
 function toast(msg, tipo = 'ok') {
     let el = $('mf-toast');
@@ -2686,7 +2689,7 @@ const mf = {
                     <div style="font-size:.62rem;color:var(--text-dim);">${e.tipo.replace('_',' ')}${e.operador?.nome?' · '+esc(e.operador.nome):''}</div>
                 </div>
             </div>
-            ${e.status==='aberta' ? `<button class="btn secondary" style="font-size:.66rem;margin-top:6px;padding:3px 8px;" onclick="event.stopPropagation();mf.gerarOmDeEtiqueta('${e.id}','${e.maquina_id}','${esc(e.descricao).replace(/'/g,"\\'")}')">🔧 Gerar OM</button>` : ''}
+            ${e.status==='aberta' ? `<button class="btn secondary" style="font-size:.66rem;margin-top:6px;padding:3px 8px;" onclick="event.stopPropagation();mf.gerarOmDeEtiqueta('${escJS(e.id)}','${escJS(e.maquina_id)}','${escJS(e.descricao)}')">🔧 Gerar OM</button>` : ''}
         </div>`;
         const board = cols.map(c => {
             const lista = ets.filter(e => e.status === c.st);
