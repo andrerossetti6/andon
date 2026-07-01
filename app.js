@@ -1135,9 +1135,9 @@ const cockpit = {
 
 // Fase 3 (Plano→Chão): sequencia a carteira por EDD e empurra a prioridade ao chão (Fila do MES)
 async function sequenciarCarteira() {
-    if (!confirm('Sequenciar a carteira por data de entrega (EDD) e enviar a prioridade para o chão (Fila do operador no MES)?')) return;
+    if (!confirm('Sequenciar a carteira por data de entrega (EDD) e enviar a prioridade para o chão?\n\nAs prioridades que o operador já ajustou manualmente na Fila são PRESERVADAS (OK para sobrescrever tudo → Cancelar e use "forçar").')) return;
     const r = await api.post('/api/mf/sequenciar-carteira', {});
-    if (r?.ok) mostrarToast(`✓ Sequenciado por EDD: ${r.urgente} urgentes · ${r.alta} alta · ${r.normal} normal — prioridade enviada ao chão.`);
+    if (r?.ok) mostrarToast(`✓ Sequenciado por EDD: ${r.urgente} urgentes · ${r.alta} alta · ${r.normal} normal${r.preservadas ? ` · ${r.preservadas} manuais preservadas` : ''} — enviado ao chão.`);
     else mostrarToast('Erro ao sequenciar carteira.', 'erro');
 }
 
@@ -4448,9 +4448,10 @@ const toc = {
 
         // Derivação do cadastro: postos = Σ(n_pessoas||1) das máquinas ativas; OEE = média das máquinas
         const porPid = {};
+        const naoMapeados = [];   // B6: processos cujo nome não casa com nenhuma etapa do TOC — não somem em silêncio
         if (procs?.length && maqs?.length) {
             const pidDe = {};
-            procs.forEach(p => { const pid = preactor._procTextoParaId(p.nome); if (pid) pidDe[p.id] = pid; });
+            procs.forEach(p => { const pid = preactor._procTextoParaId(p.nome); if (pid) pidDe[p.id] = pid; else naoMapeados.push(p.nome); });
             maqs.filter(m => String(m.status||'Ativo').toLowerCase() !== 'inativo').forEach(m => {
                 const pid = pidDe[m.processo_id];
                 if (!pid) return;
@@ -4479,6 +4480,8 @@ const toc = {
         });
         this._capCache  = cache;
         this._capOrigem = origem;
+        this._capNaoMapeados = naoMapeados;   // B6: exposto para aviso no render
+        if (naoMapeados.length) console.warn('TOC · processos sem etapa correspondente (máquinas ignoradas na capacidade):', naoMapeados);
         this._renderCapacidade();
         return cache;
     },
@@ -4519,7 +4522,13 @@ const toc = {
         if (!grid) return;
         const cap = this._getCap();
         const CORES_ORIGEM = { servidor: '#26a69a', cadastro: '#26c6da', local: '#ffca28', 'padrão': '#f06292' };
-        grid.innerHTML = this._PROCS.map(p => {
+        // B6: avisa quando há processos cadastrados que não casam com nenhuma etapa do TOC (máquinas ignoradas na capacidade)
+        const aviso = (this._capNaoMapeados?.length)
+            ? `<div style="grid-column:1/-1;display:flex;align-items:flex-start;gap:8px;padding:9px 12px;background:rgba(255,202,40,.08);border:1px solid rgba(255,202,40,.35);border-radius:8px;font-size:.72rem;color:#ffca28;">
+                 <span>⚠</span><span><strong>${this._capNaoMapeados.length} processo(s) sem etapa correspondente</strong> — máquinas de <em>${this._capNaoMapeados.map(escHTML).join(', ')}</em> não entram na capacidade. Renomeie em Configuração › Processos para casar com uma etapa do TOC.</span>
+               </div>`
+            : '';
+        grid.innerHTML = aviso + this._PROCS.map(p => {
             const c = cap[p.id] || { maquinas: 1, horasDia: 8, oee: 100 };
             const org = this._capOrigem[p.id];
             const badge = org ? `<span title="Origem do valor: ${org === 'cadastro' ? 'derivado do cadastro de máquinas (Configuração › Processos)' : org === 'servidor' ? 'configuração salva no servidor' : org === 'local' ? 'apenas deste navegador — clique CALCULAR para salvar no servidor' : 'valor padrão — configure e calcule para salvar'}"
@@ -4539,8 +4548,8 @@ const toc = {
                     <span style="font-size:0.7rem;color:var(--text-dim);margin:0 1px;">·</span>
                     <input id="toc-oee-${p.id}" type="number" value="${c.oee ?? 100}" min="10" max="100" step="1"
                         style="width:48px;padding:4px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.8rem;text-align:center;"
-                        title="OEE %">
-                    <span style="font-size:0.7rem;color:var(--text-dim);">% OEE</span>
+                        title="OEE nominal (planejado) usado no cálculo de capacidade — ${org === 'cadastro' ? 'média do OEE cadastrado das máquinas' : 'valor de planejamento'}. NÃO é o OEE medido em tempo real (esse aparece no Cockpit/Home, a partir dos apontamentos).">
+                    <span style="font-size:0.7rem;color:var(--text-dim);" title="OEE nominal de planejamento — distinto do OEE medido do Cockpit">% OEE<sup style="font-size:.5rem;color:var(--text-dim);">nom</sup></span>
                 </div>
             </div>`;
         }).join('');
@@ -5571,11 +5580,18 @@ const planoProducao = {
 
     // Fase 4 (Chão→Plano): produção REAL apontada no MES, por produto
     async _loadRealizado() {
+        // B4: realizado escopado por mês (via ultima_producao 'YYYY-MM'), com total acumulado à parte
         this._realizado = {};
         const d = await api.get('/api/mf/erp/confirmacoes').catch(() => null);
         (d?.confirmacoes || []).forEach(c => {
             const cod = String(c.produto || '').trim().toUpperCase();
-            if (cod) this._realizado[cod] = (this._realizado[cod] || 0) + (Number(c.qtd_produzida) || 0);
+            if (!cod) return;
+            const qtd = Number(c.qtd_produzida) || 0;
+            if (!qtd) return;
+            const rec = (this._realizado[cod] = this._realizado[cod] || { total: 0, porMes: {} });
+            rec.total += qtd;
+            const mes = String(c.ultima_producao || '').slice(0, 7);  // 'YYYY-MM'
+            if (/^\d{4}-\d{2}$/.test(mes)) rec.porMes[mes] = (rec.porMes[mes] || 0) + qtd;
         });
     },
 
@@ -5692,7 +5708,10 @@ const planoProducao = {
                 ...r,
                 estqtd:   estMap[r.codigo]||0,
                 opQtd:    opMap[r.codigo]||0,
-                realizado: this._realizado?.[r.codigo]||0,
+                // B4: realizado do mês quando há data de produção; senão degrada p/ o acumulado (rotulado), p/ o badge não sumir
+                realizado:    this._realizado?.[r.codigo]?.porMes?.[this._mesSel] || 0,
+                realizadoTot: this._realizado?.[r.codigo]?.total || 0,
+                realizadoDatado: Object.keys(this._realizado?.[r.codigo]?.porMes || {}).length > 0,
                 estMin:   this._estMin[r.codigo]||0,
                 sugerido: Math.max(0, r.qty + (this._estMin[r.codigo]||0) - (estMap[r.codigo]||0) - (opMap[r.codigo]||0)),
                 planejado: this._plano[`${this._mesSel}_${r.codigo}`]??''
@@ -5708,7 +5727,13 @@ const planoProducao = {
                 <td style="padding:6px 10px;font-size:.78rem;color:var(--text-dim);">${escHTML(r.segmento||'')}</td>
                 <td style="padding:6px 10px;text-align:right;">${r.qty.toLocaleString('pt-BR')}</td>
                 <td style="padding:6px 10px;text-align:right;color:${r.estqtd<r.qty*.5?'#f06292':'var(--text-primary)'};">${r.estqtd.toLocaleString('pt-BR')}</td>
-                <td style="padding:6px 10px;text-align:right;">${r.opQtd.toLocaleString('pt-BR')}${r.realizado ? `<span style="color:#26a69a;font-size:.66rem;" title="já produzido no MES"> · ✓${r.realizado.toLocaleString('pt-BR')}</span>` : ''}</td>
+                <td style="padding:6px 10px;text-align:right;">${r.opQtd.toLocaleString('pt-BR')}${
+                    r.realizado
+                        ? `<span style="color:#26a69a;font-size:.66rem;" title="produzido no MES neste mês (${mesInfo?.label||this._mesSel})${r.realizadoTot>r.realizado?` · acumulado total: ${r.realizadoTot.toLocaleString('pt-BR')}`:''}"> · ✓${r.realizado.toLocaleString('pt-BR')}</span>`
+                        : (!r.realizadoDatado && r.realizadoTot
+                            ? `<span style="color:#8b949e;font-size:.66rem;" title="acumulado no MES (apontamentos sem data de conclusão — não dá p/ atribuir ao mês)"> · ✓${r.realizadoTot.toLocaleString('pt-BR')} acum</span>`
+                            : '')
+                }</td>
                 <td style="padding:6px 10px;text-align:right;">
                     <input type="number" min="0" value="${r.estMin||''}" placeholder="0"
                         style="width:68px;padding:3px 7px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:${minCor};font-size:.78rem;text-align:right;"
@@ -5819,8 +5844,8 @@ const politicaEstoque = {
         vendas.rawData.forEach(r => {
             const cod = String(r.codigo || '').trim().toUpperCase();
             if (!cod) return;
-            if (!vendMap[cod]) vendMap[cod] = { qtds: [], descricao: r.descricao || '', segmento: r.segmento || '' };
-            months.forEach(mc => { vendMap[cod].qtds.push(r[mc.key] || 0); });
+            if (!vendMap[cod]) vendMap[cod] = { porMes: {}, descricao: r.descricao || '', segmento: r.segmento || '' };
+            months.forEach(mc => { vendMap[cod].porMes[mc.key] = (vendMap[cod].porMes[mc.key] || 0) + (Number(r[mc.key]) || 0); });  // M3: soma por mês (SKU repetido não dilui a média)
         });
 
         // Estoque atual por SKU
@@ -5831,13 +5856,14 @@ const politicaEstoque = {
         });
 
         this._rows = Object.entries(vendMap).map(([cod, info]) => {
-            const n      = info.qtds.length;
-            const ativos = info.qtds.filter(v => v > 0).length;
+            const qtds   = months.map(mc => info.porMes[mc.key] || 0);  // M3: uma entrada por mês (não por linha)
+            const n      = qtds.length;
+            const ativos = qtds.filter(v => v > 0).length;
             if (!ativos) return null;
-            const demMedia = info.qtds.reduce((s, v) => s + v, 0) / n;
+            const demMedia = qtds.reduce((s, v) => s + v, 0) / n;
             if (demMedia < 1) return null;
             const desvPad = n > 1
-                ? Math.sqrt(info.qtds.reduce((s, v) => s + (v - demMedia) ** 2, 0) / (n - 1))
+                ? Math.sqrt(qtds.reduce((s, v) => s + (v - demMedia) ** 2, 0) / (n - 1))
                 : demMedia * 0.3;
 
             const abcClass     = abcMap[cod] || null;
@@ -9599,7 +9625,7 @@ const opDash = {
             || op.colunas?.find(c => { const n = normalizeKey(c); return COD_KEYS_OP.some(k => n === k || n.includes(k)); });
         op.rawData.forEach(r => {
             const k = refCol ? String(r.dados?.[refCol] ?? '').trim().toUpperCase() : '';
-            const q = qtdCol ? (parseFloat(String(r.dados?.[qtdCol] ?? '0').replace(',', '.')) || 0) : 0;
+            const q = qtdCol ? (parseFloat(String(r.dados?.[qtdCol] ?? '0').replace(/\./g, '').replace(',', '.')) || 0) : 0;  // M4: ponto=milhar, vírgula=decimal (pt-BR)
             if (k) opMap[k] = (opMap[k] || 0) + q;
         });
         // Usa apenas meses com dados reais para não inflar a cobertura com meses zerados
@@ -10773,11 +10799,20 @@ const comparador = {
         });
     },
 
+    // B3: anos derivados dos dados (não mais fixos em 2025/2026)
+    _anos() { return [...new Set(vendas.monthCols.map(c => c.year))].filter(Boolean).sort(); },
+    _dois() { const a = this._anos(); return a.length >= 2 ? a.slice(-2) : [a[0] || '', a[0] || '']; },
+    _renderAnoBtns() {
+        const wrap = document.getElementById('comp-ano-btns'); if (!wrap) return;
+        const anos = this._anos();
+        if (this._ano !== 'ambos' && !anos.includes(this._ano)) this._ano = anos.length >= 2 ? 'ambos' : (anos[anos.length - 1] || 'ambos');
+        let html = anos.map(a => `<button class="comp-ano-btn${this._ano === a ? ' active' : ''}" onclick="comparador.setAno('${a}')">${a}</button>`).join('');
+        if (anos.length >= 2) { const [y1, y2] = anos.slice(-2); html += `<button class="comp-ano-btn${this._ano === 'ambos' ? ' active' : ''}" onclick="comparador.setAno('ambos')">${y1} + ${y2}</button>`; }
+        wrap.innerHTML = html;
+    },
     setAno(ano) {
         this._ano = ano;
-        ['2025','2026','ambos'].forEach(a => {
-            document.getElementById(`comp-btn-${a}`)?.classList.toggle('active', a === ano);
-        });
+        this._renderAnoBtns();
         this.render();
     },
 
@@ -10855,6 +10890,7 @@ const comparador = {
     },
 
     render() {
+        this._renderAnoBtns();  // B3: reconstrói os botões de ano a partir dos dados
         const empty   = document.getElementById('comp-empty');
         const content = document.getElementById('comp-content');
         if (!vendas.rawData?.length) {
@@ -10923,15 +10959,16 @@ const comparador = {
                     vendas.monthCols.filter(c => c.abbr === abbr && c.year === year)
                         .reduce((s, c) => s + (totals[c.key] || 0), 0)
                 );
-                const p25 = get('2025'), p26 = get('2026');
+                const [ya, yb] = this._dois();  // B3: dois anos mais recentes
+                const p25 = get(ya), p26 = get(yb);
                 body = `
                     <div class="comp-res-year-section">
-                        <div class="comp-res-year-label" style="color:${color};">2025</div>
+                        <div class="comp-res-year-label" style="color:${color};">${ya}</div>
                         ${statRow(p25, MONTHS_ORDER)}
                     </div>
                     <hr class="comp-res-divider">
                     <div class="comp-res-year-section">
-                        <div class="comp-res-year-label" style="color:${color};">2026</div>
+                        <div class="comp-res-year-label" style="color:${color};">${yb}</div>
                         ${statRow(p26, MONTHS_ORDER)}
                     </div>`;
             } else {
@@ -10991,8 +11028,9 @@ const comparador = {
             const totals = this._getSeries(i);
             if (!totals) return;
             if (this._ano === 'ambos') {
-                const p25 = getPoints(totals, '2025');
-                const p26 = getPoints(totals, '2026');
+                const [ya, yb] = this._dois();  // B3: dois anos mais recentes (sólido=antigo, tracejado=recente)
+                const p25 = getPoints(totals, ya);
+                const p26 = getPoints(totals, yb);
                 if (p25.some(v => v > 0)) series.push({ color: this._colors[i], pts: p25, dashed: false, idx: i });
                 if (p26.some(v => v > 0)) series.push({ color: this._colors[i], pts: p26, dashed: true,  idx: i });
             } else {
@@ -11111,7 +11149,7 @@ const comparador = {
                 <span class="comp-leg-line" style="background:${color};"></span>
                 <span class="comp-leg-badge" style="background:${color}20;color:${color};">${this._labels[i]}</span>
                 <span class="comp-leg-name">${name}</span>
-                ${this._ano === 'ambos' ? `<span class="comp-leg-dash" style="border-color:${color};"></span><span class="comp-leg-year">2026</span>` : ''}
+                ${this._ano === 'ambos' ? `<span class="comp-leg-dash" style="border-color:${color};"></span><span class="comp-leg-year">${this._dois()[1]}</span>` : ''}
             </span>`);
         });
         el.innerHTML = items.length
@@ -11119,7 +11157,7 @@ const comparador = {
             : '<span style="color:#8b949e;font-size:0.82rem;">Nenhuma série configurada</span>';
         if (this._ano === 'ambos' && items.length) {
             el.innerHTML += `<div style="margin-top:8px;font-size:0.75rem;color:#8b949e;width:100%;">
-                ─── sólido = 2025 &nbsp;·&nbsp; - - - tracejado = 2026
+                ─── sólido = ${this._dois()[0]} &nbsp;·&nbsp; - - - tracejado = ${this._dois()[1]}
             </div>`;
         }
     }

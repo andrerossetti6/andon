@@ -1061,14 +1061,19 @@ const mf = {
         const maxLead = Math.max(1, ...d.etapas.map(e => e.lead_horas || 0));
         const linhas = d.etapas.map(e => {
             const wLead = e.lead_horas ? Math.round(e.lead_horas / maxLead * 100) : 0, wVa = e.lead_horas ? Math.round((e.va_horas || 0) / maxLead * 100) : 0;
+            // B5: marca de onde veio o lead — histórico medido vs espera atual do WIP (grandezas diferentes)
+            const fonteMark = e.lead_fonte === 'wip_atual'
+                ? ` <span title="lead = espera ATUAL do WIP (ainda sem histórico medido nesta etapa)" style="color:#ffca28;font-size:.66rem;">⧗wip</span>`
+                : (e.lead_fonte === 'historico' ? ` <span title="lead = média histórica medida de OPs concluídas" style="color:#26c6da;font-size:.66rem;">✓hist</span>` : '');
             return `<div style="margin-bottom:12px;">
                 <div style="display:flex;justify-content:space-between;font-size:.82rem;margin-bottom:3px;"><span>${e.ordem}. ${esc(e.etapa)}</span>
-                    <span style="color:var(--text-dim);">WIP ${e.wip_ops} OP${e.wip_ops !== 1 ? 's' : ''}${e.wip_qtd ? ' · ' + e.wip_qtd.toLocaleString('pt-BR') : ''} · lead ${e.lead_horas}h${e.va_horas ? ' · VA ' + e.va_horas + 'h' : ''}</span></div>
+                    <span style="color:var(--text-dim);">WIP ${e.wip_ops} OP${e.wip_ops !== 1 ? 's' : ''}${e.wip_qtd ? ' · ' + e.wip_qtd.toLocaleString('pt-BR') : ''} · lead ${e.lead_horas}h${fonteMark}${e.va_horas ? ' · VA ' + e.va_horas + 'h' : ''}</span></div>
                 <div style="height:16px;background:var(--bg-card);border-radius:4px;overflow:hidden;position:relative;"><div style="height:100%;width:${wLead}%;background:#30363d;"></div><div style="height:100%;width:${wVa}%;background:#26a69a;position:absolute;top:0;left:0;"></div></div></div>`;
         }).join('');
         pan.innerHTML = `
             <div class="summary-card" style="margin-bottom:14px;"><div class="s-label">🌊 VSM — MAPA DO FLUXO DE VALOR</div>
                 <p style="font-size:.8rem;color:var(--text-dim);margin:8px 0 0;">Lead time (cinza) × valor agregado (verde) por etapa. O que está fora do verde é <strong>espera = desperdício</strong>.</p>
+                ${d.lead_misturado ? `<p style="font-size:.72rem;color:#ffca28;margin:6px 0 0;">⚠ Lead misto: etapas <span style="color:#26c6da;">✓hist</span> usam média histórica medida; etapas <span style="color:#ffca28;">⧗wip</span> usam a espera atual do WIP (ainda sem histórico). O total soma as duas — compare com ressalva até todas terem histórico.</p>` : ''}
                 <div style="display:flex;gap:24px;margin-top:12px;flex-wrap:wrap;">
                     <div><div style="font-size:1.5rem;font-weight:800;color:#26c6da;">${d.lead_total_h}h</div><div style="font-size:.66rem;color:var(--text-dim);">LEAD TIME TOTAL</div></div>
                     <div><div style="font-size:1.5rem;font-weight:800;color:#26a69a;">${d.va_total_h}h</div><div style="font-size:.66rem;color:var(--text-dim);">VALOR AGREGADO</div></div>
@@ -1176,7 +1181,7 @@ const mf = {
         const cards = a3s.map(a => `<div class="summary-card" style="margin-bottom:10px;">
             <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;"><strong style="font-size:.92rem;">${esc(a.titulo)}</strong>
                 <span style="font-size:.72rem;color:var(--text-dim);">${a.etapa?.nome ? esc(a.etapa.nome) + ' · ' : ''}${a.responsavel ? esc(a.responsavel) + ' · ' : ''}<span style="color:#26c6da;">${faseLabel[a.fase] || a.fase}</span></span></div>
-            ${a.situacao_atual ? `<div style="font-size:.8rem;color:var(--text-dim);margin-top:6px;"><strong>Problema:</strong> ${esc(a.situacao_atual).slice(0, 140)}</div>` : ''}
+            ${a.situacao_atual ? `<div style="font-size:.8rem;color:var(--text-dim);margin-top:6px;"><strong>Problema:</strong> ${esc(String(a.situacao_atual).slice(0, 140))}</div>` : ''}
             <div style="display:flex;gap:4px;margin-top:8px;flex-wrap:wrap;">${['plan', 'do', 'check', 'act', 'concluido'].map(f => `<button onclick="mf.moverA3('${a.id}','${f}')" style="background:${a.fase === f ? '#26c6da' : 'var(--bg-card)'};color:${a.fase === f ? '#fff' : 'var(--text-dim)'};border:1px solid var(--border-color);border-radius:4px;cursor:pointer;font-size:.68rem;padding:2px 7px;">${faseLabel[f]}</button>`).join('')}
                 <button onclick="mf.formA3('${a.id}')" style="margin-left:auto;background:none;border:none;color:#26c6da;cursor:pointer;font-size:.72rem;">editar ▸</button></div></div>`).join('');
         pan.innerHTML = `

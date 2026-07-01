@@ -5,3 +5,6 @@ node_modules
 
 # backups locais (snapshots no CloudDocs, fora do git)
 backup-*/
+
+# grafo de conhecimento (local)
+graphify-out/

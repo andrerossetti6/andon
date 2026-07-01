@@ -90,10 +90,19 @@ function mfEscrita(req, res, next) {
 // Auth máquina-a-máquina (#4 contagem): aceita a chave fixa MF_MAQUINA_API_KEY
 // (header X-API-Key ou Authorization: Bearer <chave>) OU o login normal (JWT).
 // Assim o contador/CLP/gateway da máquina chama sem precisar de usuário.
+// B10: aceita VÁRIAS chaves (CSV em MF_MAQUINA_API_KEY) p/ rotação sem downtime —
+// gera a nova, mantém a antiga na lista, troca os gateways aos poucos, depois remove a antiga.
+// Comparação em tempo constante (timingSafeEqual) evita side-channel por tempo de resposta.
+function chaveMaquinaValida(enviado) {
+    if (!enviado) return false;
+    const crypto = require('crypto');
+    const buf = Buffer.from(String(enviado));
+    return String(process.env.MF_MAQUINA_API_KEY || '').split(',').map(s => s.trim()).filter(Boolean)
+        .some(k => { const kb = Buffer.from(k); return kb.length === buf.length && crypto.timingSafeEqual(kb, buf); });
+}
 function mfMaquinaAuth(req, res, next) {
-    const chave = process.env.MF_MAQUINA_API_KEY;
     const enviado = req.headers['x-api-key'] || req.headers.authorization?.split(' ')[1];
-    if (chave && enviado && enviado === chave) { req.usuario = { perfil: 'maquina', nome: 'gateway-maquina' }; return next(); }
+    if (chaveMaquinaValida(enviado)) { req.usuario = { perfil: 'maquina', nome: 'gateway-maquina' }; return next(); }
     return auth(req, res, () => adminOnly(req, res, next));  // sem a chave da máquina → só admin (operador não forja produção)
 }
 
@@ -1294,23 +1303,25 @@ app.put('/api/mf/ops/:id', auth, mfEscrita, async (req, res) => {
 // Fase 3 (Plano→Chão): sequencia a carteira por EDD (data de entrega) e empurra a
 // prioridade para a Fila do operador. Ranking: 20% mais urgentes→2, 30% seguintes→1.
 app.post('/api/mf/sequenciar-carteira', auth, mfEscrita, async (req, res) => {
-    const dry = !!req.body?.dry;
+    const dry = !!req.body?.dry, forcar = !!req.body?.forcar;  // M8: preserva prioridade manual (>0) a menos que forcar
     let ops;
-    try { ops = await fetchAllSelect('ordem_producao', 'id,data_prevista', q => q.neq('status', 'cancelada').neq('status', 'concluida')); }  // paginado + erro tratado (A2/A4)
+    try { ops = await fetchAllSelect('ordem_producao', 'id,data_prevista,prioridade', q => q.neq('status', 'cancelada').neq('status', 'concluida')); }  // paginado + erro tratado (A2/A4)
     catch (e) { return erro500(res, e); }
     ops.sort((a, b) => { if (!a.data_prevista) return 1; if (!b.data_prevista) return -1; return new Date(a.data_prevista) - new Date(b.data_prevista); });
-    const n = ops.length; let urgente = 0, alta = 0, normal = 0;
+    const n = ops.length; let urgente = 0, alta = 0, normal = 0, preservadas = 0;
     const prioDe = ops.map((o, i) => {
         const frac = n > 1 ? i / n : 0;
         const p = (o.data_prevista && frac < 0.2) ? 2 : (o.data_prevista && frac < 0.5) ? 1 : 0;
+        const manual = !forcar && (Number(o.prioridade) || 0) > 0;  // não atropela o que o operador marcou na Fila
+        if (manual) { preservadas++; return { id: o.id, p, aplica: false }; }
         if (p === 2) urgente++; else if (p === 1) alta++; else normal++;
-        return { id: o.id, p };
+        return { id: o.id, p, aplica: true };
     });
     if (!dry) for (const p of [0, 1, 2]) {
-        const ids = prioDe.filter(x => x.p === p).map(x => x.id);
+        const ids = prioDe.filter(x => x.aplica && x.p === p).map(x => x.id);
         if (ids.length) { const { error } = await supabase.from('ordem_producao').update({ prioridade: p }).in('id', ids); if (error) return erro500(res, error); }
     }
-    res.json({ ok: true, dry, criterio: 'EDD (data de entrega)', urgente, alta, normal, total: n });
+    res.json({ ok: true, dry, criterio: 'EDD (data de entrega)', urgente, alta, normal, preservadas, total: n });
 });
 
 // ── Cadastros (escrita genérica, admin) ───────────────────────
@@ -2842,11 +2853,15 @@ app.get('/api/mf/vsm', auth, async (_q, res) => {
         const w = wipDe[e.id] || { ops: 0, qtd: 0, esperaH: 0 };
         const va_seg = segDe[e.id] || 0;
         const va_h = va_seg && w.qtd ? va_seg * w.qtd / 3600 : 0;
-        const lead_h = leadDe[e.id] || (w.ops ? w.esperaH / w.ops : 0);
+        // B5: lead histórico medido (vw_wip_leadtime) quando existe; senão, espera ATUAL do WIP (grandeza diferente) — marcado em lead_fonte
+        const temHist = (leadDe[e.id] || 0) > 0;
+        const lead_h = temHist ? leadDe[e.id] : (w.ops ? w.esperaH / w.ops : 0);
+        const lead_fonte = temHist ? 'historico' : (w.ops ? 'wip_atual' : null);
         vaTotal += va_h; leadTotal += Math.max(lead_h, va_h);
-        return { etapa: e.nome, ordem: e.ordem, wip_ops: w.ops, wip_qtd: Math.round(w.qtd), va_seg_peca: va_seg, va_horas: Math.round(va_h * 10) / 10, lead_horas: Math.round(lead_h * 10) / 10 };
+        return { etapa: e.nome, ordem: e.ordem, wip_ops: w.ops, wip_qtd: Math.round(w.qtd), va_seg_peca: va_seg, va_horas: Math.round(va_h * 10) / 10, lead_horas: Math.round(lead_h * 10) / 10, lead_fonte };
     });
-    res.json({ etapas, va_total_h: Math.round(vaTotal * 10) / 10, lead_total_h: Math.round(leadTotal * 10) / 10, pct_va: leadTotal > 0 ? Math.round(vaTotal / leadTotal * 1000) / 10 : null });
+    const misturado = etapas.some(e => e.lead_fonte === 'historico') && etapas.some(e => e.lead_fonte === 'wip_atual');
+    res.json({ etapas, va_total_h: Math.round(vaTotal * 10) / 10, lead_total_h: Math.round(leadTotal * 10) / 10, pct_va: leadTotal > 0 ? Math.round(vaTotal / leadTotal * 1000) / 10 : null, lead_misturado: misturado });
 });
 
 // Heijunka — nivelamento: distribui a carteira por família entre N períodos
