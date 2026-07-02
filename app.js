@@ -2426,7 +2426,7 @@ const estoque = {
 
         drop.innerHTML = `<div class="combobox-option clear-opt" data-val="">Todos</div>` +
             matches.slice(0, 100).map(v =>
-                `<div class="combobox-option${v === this._descSelected ? ' active' : ''}" data-val="${v}">${v}</div>`
+                `<div class="combobox-option${v === this._descSelected ? ' active' : ''}" data-val="${escHTML(v)}">${escHTML(v)}</div>`
             ).join('');
 
         drop.querySelectorAll('.combobox-option').forEach(el => {
@@ -2453,7 +2453,7 @@ const estoque = {
 
         if (this._colSeg) {
             const vals = [...new Set(this.rawData.map(r => String(r.dados?.[this._colSeg] ?? '')).filter(Boolean))].sort();
-            segEl.innerHTML = `<option value="">Todos segmentos</option>` + vals.map(v => `<option value="${v}">${v}</option>`).join('');
+            segEl.innerHTML = `<option value="">Todos segmentos</option>` + vals.map(v => `<option value="${escHTML(v)}">${escHTML(v)}</option>`).join('');
             segEl.style.display = '';
         } else {
             segEl.style.display = 'none';
@@ -2829,7 +2829,7 @@ const op = {
         const matches = term ? vals.filter(v => v.toLowerCase().includes(term)) : vals;
         drop.innerHTML = `<div class="combobox-option clear-opt" data-val="">Todos</div>` +
             matches.slice(0, 100).map(v =>
-                `<div class="combobox-option${v === this[selKey] ? ' active' : ''}" data-val="${v}">${v}</div>`
+                `<div class="combobox-option${v === this[selKey] ? ' active' : ''}" data-val="${escHTML(v)}">${escHTML(v)}</div>`
             ).join('');
         drop.querySelectorAll('.combobox-option').forEach(el => {
             el.addEventListener('mousedown', e => {
@@ -3378,7 +3378,7 @@ const cliente = {
         const matches = term ? vals.filter(v => v.toLowerCase().includes(term)) : vals;
         drop.innerHTML = `<div class="combobox-option clear-opt" data-val="">Todos</div>` +
             matches.slice(0, 100).map(v =>
-                `<div class="combobox-option${v === this[selKey] ? ' active' : ''}" data-val="${v}">${v}</div>`
+                `<div class="combobox-option${v === this[selKey] ? ' active' : ''}" data-val="${escHTML(v)}">${escHTML(v)}</div>`
             ).join('');
         drop.querySelectorAll('.combobox-option').forEach(el => {
             el.addEventListener('mousedown', e => {
@@ -7488,9 +7488,9 @@ const preactor = {
             const util = cap>0?uso/cap:0;
             return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border-color);">
                 <div style="width:160px;font-weight:600;font-size:.82rem;">Stoll ${escHTML(m)} <span style="font-size:.66rem;color:var(--text-dim);font-weight:400;">· ${mix.nTeares[m]||0} máq · ${Math.round(util*100)}%</span></div>
-                <label style="display:flex;align-items:center;gap:4px;font-size:.72rem;color:var(--text-dim);"><input type="checkbox" id="sim-on-${escHTML(m)}" checked> ligado</label>
-                <span style="font-size:.72rem;color:var(--text-dim);">+ teares <input type="number" id="sim-tear-${escHTML(m)}" value="0" min="0" style="width:52px;${inp}"></span>
-                <span style="font-size:.72rem;color:var(--text-dim);">capac. × <input type="number" id="sim-fator-${escHTML(m)}" value="1" min="0.1" step="0.25" title="ex.: 2 = dobro de turnos" style="width:58px;${inp}"></span>
+                <label style="display:flex;align-items:center;gap:4px;font-size:.72rem;color:var(--text-dim);"><input type="checkbox" id="sim-on-${m}" checked> ligado</label>
+                <span style="font-size:.72rem;color:var(--text-dim);">+ teares <input type="number" id="sim-tear-${m}" value="0" min="0" style="width:52px;${inp}"></span>
+                <span style="font-size:.72rem;color:var(--text-dim);">capac. × <input type="number" id="sim-fator-${m}" value="1" min="0.1" step="0.25" title="ex.: 2 = dobro de turnos" style="width:58px;${inp}"></span>
             </div>`;
         }).join('');
         wrap.innerHTML = `
@@ -7846,10 +7846,10 @@ const preactor = {
         sorted.forEach((it, i) => {
             const pct = capMin>0 ? it.mins/capMin*100 : 0;
             const so  = Object.values(r.statusOrdens).find(s=>s.codigo===it.codigo);
-            const sIcon = so ? ({late:DOT.red,risk:DOT.yellow,ok:DOT.green,nodate:DOT.gray}[so.status]||'') : '';
+            const sIcon = so ? ({semtempo:DOT.red,semtear:DOT.red,overflow:DOT.red,late:DOT.red,risk:DOT.yellow,ok:DOT.green,nodate:DOT.gray}[so.status]||'') : '';
             const moverOpts = r.semanas.map(s=>`<option value="${s.idx}"${s.idx===semIdx?' selected':''}>Sem ${s.idx+1} (${s.label})</option>`).join('');
             html += `<tr style="background:${i%2?'var(--bg-input)':'transparent'};"
-                draggable="true" ondragstart="preactor._onDragStart(event,'${escHTML(it.codigo)}','${procId}',${semIdx})">
+                draggable="true" ondragstart="preactor._onDragStart(event,'${escJS(it.codigo)}','${procId}',${semIdx})">
                 <td style="padding:7px 12px;font-size:1rem;">${sIcon}</td>
                 <td style="padding:7px 12px;font-weight:600;color:var(--indigo-primary);">${escHTML(it.codigo)}</td>
                 <td style="padding:7px 12px;">${escHTML((it.label||'').slice(0,28))}</td>
@@ -8443,7 +8443,7 @@ const banco = {
         const matches = term ? vals.filter(v => v.toLowerCase().includes(term)) : vals;
         drop.innerHTML = `<div class="combobox-option clear-opt" data-val="">Todos</div>` +
             matches.slice(0, 100).map(v =>
-                `<div class="combobox-option${v === this[selKey] ? ' active' : ''}" data-val="${v}">${v}</div>`
+                `<div class="combobox-option${v === this[selKey] ? ' active' : ''}" data-val="${escHTML(v)}">${escHTML(v)}</div>`
             ).join('');
         drop.querySelectorAll('.combobox-option').forEach(el => {
             el.addEventListener('mousedown', e => {
@@ -8764,7 +8764,7 @@ const costura = {
         const matches = term ? vals.filter(v => v.toLowerCase().includes(term)) : vals;
         drop.innerHTML = `<div class="combobox-option clear-opt" data-val="">Todos</div>` +
             matches.slice(0, 100).map(v =>
-                `<div class="combobox-option${v === this[selKey] ? ' active' : ''}" data-val="${v}">${v}</div>`
+                `<div class="combobox-option${v === this[selKey] ? ' active' : ''}" data-val="${escHTML(v)}">${escHTML(v)}</div>`
             ).join('');
         drop.querySelectorAll('.combobox-option').forEach(el => {
             el.addEventListener('mousedown', e => {

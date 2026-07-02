@@ -83,12 +83,15 @@ const fila = {
         let removidos = 0, falhou = 0, parou = false;
         try {
             const ops = (await this.pendentes()).sort((a, b) => a.seq - b.seq);
+            const falhas = new Set();   // ids de itens que falharam nesta passada (p/ segurar dependentes, ex.: foto→NC)
             for (const op of ops) {
+                // preserva a ordem: se depende de uma NC que falhou agora, segura p/ a próxima passada (não sobe foto órfã)
+                if (op.payload?.nc_id && falhas.has(op.payload.nc_id)) { falhou++; continue; }
                 let r;
                 try { r = await fetch(op.url, { method: op.metodo, headers: api._h(), body: JSON.stringify({ ...op.payload, sincronizado_em: new Date().toISOString() }) }); }
                 catch { parou = true; break; } // rede caiu — para e tenta no próximo 'online'
                 if (r.status === 401) { mf._expirou(); parou = true; break; }
-                if (!r.ok) { falhou++; continue; } // item rejeitado pelo servidor: PULA (não bloqueia o resto da fila), tenta de novo depois
+                if (!r.ok) { falhou++; if (op.payload?.id) falhas.add(op.payload.id); continue; } // rejeitado: PULA e marca p/ segurar dependentes
                 await this._remover(op.seq);
                 removidos++;
                 mf._atualizarBadge();
