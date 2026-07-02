@@ -6087,7 +6087,7 @@ const soepDash = {
 
     _selecionarAba(aba) {
         this._abaAtiva = aba;
-        ['ciclo','visao-geral','prev-real','horizonte','financeiro'].forEach(a => {
+        ['ciclo','visao-geral','prev-real','horizonte','financeiro','cenarios','longo'].forEach(a => {
             const btn = document.getElementById(`soep-tab-${a}`);
             const pnl = document.getElementById(`soep-panel-${a}`);
             const ativo = a === aba;
@@ -6098,6 +6098,8 @@ const soepDash = {
         if (aba === 'horizonte') this._renderHorizonte6m();
         if (aba === 'financeiro') this._renderFinanceiro();
         if (aba === 'ciclo') this._renderCiclo();
+        if (aba === 'cenarios') this._renderCenarios();
+        if (aba === 'longo') this._renderHorizonteLongo();
     },
 
     async render() {
@@ -6612,6 +6614,151 @@ const soepDash = {
         if (v > 0) custos[c] = v; else delete custos[c];
         localStorage.setItem('soep-custos', JSON.stringify(custos));
         this._renderFinanceiro();
+    },
+
+    // ── Cenários / what-if: alavancas (×demanda, +capacidade) → base × cenário ──
+    _setCenario() {
+        localStorage.setItem('soep-cen-dem', document.getElementById('soep-cen-dem')?.value || '1');
+        localStorage.setItem('soep-cen-cap', document.getElementById('soep-cen-cap')?.value || '0');
+        this._renderCenarios();
+    },
+    _renderCenarios() {
+        const el = document.getElementById('soep-cen-content');
+        if (!el) return;
+        if (!vendas.rawData.length) { el.innerHTML = '<div class="summary-card" style="padding:24px;color:var(--text-dim);">Importe <strong>Vendas</strong> para simular cenários financeiros.</div>'; return; }
+        if (!previsao._forecast.length) previsao.calcular();
+        const meses = previsao._nextMonths || [];
+        if (!meses.length) { el.innerHTML = '<div class="summary-card" style="padding:24px;color:var(--text-dim);">Rode a <strong>Previsão</strong> para simular cenários.</div>'; return; }
+
+        // preço + custo (mesma fonte do Financeiro)
+        const preco = {};
+        vendas.rawData.forEach(r => { const c = String(r.codigo || '').trim().toUpperCase(); const q = Number(r.quantidade) || 0; const v = Number(r.valor) || 0; if (c && q > 0 && v > 0) preco[c] = v / q; });
+        if (typeof estoque !== 'undefined' && estoque._colValor && Array.isArray(estoque.rawData)) {
+            const toN = v => parseFloat(String(v).replace(/[^\d,.\-]/g, '').replace(',', '.')) || 0;
+            estoque.rawData.forEach(r => { const c = String(r.codigo || '').trim().toUpperCase(); if (!c || preco[c]) return; const q = Number(r.quantidade) || 0; const val = toN(r.dados?.[estoque._colValor] ?? 0); if (q > 0 && val > 0) preco[c] = val / q; });
+        }
+        const custos = (() => { try { return JSON.parse(localStorage.getItem('soep-custos') || '{}'); } catch { return {}; } })();
+        const margemPct = parseFloat(localStorage.getItem('soep-margem-pct')) || 0;
+
+        // base (do plano/previsão)
+        let receita = 0, volume = 0, custoReal = 0, recComCusto = 0;
+        meses.forEach(m => previsao._forecast.filter(f => f.mes === m.mes).forEach(f => {
+            const cod = String(f.codigo).toUpperCase();
+            const q = planoProducao._plano[`${m.mes}_${cod}`] ?? f.qty ?? 0;
+            if (!q) return;
+            volume += q;
+            const p = preco[cod];
+            if (p > 0) { receita += q * p; const cu = custos[cod]; if (cu > 0) { custoReal += q * cu; recComCusto += q * p; } }
+        }));
+        const margem = (recComCusto - custoReal) + (receita - recComCusto) * (margemPct / 100);
+        const proc = (toc._resultProcs || []).filter(p => !p.semDados).sort((a, b) => (b.util || 0) - (a.util || 0))[0];
+        const utilBase = proc ? (proc.util || 0) : null;
+
+        // alavancas
+        const dem = parseFloat(localStorage.getItem('soep-cen-dem')) || 1;
+        const capExtra = parseFloat(localStorage.getItem('soep-cen-cap')) || 0;
+        const cReceita = receita * dem, cMargem = margem * dem, cVolume = volume * dem;
+        const cUtil = utilBase != null ? utilBase * dem / (1 + capExtra / 100) : null;
+
+        const brl = v => 'R$ ' + Math.round(v).toLocaleString('pt-BR');
+        const seta = (a, b) => { const d = b - a; if (Math.abs(d) < 0.01) return ''; return `<span style="font-size:.7rem;color:${d > 0 ? '#26a69a' : '#f06292'};"> (${d > 0 ? '+' : ''}${brl(d)})</span>`; };
+        const inp = 'padding:6px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.85rem;text-align:right;';
+
+        let html = `<div class="summary-card" style="margin-bottom:16px;">
+            <div class="s-label" style="margin-bottom:4px;">CENÁRIOS — E SE...?</div>
+            <p style="font-size:.74rem;color:var(--text-dim);margin:0 0 12px;">Simule alavancas sobre o plano atual e veja o efeito em receita, margem e no gargalo — sem alterar nada. Base = plano/previsão × preço real.</p>
+            <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:end;">
+                <div><div style="font-size:.68rem;color:var(--text-dim);margin-bottom:3px;">Demanda ×</div>
+                    <input id="soep-cen-dem" type="number" min="0.1" step="0.05" value="${dem}" onchange="soepDash._setCenario()" style="width:90px;${inp}"><div style="font-size:.62rem;color:var(--text-dim);margin-top:2px;">1 = igual · 1.2 = +20%</div></div>
+                <div><div style="font-size:.68rem;color:var(--text-dim);margin-bottom:3px;">Capacidade +%</div>
+                    <input id="soep-cen-cap" type="number" min="0" step="5" value="${capExtra}" onchange="soepDash._setCenario()" style="width:90px;${inp}"><div style="font-size:.62rem;color:var(--text-dim);margin-top:2px;">ex.: turno extra no gargalo</div></div>
+            </div>
+        </div>`;
+
+        const linha = (lbl, base, cen, extra) => `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+            <td style="padding:9px 14px;font-weight:600;">${lbl}</td>
+            <td style="padding:9px 14px;text-align:right;color:var(--text-dim);">${base}</td>
+            <td style="padding:9px 14px;text-align:right;font-weight:700;">${cen}${extra || ''}</td></tr>`;
+        html += `<div class="summary-card" style="padding:0;overflow:auto;margin-bottom:14px;"><table style="width:100%;border-collapse:collapse;font-size:.85rem;">
+            <thead><tr style="border-bottom:2px solid var(--border-color);color:var(--text-dim);font-size:.66rem;">
+                <th style="padding:9px 14px;text-align:left;">MÉTRICA</th><th style="padding:9px 14px;text-align:right;">BASE</th><th style="padding:9px 14px;text-align:right;">CENÁRIO</th></tr></thead><tbody>
+            ${linha('Volume (un)', volume.toLocaleString('pt-BR'), cVolume.toLocaleString('pt-BR', { maximumFractionDigits: 0 }))}
+            ${linha('Receita', brl(receita), `<span style="color:#26c6da;">${brl(cReceita)}</span>`, seta(receita, cReceita))}
+            ${margemPct > 0 || Object.keys(custos).length ? linha('Margem', brl(margem), `<span style="color:#26a69a;">${brl(cMargem)}</span>`, seta(margem, cMargem)) : ''}
+            ${utilBase != null ? linha('Gargalo (utilização)', Math.round(utilBase * 100) + '%', `<span style="color:${cUtil >= 1 ? '#f06292' : cUtil >= 0.85 ? '#ffca28' : '#26a69a'};">${Math.round(cUtil * 100)}%</span>`) : ''}
+        </tbody></table></div>`;
+
+        // veredito de viabilidade
+        if (utilBase != null) {
+            html += cUtil >= 1
+                ? `<div class="summary-card" style="border-left:3px solid #f06292;"><div style="font-size:.85rem;color:#f06292;font-weight:600;">⚠ Cenário ESTOURA o gargalo (${proc.nome}) em ${Math.round((cUtil - 1) * 100)}%.</div><div style="font-size:.74rem;color:var(--text-dim);margin-top:4px;">Aumente a capacidade (+% acima), reduza a demanda, ou aceite atraso/terceirize. Para zerar o estouro, precisa de ~${Math.round((cUtil - 1) * 100)}% de capacidade extra no gargalo.</div></div>`
+                : `<div class="summary-card" style="border-left:3px solid #26a69a;"><div style="font-size:.85rem;color:#26a69a;font-weight:600;">✓ Cenário VIÁVEL — o gargalo (${proc.nome}) fica em ${Math.round(cUtil * 100)}%.</div></div>`;
+        } else {
+            html += `<div class="summary-card" style="color:var(--text-dim);font-size:.78rem;">Rode o <strong>TOC (Gargalo)</strong> para incluir a análise de capacidade no cenário.</div>`;
+        }
+        el.innerHTML = html;
+    },
+
+    // ── Horizonte rolante longo (18-24m) agregado por FAMÍLIA — run-rate sazonal ──
+    _setHorizLongo() { localStorage.setItem('soep-horiz-longo', document.getElementById('soep-hl-n')?.value || '18'); this._renderHorizonteLongo(); },
+    _renderHorizonteLongo() {
+        const el = document.getElementById('soep-longo-content');
+        if (!el) return;
+        if (!vendas.rawData.length || !vendas.monthCols.length) { el.innerHTML = '<div class="summary-card" style="padding:24px;color:var(--text-dim);">Importe <strong>Vendas</strong> (com histórico mensal) para o horizonte longo por família.</div>'; return; }
+        const nMeses = Math.min(24, Math.max(6, parseInt(localStorage.getItem('soep-horiz-longo')) || 18));
+        const futuros = previsao._getNextMonths(nMeses);
+
+        // run-rate sazonal por família × mês-abbr (média entre anos do histórico)
+        const famAbbr = {};   // familia → abbr → {soma, anos:Set}
+        vendas.monthCols.forEach(c => {
+            vendas.rawData.forEach(r => {
+                const f = String(r.segmento || '').trim() || '(sem família)';
+                const q = r[c.key] || 0; if (!q) return;
+                const fa = (famAbbr[f] = famAbbr[f] || {});
+                const a = (fa[c.abbr] = fa[c.abbr] || { soma: 0, anos: new Set() });
+                a.soma += q; a.anos.add(c.year);
+            });
+        });
+        const runRate = (f, abbr) => { const a = famAbbr[f]?.[abbr]; return a && a.anos.size ? a.soma / a.anos.size : 0; };
+        const familias = Object.keys(famAbbr).sort((a, b) => {
+            const ta = Object.values(famAbbr[a]).reduce((s, x) => s + x.soma, 0), tb = Object.values(famAbbr[b]).reduce((s, x) => s + x.soma, 0);
+            return tb - ta;
+        });
+        if (!familias.length) { el.innerHTML = '<div class="summary-card" style="padding:24px;color:var(--text-dim);">Sem histórico por família (coluna Segmento/Família nas Vendas).</div>'; return; }
+
+        const fmt = v => Math.round(v).toLocaleString('pt-BR');
+        let html = `<div class="summary-card" style="margin-bottom:14px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                <div><div class="s-label">HORIZONTE ROLANTE POR FAMÍLIA</div>
+                    <div style="font-size:.74rem;color:var(--text-dim);margin-top:2px;">Run-rate sazonal (média histórica do mês, por família) — a visão agregada de longo prazo do S&OP executivo. Curto prazo é o SKU (aba Previsão); aqui é a família.</div></div>
+                <div><span style="font-size:.68rem;color:var(--text-dim);margin-right:6px;">Meses:</span>
+                    <input id="soep-hl-n" type="number" min="6" max="24" step="6" value="${nMeses}" onchange="soepDash._setHorizLongo()" style="width:64px;padding:5px 8px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.82rem;text-align:center;"></div>
+            </div>
+        </div>`;
+
+        // grade família × mês
+        html += `<div class="summary-card" style="padding:0;overflow:auto;"><table style="border-collapse:collapse;font-size:.74rem;white-space:nowrap;min-width:${180 + futuros.length * 62}px;">
+            <thead><tr style="border-bottom:2px solid var(--border-color);color:var(--text-dim);font-size:.62rem;">
+                <th style="padding:8px 12px;text-align:left;position:sticky;left:0;background:var(--bg-obsidian);">FAMÍLIA</th>
+                ${futuros.map(m => `<th style="padding:8px 6px;text-align:right;">${escHTML(m.label)}</th>`).join('')}
+                <th style="padding:8px 10px;text-align:right;">MÉD/MÊS</th></tr></thead><tbody>`;
+        const totMes = new Array(futuros.length).fill(0);
+        familias.forEach((f, i) => {
+            const vals = futuros.map(m => runRate(f, m.abbr));
+            vals.forEach((v, j) => totMes[j] += v);
+            const med = vals.reduce((s, v) => s + v, 0) / (vals.length || 1);
+            html += `<tr style="background:${i % 2 ? 'var(--bg-input)' : 'transparent'};border-bottom:1px solid rgba(255,255,255,.04);">
+                <td style="padding:6px 12px;font-weight:600;color:var(--indigo-primary);position:sticky;left:0;background:${i % 2 ? 'var(--bg-input)' : 'var(--bg-obsidian)'};">${escHTML(f)}</td>
+                ${vals.map(v => `<td style="padding:6px 6px;text-align:right;color:${v > 0 ? 'var(--text-primary)' : 'var(--text-dim)'};">${v > 0 ? fmt(v) : '·'}</td>`).join('')}
+                <td style="padding:6px 10px;text-align:right;font-weight:700;color:#26c6da;">${fmt(med)}</td></tr>`;
+        });
+        html += `<tr style="border-top:2px solid var(--border-color);font-weight:800;">
+            <td style="padding:8px 12px;position:sticky;left:0;background:var(--bg-obsidian);">TOTAL</td>
+            ${totMes.map(v => `<td style="padding:8px 6px;text-align:right;color:#26a69a;">${fmt(v)}</td>`).join('')}
+            <td style="padding:8px 10px;text-align:right;color:#26a69a;">${fmt(totMes.reduce((s, v) => s + v, 0) / (totMes.length || 1))}</td></tr>`;
+        html += `</tbody></table></div>`;
+        html += `<div style="margin-top:10px;font-size:.72rem;color:var(--text-dim);">Projeção de longo prazo é <strong>aproximada por natureza</strong> (run-rate sazonal por família, não previsão fina por SKU). Serve para capacidade/orçamento agregado e para a visão executiva rolante — refine o curto prazo na aba <strong>Previsão</strong>.</div>`;
+        el.innerHTML = html;
     },
 
     // ── Ciclo mensal de S&OP: os 5 passos, dono/estado e a aprovação do plano-único ──

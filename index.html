@@ -2391,6 +2391,14 @@
             style="padding:8px 22px;border-radius:8px;border:none;font-size:.83rem;font-weight:600;cursor:pointer;background:var(--bg-input);color:var(--text-dim);">
             Financeiro (R$)
         </button>
+        <button id="soep-tab-cenarios" onclick="soepDash._selecionarAba('cenarios')"
+            style="padding:8px 22px;border-radius:8px;border:none;font-size:.83rem;font-weight:600;cursor:pointer;background:var(--bg-input);color:var(--text-dim);">
+            Cenários (what-if)
+        </button>
+        <button id="soep-tab-longo" onclick="soepDash._selecionarAba('longo')"
+            style="padding:8px 22px;border-radius:8px;border:none;font-size:.83rem;font-weight:600;cursor:pointer;background:var(--bg-input);color:var(--text-dim);">
+            Horizonte Longo (família)
+        </button>
     </div>
 
     <!-- Painel: Financeiro / Reconciliação -->
@@ -2401,6 +2409,16 @@
     <!-- Painel: Ciclo mensal de S&OP -->
     <div id="soep-panel-ciclo" style="display:none;">
         <div id="soep-ciclo-content"></div>
+    </div>
+
+    <!-- Painel: Cenários (what-if) -->
+    <div id="soep-panel-cenarios" style="display:none;">
+        <div id="soep-cen-content"></div>
+    </div>
+
+    <!-- Painel: Horizonte Longo por família -->
+    <div id="soep-panel-longo" style="display:none;">
+        <div id="soep-longo-content"></div>
     </div>
 
     <!-- Painel: Visão Geral -->
