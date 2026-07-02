@@ -2536,6 +2536,8 @@
             <span><span style="display:inline-block;width:12px;height:12px;background:#f06292;border-radius:3px;vertical-align:middle;margin-right:4px;"></span>&gt;100%</span>
             <span><span style="display:inline-block;width:12px;height:12px;background:#ff9800;border-radius:3px;vertical-align:middle;margin-right:4px;"></span>Setup</span>
             <span style="margin-left:8px;color:var(--text-dim);font-style:italic;">Arraste SKUs entre semanas no detalhe da célula</span>
+            <span style="margin-left:auto;display:inline-flex;align-items:center;gap:6px;" title="Janela congelada (time fence): as N primeiras semanas ficam comprometidas — o replanejamento não move OPs para dentro/fora delas.">🔒 Congelar
+                <input id="tl-timefence" type="number" min="0" value="0" onchange="preactor._setTimeFence(this.value)" style="width:48px;padding:3px 6px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:5px;color:var(--text-primary);font-size:.78rem;text-align:center;"> sem.</span>
         </div>
 
         <!-- Gantt grid -->

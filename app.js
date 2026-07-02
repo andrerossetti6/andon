@@ -6563,6 +6563,12 @@ const preactor = {
     _manualOverrides: {}, // { `${codigo}_${procId}` → semIdx }
     _abaAtiva: 'gantt',
     _dragState: null,
+    _timeFence: 0,   // semanas congeladas (time fence): 0..N-1 não podem receber/ceder OPs no replanejamento
+
+    _setTimeFence(v) {
+        this._timeFence = Math.max(0, parseInt(v) || 0);
+        if (this._resultado) this._renderGantt();
+    },
 
     async init() {
         const hoje = new Date();
@@ -7227,9 +7233,10 @@ const preactor = {
             <th style="padding:12px 16px;text-align:left;font-size:.72rem;color:var(--text-dim);letter-spacing:.07em;min-width:160px;white-space:nowrap;">PROCESSO</th>`;
         semanas.forEach(s => {
             const du = this._diasUteisSemana(s.ini, s.fim);
-            html += `<th style="padding:10px 8px;text-align:center;font-size:.72rem;color:var(--text-dim);letter-spacing:.06em;min-width:130px;">
-                <div>SEM ${s.idx+1}</div><div style="font-weight:400;font-size:.68rem;opacity:.7;">${s.label}</div>
-                <div style="font-weight:400;font-size:.65rem;color:${du<5?'#f06292':'var(--text-dim)'};">${du}d úteis</div></th>`;
+            const congelada = s.idx < this._timeFence;
+            html += `<th style="padding:10px 8px;text-align:center;font-size:.72rem;color:var(--text-dim);letter-spacing:.06em;min-width:130px;${congelada?'background:rgba(99,102,241,.08);border-bottom:2px solid var(--indigo-primary);':''}">
+                <div>${congelada?'🔒 ':''}SEM ${s.idx+1}</div><div style="font-weight:400;font-size:.68rem;opacity:.7;">${s.label}</div>
+                <div style="font-weight:400;font-size:.65rem;color:${congelada?'var(--indigo-primary)':(du<5?'#f06292':'var(--text-dim)')};">${congelada?'congelada':du+'d úteis'}</div></th>`;
         });
         html += `<th style="padding:10px 8px;text-align:center;font-size:.72rem;color:var(--text-dim);min-width:80px;">TOTAL</th></tr></thead><tbody>`;
 
@@ -7890,9 +7897,10 @@ const preactor = {
             const pct = capMin>0 ? it.mins/capMin*100 : 0;
             const so  = Object.values(r.statusOrdens).find(s=>s.codigo===it.codigo);
             const sIcon = so ? ({semtempo:DOT.red,semtear:DOT.red,overflow:DOT.red,late:DOT.red,risk:DOT.yellow,ok:DOT.green,nodate:DOT.gray}[so.status]||'') : '';
-            const moverOpts = r.semanas.map(s=>`<option value="${s.idx}"${s.idx===semIdx?' selected':''}>Sem ${s.idx+1} (${s.label})</option>`).join('');
+            const congeladaSrc = semIdx < this._timeFence;   // OP já está em semana congelada → não pode sair
+            const moverOpts = r.semanas.map(s=>`<option value="${s.idx}"${s.idx===semIdx?' selected':''}${s.idx<this._timeFence?' disabled':''}>Sem ${s.idx+1} (${s.label})${s.idx<this._timeFence?' 🔒':''}</option>`).join('');
             html += `<tr style="background:${i%2?'var(--bg-input)':'transparent'};"
-                draggable="true" ondragstart="preactor._onDragStart(event,'${escJS(it.codigo)}','${procId}',${semIdx})">
+                draggable="${congeladaSrc?'false':'true'}" ondragstart="preactor._onDragStart(event,'${escJS(it.codigo)}','${procId}',${semIdx})">
                 <td style="padding:7px 12px;font-size:1rem;">${sIcon}</td>
                 <td style="padding:7px 12px;font-weight:600;color:var(--indigo-primary);">${escHTML(it.codigo)}</td>
                 <td style="padding:7px 12px;">${escHTML((it.label||'').slice(0,28))}</td>
@@ -7901,8 +7909,8 @@ const preactor = {
                 <td style="padding:7px 12px;text-align:right;font-weight:700;">${pct.toFixed(1)}%</td>
                 <td style="padding:7px 12px;text-align:center;font-size:.75rem;">${it.data_entrega?new Date(it.data_entrega+'T12:00:00').toLocaleDateString('pt-BR'):'—'}</td>
                 <td style="padding:7px 12px;text-align:center;">
-                    <select onchange="preactor._moverOrdem('${escHTML(it.codigo)}','${procId}',this.value)"
-                        style="font-size:.72rem;padding:3px 6px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:5px;color:var(--text-primary);">
+                    <select ${congeladaSrc?'disabled title="OP em semana congelada — não pode ser movida"':''} onchange="preactor._moverOrdem('${escJS(it.codigo)}','${procId}',this.value)"
+                        style="font-size:.72rem;padding:3px 6px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:5px;color:var(--text-primary);${congeladaSrc?'opacity:.5;cursor:not-allowed;':''}">
                         ${moverOpts}
                     </select>
                 </td>
@@ -7916,6 +7924,11 @@ const preactor = {
     },
 
     _moverOrdem(codigo, procId, novaSemIdx) {
+        if (parseInt(novaSemIdx) < this._timeFence) {   // time fence: não empurra trabalho novo para a janela congelada
+            mostrarToast(`SEM ${parseInt(novaSemIdx)+1} está congelada (comprometida) — mova para uma semana aberta.`, 'aviso');
+            this._renderGantt();
+            return;
+        }
         const key = `${codigo}_${procId}`;
         this._manualOverrides[key] = parseInt(novaSemIdx);
         localStorage.setItem('tl_manual', JSON.stringify(this._manualOverrides));
