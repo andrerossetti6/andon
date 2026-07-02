@@ -55,6 +55,35 @@ async function batchInsert(tabela, importacaoTabela, importacaoId, rows, batchSi
 
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
+
+// ── Cabeçalhos de segurança (defesa em profundidade) ─────────────────────────
+// CSP: o front usa MUITO onclick inline + <script> inline, então script-src PRECISA de
+// 'unsafe-inline' (não dá pra bloquear XSS de handler inline sem reescrever tudo — o escape
+// escHTML/escJS é a defesa primária). O valor real do CSP aqui é conter o IMPACTO: connect-src
+// e img-src restritos barram exfiltração do JWT p/ domínios externos (fetch/beacon/img), e
+// object/base/frame-ancestors barram plugin/base-hijack/clickjacking.
+const SUPA = 'https://icynkkfftjbrscwicpzd.supabase.co';
+const CSP = [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    `img-src 'self' data: blob: ${SUPA}`,
+    `connect-src 'self' ${SUPA}`,
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+].join('; ');
+app.use((_req, res, next) => {
+    res.set('Content-Security-Policy', CSP);
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('X-Frame-Options', 'DENY');
+    res.set('Referrer-Policy', 'same-origin');           // não vaza URL (com token em query, se houver) no Referer
+    res.set('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    next();
+});
+
 // M13: não servir código do servidor / schema publicamente (só assets do front)
 app.use((req, res, next) => {
     if (/\.sql$|(^|\/)(server|db|mes_seed|generate_graph)\.js$|(^|\/)package(-lock)?\.json$/i.test(req.path)) return res.status(404).end();
