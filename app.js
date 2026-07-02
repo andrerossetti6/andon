@@ -6512,50 +6512,62 @@ const soepDash = {
         }
 
         const meta = parseFloat(localStorage.getItem('soep-meta-receita')) || 0;   // meta de receita mensal (R$)
-        const margemPct = parseFloat(localStorage.getItem('soep-margem-pct')) || 0; // margem alvo (%) — custo não existe no sistema
+        const margemPct = parseFloat(localStorage.getItem('soep-margem-pct')) || 0; // margem alvo (%) — fallback onde não há custo
+        const custos = (() => { try { return JSON.parse(localStorage.getItem('soep-custos') || '{}'); } catch { return {}; } })(); // custo unitário por SKU (o usuário informa)
         const usaPlano = Object.keys(planoProducao._plano || {}).length > 0;
         const brl = v => 'R$ ' + Math.round(v).toLocaleString('pt-BR');
         const semPrecoSet = new Set();
+        const skuRev = {};   // cod → {receita, qty, desc} para o editor de custos
 
         const linhas = meses.map(m => {
-            let receita = 0, volume = 0;
+            let receita = 0, volume = 0, custoReal = 0, recComCusto = 0;
             previsao._forecast.filter(f => f.mes === m.mes).forEach(f => {
                 const cod = String(f.codigo).toUpperCase();
                 const q = planoProducao._plano[`${m.mes}_${cod}`] ?? f.qty ?? 0;
                 if (!q) return;
                 volume += q;
                 const p = preco[cod];
-                if (p > 0) receita += q * p; else semPrecoSet.add(cod);
+                if (p > 0) {
+                    receita += q * p;
+                    const sr = (skuRev[cod] = skuRev[cod] || { receita: 0, qty: 0, desc: f.descricao || cod });
+                    sr.receita += q * p; sr.qty += q;
+                    const cu = custos[cod];
+                    if (cu > 0) { custoReal += q * cu; recComCusto += q * p; }
+                } else semPrecoSet.add(cod);
             });
-            return { m, volume, receita, margem: margemPct > 0 ? receita * margemPct / 100 : null, gap: meta > 0 ? receita - meta : null };
+            const recSemCusto = receita - recComCusto;
+            const margem = (margemPct > 0 || custoReal > 0) ? (recComCusto - custoReal) + recSemCusto * (margemPct / 100) : null;
+            return { m, volume, receita, margem, gap: meta > 0 ? receita - meta : null };
         });
+        const temMargem = margemPct > 0 || Object.keys(custos).length > 0;
         const totReceita = linhas.reduce((s, l) => s + l.receita, 0);
-        const totMargem = margemPct > 0 ? totReceita * margemPct / 100 : null;
+        const totMargem = temMargem ? linhas.reduce((s, l) => s + (l.margem || 0), 0) : null;
         const gapTot = meta > 0 ? totReceita - meta * linhas.length : null;
+        const nSku = Object.keys(skuRev).length, nComCusto = Object.keys(skuRev).filter(c => custos[c] > 0).length;
         const kpi = (c, v, l) => `<div style="background:${c}18;border:1px solid ${c}44;border-radius:8px;padding:12px 20px;min-width:160px;text-align:center;">
             <div style="font-size:1.35rem;font-weight:800;color:${c};">${v}</div><div style="font-size:.66rem;color:${c};letter-spacing:.05em;">${l}</div></div>`;
 
         let html = `<div class="summary-card" style="margin-bottom:16px;">
             <div class="s-label" style="margin-bottom:6px;">RECONCILIAÇÃO FINANCEIRA — plano em R$ × meta</div>
-            <p style="font-size:.74rem;color:var(--text-dim);margin:0 0 12px;">Receita = ${usaPlano ? 'plano de produção' : 'previsão (sem plano salvo ainda)'} × <strong>preço médio de venda</strong> (das vendas reais). O custo não está no sistema — a <strong>margem é a que você informar</strong>.</p>
+            <p style="font-size:.74rem;color:var(--text-dim);margin:0 0 12px;">Receita = ${usaPlano ? 'plano de produção' : 'previsão (sem plano salvo ainda)'} × <strong>preço médio de venda</strong> (das vendas reais). Margem = receita − <strong>custo unitário que você definir</strong> (abaixo); onde faltar custo, usa o <strong>% alvo</strong>. Nada de preço/custo inventado.</p>
             <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;">
                 <div><div style="font-size:.68rem;color:var(--text-dim);margin-bottom:3px;">Meta de receita / mês (R$)</div>
                     <input id="soep-meta" type="number" min="0" value="${meta || ''}" placeholder="0" onchange="soepDash._salvarMetaFin()" style="width:170px;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.85rem;text-align:right;"></div>
-                <div><div style="font-size:.68rem;color:var(--text-dim);margin-bottom:3px;">Margem alvo (%)</div>
+                <div><div style="font-size:.68rem;color:var(--text-dim);margin-bottom:3px;">Margem alvo (%) — onde não há custo</div>
                     <input id="soep-margem" type="number" min="0" max="100" step="0.5" value="${margemPct || ''}" placeholder="ex.: 35" onchange="soepDash._salvarMetaFin()" style="width:90px;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.85rem;text-align:right;"></div>
             </div>
         </div>`;
 
         html += `<div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
             ${kpi('#26c6da', brl(totReceita), `RECEITA PLANEJADA (${linhas.length} meses)`)}
-            ${totMargem != null ? kpi('#26a69a', brl(totMargem), `MARGEM (${margemPct}%)`) : ''}
+            ${totMargem != null ? kpi('#26a69a', brl(totMargem), `MARGEM (${nComCusto} c/ custo real · resto ${margemPct}%)`) : ''}
             ${gapTot != null ? kpi(gapTot >= 0 ? '#26a69a' : '#f06292', (gapTot >= 0 ? '+' : '') + brl(gapTot), 'GAP vs META') : kpi('#8b949e', '—', 'DEFINA A META')}
         </div>`;
 
         html += `<div class="summary-card" style="padding:0;overflow:auto;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">
             <thead><tr style="border-bottom:2px solid var(--border-color);color:var(--text-dim);font-size:.66rem;">
                 <th style="padding:9px 14px;text-align:left;">MÊS</th><th style="padding:9px 14px;text-align:right;">VOLUME</th>
-                <th style="padding:9px 14px;text-align:right;">RECEITA</th>${margemPct > 0 ? '<th style="padding:9px 14px;text-align:right;">MARGEM</th>' : ''}
+                <th style="padding:9px 14px;text-align:right;">RECEITA</th>${temMargem ? '<th style="padding:9px 14px;text-align:right;">MARGEM</th>' : ''}
                 <th style="padding:9px 14px;text-align:right;">META</th><th style="padding:9px 14px;text-align:right;">GAP</th></tr></thead><tbody>`;
         linhas.forEach((l, i) => {
             const gapCor = l.gap == null ? 'var(--text-dim)' : l.gap >= 0 ? '#26a69a' : '#f06292';
@@ -6563,13 +6575,43 @@ const soepDash = {
                 <td style="padding:8px 14px;font-weight:600;">${escHTML(l.m.label)}</td>
                 <td style="padding:8px 14px;text-align:right;">${l.volume.toLocaleString('pt-BR')}</td>
                 <td style="padding:8px 14px;text-align:right;font-weight:600;color:#26c6da;">${brl(l.receita)}</td>
-                ${margemPct > 0 ? `<td style="padding:8px 14px;text-align:right;color:#26a69a;">${brl(l.margem)}</td>` : ''}
+                ${temMargem ? `<td style="padding:8px 14px;text-align:right;color:#26a69a;">${l.margem != null ? brl(l.margem) : '—'}</td>` : ''}
                 <td style="padding:8px 14px;text-align:right;color:var(--text-dim);">${meta > 0 ? brl(meta) : '—'}</td>
                 <td style="padding:8px 14px;text-align:right;font-weight:700;color:${gapCor};">${l.gap == null ? '—' : (l.gap >= 0 ? '+' : '') + brl(l.gap)}</td></tr>`;
         });
         html += `</tbody></table></div>`;
+
+        // Editor de custos unitários (top SKUs por receita) — o usuário informa o custo real
+        const topSku = Object.entries(skuRev).sort((a, b) => b[1].receita - a[1].receita).slice(0, 25);
+        if (topSku.length) {
+            html += `<div class="summary-card" style="margin-top:14px;"><details${nComCusto ? '' : ' open'}>
+                <summary style="cursor:pointer;font-size:.82rem;font-weight:600;color:var(--indigo-primary);">💲 Custos unitários — ${nComCusto}/${nSku} definidos (clique para editar)</summary>
+                <p style="font-size:.72rem;color:var(--text-dim);margin:8px 0 10px;">Digite o custo unitário REAL dos principais produtos (top ${topSku.length} por receita). Onde não houver custo, a margem usa o % alvo.</p>
+                <table style="width:100%;border-collapse:collapse;font-size:.78rem;"><thead><tr style="color:var(--text-dim);font-size:.64rem;border-bottom:1px solid var(--border-color);">
+                    <th style="text-align:left;padding:5px 8px;">CÓDIGO</th><th style="text-align:left;padding:5px 8px;">DESCRIÇÃO</th><th style="text-align:right;padding:5px 8px;">PREÇO MÉD.</th><th style="text-align:right;padding:5px 8px;">CUSTO UN. (R$)</th><th style="text-align:right;padding:5px 8px;">MARGEM %</th></tr></thead><tbody>`;
+            topSku.forEach(([cod, sr]) => {
+                const pmed = sr.qty > 0 ? sr.receita / sr.qty : 0;
+                const cu = custos[cod] || 0;
+                const mgPct = cu > 0 && pmed > 0 ? Math.round((pmed - cu) / pmed * 100) : null;
+                html += `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+                    <td style="padding:5px 8px;font-weight:600;color:var(--indigo-primary);">${escHTML(cod)}</td>
+                    <td style="padding:5px 8px;">${escHTML((sr.desc || '').slice(0, 34))}</td>
+                    <td style="padding:5px 8px;text-align:right;color:var(--text-dim);">${brl(pmed)}</td>
+                    <td style="padding:5px 8px;text-align:right;"><input type="number" min="0" step="0.01" value="${cu || ''}" placeholder="—" onchange="soepDash._salvarCusto('${escJS(cod)}', this.value)" style="width:90px;padding:3px 7px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:5px;color:var(--text-primary);font-size:.76rem;text-align:right;"></td>
+                    <td style="padding:5px 8px;text-align:right;font-weight:700;color:${mgPct == null ? 'var(--text-dim)' : mgPct < 0 ? '#f06292' : mgPct < 20 ? '#ffca28' : '#26a69a'};">${mgPct == null ? '—' : mgPct + '%'}</td></tr>`;
+            });
+            html += `</tbody></table></details></div>`;
+        }
         if (semPrecoSet.size) html += `<div style="margin-top:10px;font-size:.72rem;color:#ffca28;">⚠ ${semPrecoSet.size} produto(s) do plano sem preço de venda no histórico — ficam de fora da receita. Importe Vendas com o valor desses códigos para incluir.</div>`;
         el.innerHTML = html;
+    },
+
+    _salvarCusto(cod, val) {
+        let custos = {}; try { custos = JSON.parse(localStorage.getItem('soep-custos') || '{}'); } catch {}
+        const c = String(cod).toUpperCase(), v = parseFloat(val);
+        if (v > 0) custos[c] = v; else delete custos[c];
+        localStorage.setItem('soep-custos', JSON.stringify(custos));
+        this._renderFinanceiro();
     },
 
     // ── Ciclo mensal de S&OP: os 5 passos, dono/estado e a aprovação do plano-único ──
