@@ -4749,8 +4749,9 @@ const toc = {
         // Capacidade por modelo: soma máquina a máquina com OEE individual
         const capModelo = {}; // modelo → { mins, n }
         maquinas.forEach(m => {
-            const modelo = String(m.modelo || '').trim() || '(sem modelo)';
-            const oee = Math.min(Number(m.oee) || 100, 100) / 100;
+            const modelo = this._normModelo(m.modelo) || '(sem modelo)';   // normaliza p/ casar com a coluna Stoll e o Preactor
+            const oeeN = m.oee == null ? 100 : Number(m.oee);
+            const oee = Math.min(oeeN, 100) / 100;
             if (!capModelo[modelo]) capModelo[modelo] = { mins: 0, n: 0 };
             capModelo[modelo].mins += horasDia * 60 * dias * oee;
             capModelo[modelo].n++;
@@ -4764,7 +4765,8 @@ const toc = {
             if (!dados) { semTempoOuBanco++; return; }
             const tempoUn = this._getTempoMinutos(dados, tecProc.cols);
             if (!tempoUn) return; // código sem tecelagem
-            const modelo = this._getModeloStoll(dados) || '(sem modelo)';
+            // Visão agregada do TOC: atribui ao 1º modelo apto (normalizado); o mix fino por modelo é o Preactor
+            const modelo = this._getModelosStoll(dados)[0] || '(sem modelo)';
             if (!cargaModelo[modelo]) cargaModelo[modelo] = { mins: 0, skus: 0 };
             cargaModelo[modelo].mins += tempoUn * qty;
             cargaModelo[modelo].skus++;
@@ -6691,12 +6693,14 @@ const preactor = {
     },
 
     // Capacidade de TECELAGEM por modelo de tear × semana (soma máquina-a-máquina com OEE individual,
-    // mesma fórmula do TOC _renderStoll). Devolve { modelos:[...], capTec:{modelo:[min/sem]} }.
+    // mesma fórmula do TOC _renderStoll). Teares sem modelo entram numa capacidade residual (não alocável,
+    // mas somada ao agregado p/ não sumir do Gantt). Devolve { modelos, capTec, nTeares, capResidual, nSemModelo }.
     _capTecPorModelo(semanas, maquinasTec) {
         const porModelo = {};   // modelo → [oeeFrac de cada tear]
         (maquinasTec || []).forEach(m => {
             const modelo = toc._normModelo(m.modelo) || '(sem modelo)';
-            (porModelo[modelo] = porModelo[modelo] || []).push(Math.min(Number(m.oee) || 100, 100) / 100);
+            const oee = m.oee == null ? 100 : Number(m.oee);   // OEE 0 = tear parado (0 capacidade), não 100%
+            (porModelo[modelo] = porModelo[modelo] || []).push(Math.min(oee, 100) / 100);
         });
         const modelos = Object.keys(porModelo).filter(m => m !== '(sem modelo)');
         const capTec = {}, nTeares = {};
@@ -6705,7 +6709,11 @@ const preactor = {
             capTec[modelo] = semanas.map(s => this._minutosMaqSemana('tecelagem', s) * somaOee);
             nTeares[modelo] = porModelo[modelo].length;
         });
-        return { modelos, capTec, nTeares };
+        // teares sem modelo: capacidade real que existe mas não é alocável por modelo
+        const semMod = porModelo['(sem modelo)'] || [];
+        const somaOeeSM = semMod.reduce((s, o) => s + o, 0);
+        const capResidual = semanas.map(s => this._minutosMaqSemana('tecelagem', s) * somaOeeSM);
+        return { modelos, capTec, nTeares, capResidual, nSemModelo: semMod.length };
     },
 
     // Índice da 1ª semana cujo fim já cobre o prazo da ordem (semana-limite). Sem prazo → última.
@@ -6886,9 +6894,10 @@ const preactor = {
         // A tecelagem deixa de ser um balde único: cada modelo (530/330/303) tem sua capacidade,
         // e o motor ESCOLHE em qual tear apto colocar cada OP (prazo + equilíbrio de carga).
         // cap['tecelagem'] passa a ser a SOMA dos modelos (Gantt continua consolidado).
-        const { modelos: modelosTec, capTec, nTeares: nTearesTec } = this._capTecPorModelo(semanas, maquinasTec);
+        const { modelos: modelosTec, capTec, nTeares: nTearesTec, capResidual: capResidualTec, nSemModelo: nSemModeloTec } = this._capTecPorModelo(semanas, maquinasTec);
         const temAlocModelo = modelosTec.length > 0;
-        if (temAlocModelo) cap['tecelagem'] = semanas.map((s, si) => modelosTec.reduce((t, m) => t + capTec[m][si], 0));
+        // Agregado do Gantt = Σ modelos + capacidade dos teares sem modelo (existe fisicamente, só não é alocável)
+        if (temAlocModelo) cap['tecelagem'] = semanas.map((s, si) => modelosTec.reduce((t, m) => t + capTec[m][si], 0) + (capResidualTec[si] || 0));
         const usadoTec = {}, detalheTec = {}, setupUsadoTec = {}, lastFamTec = {};
         modelosTec.forEach(m => {
             usadoTec[m]      = new Array(nSemanas).fill(0);
@@ -6924,9 +6933,17 @@ const preactor = {
                     if (!ordem.dados) return;
                     const tempoUn = this._getTempoProc(ordem.dados, pid);
                     if (!tempoUn) return;
-                    const capConf = toc._getCap()[pid] || { maquinas:1, horasDia:8, oee:100 };
-                    const minsPerDay = capConf.maquinas * capConf.horasDia * 60 * ((capConf.oee||100)/100);
-                    totalDias += Math.ceil((tempoUn * ordem.qty) / minsPerDay);
+                    let minsPerDay;
+                    if (pid === 'tecelagem' && temAlocModelo) {
+                        // usa a capacidade real dos teares aptos da OP (não a agregada) — OP de modelo restrito leva mais dias
+                        const aptos = toc._getModelosStoll(ordem.dados).filter(m => modelosTec.includes(m));
+                        const capDia = aptos.reduce((s, m) => s + (capTec[m][deadlineIdx] || 0), 0) / 5;
+                        minsPerDay = capDia > 0 ? capDia : (cap['tecelagem'][deadlineIdx] || 0) / 5;
+                    } else {
+                        const capConf = toc._getCap()[pid] || { maquinas:1, horasDia:8, oee:100 };
+                        minsPerDay = capConf.maquinas * capConf.horasDia * 60 * ((capConf.oee||100)/100);
+                    }
+                    if (minsPerDay > 0) totalDias += Math.ceil((tempoUn * ordem.qty) / minsPerDay);
                 });
                 firstAvailSem[id] = Math.max(0, deadlineIdx - Math.ceil(totalDias / 5));
             });
@@ -6960,7 +6977,8 @@ const preactor = {
 
                 // ── TECELAGEM: modelo de alocação (escolhe o tear apto: prazo + equilíbrio) ──
                 if (pid === 'tecelagem' && temAlocModelo) {
-                    const aptos = toc._getModelosStoll(ordem.dados).filter(m => modelosTec.includes(m));
+                    const declarados = toc._getModelosStoll(ordem.dados);
+                    const aptos = declarados.filter(m => modelosTec.includes(m));
                     const cargaMin = tempoUn * qtyRest;
                     totalMinutos += cargaMin;
                     const familiaT = this._getFamilia(ordem.dados);
@@ -6971,7 +6989,10 @@ const preactor = {
 
                     if (!aptos.length) {   // sem tear apto declarado → pendência visível, não aloca; cadeia segue
                         ordem._semModelo = true;
-                        semModeloOrdens.push({ codigo: ordem.codigo, label: ordem.label, qty: qtyRest, mins: cargaMin, data_entrega: ordem.data_entrega });
+                        const motivo = declarados.length
+                            ? `modelo ${declarados.join('/')} sem tear cadastrado`
+                            : 'coluna Stoll vazia';
+                        semModeloOrdens.push({ codigo: ordem.codigo, label: ordem.label, qty: qtyRest, mins: cargaMin, data_entrega: ordem.data_entrega, motivo });
                         finishSem[id][pid] = startBase;
                         anteriorFim = startBase;
                         return;
@@ -7063,7 +7084,7 @@ const preactor = {
         });
 
         const statusOrdens = this._calcStatusOrdens(ordens, finishSem, semanas);
-        const tecMix = temAlocModelo ? { modelos: modelosTec, capTec, usadoTec, detalheTec, setupUsadoTec, ordemModelo, semModelo: semModeloOrdens, nTeares: nTearesTec } : null;
+        const tecMix = temAlocModelo ? { modelos: modelosTec, capTec, usadoTec, detalheTec, setupUsadoTec, ordemModelo, semModelo: semModeloOrdens, nTeares: nTearesTec, nSemModelo: nSemModeloTec, capResidual: capResidualTec } : null;
         this._resultado = { semanas, cap, usado, detalhe, setupUsado, ordens, finishSem, statusOrdens, totalOrdens, totalMinutos, minutosOverflow, minutosProduzidos, modo, tecMix };
         this._renderGantt();
         if (this._abaAtiva === 'status') this._renderStatus();
@@ -7094,9 +7115,11 @@ const preactor = {
             const vals = Object.values(fs);
             const lastSemIdx = vals.length ? Math.max(...vals) : 0;
             const estourou   = ordem._overflow || lastSemIdx >= semanas.length;
-            const finishDate = estourou ? null : semanas[lastSemIdx]?.fim;
+            const finishDate = (estourou || ordem._semModelo) ? null : semanas[lastSemIdx]?.fim;
             let s = 'nodate';
-            if (estourou) {
+            if (ordem._semModelo) {
+                s = 'semtear'; // tem tecelagem mas nenhum tear apto — pendência, nunca "no prazo"
+            } else if (estourou) {
                 s = 'overflow'; // não cabe no horizonte — sem data falsa
             } else if (ordem.data_entrega && finishDate) {
                 const deadline = new Date(ordem.data_entrega + 'T12:00:00');
@@ -7262,6 +7285,12 @@ const preactor = {
             ${kpi(nNaoAloc ? '#ff5252' : '#26a69a', nNaoAloc, 'OPs NÃO ALOCADAS')}
         </div>`;
 
+        if (mix.nSemModelo) {
+            const hRes = (mix.capResidual || []).reduce((s, v) => s + v, 0) / 60;
+            html += `<div style="display:flex;align-items:flex-start;gap:8px;padding:9px 12px;margin-bottom:14px;background:rgba(255,202,40,.08);border:1px solid rgba(255,202,40,.35);border-radius:8px;font-size:.74rem;color:#ffca28;">
+                <span>⚠</span><span><strong>${mix.nSemModelo} tear(es) sem modelo cadastrado</strong> (${hRes.toLocaleString('pt-BR',{maximumFractionDigits:0})}h) — contam na capacidade total mas não recebem OP por modelo. Preencha o modelo em Configuração › Processos para incluí-los no mix.</span></div>`;
+        }
+
         // Heatmap tear × semana (ocupação %)
         html += `<div class="summary-card" style="padding:0;overflow:auto;margin-bottom:16px;">
             <div class="s-label" style="padding:12px 14px 4px;">MIX POR TEAR × SEMANA — ocupação (carga ÷ capacidade)</div>
@@ -7315,7 +7344,7 @@ const preactor = {
                     <td style="padding:6px 10px;">${escHTML((o.label||'').slice(0,32))}</td>
                     <td style="padding:6px 10px;text-align:right;">${(o.qty||0).toLocaleString('pt-BR')}</td>
                     <td style="padding:6px 10px;text-align:right;color:var(--text-dim);">${(o.mins/60).toFixed(1)}h</td>
-                    <td style="padding:6px 10px;color:#ffca28;font-size:.72rem;">sem tear apto (preencher coluna Stoll)</td></tr>`;
+                    <td style="padding:6px 10px;color:#ffca28;font-size:.72rem;">${escHTML(o.motivo || 'sem tear apto')}</td></tr>`;
             });
             naoCoube.forEach(o => {
                 html += `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
@@ -7338,12 +7367,13 @@ const preactor = {
         if (!r) { wrap.innerHTML = '<p style="color:var(--text-dim);padding:20px;">Calcule a linha do tempo primeiro.</p>'; return; }
 
         const items = Object.values(r.statusOrdens).sort((a,b) => {
-            const ord = { overflow:0, late:1, risk:2, ok:3, nodate:4 };
-            return (ord[a.status]??4)-(ord[b.status]??4) || (a.data_entrega||'9999').localeCompare(b.data_entrega||'9999');
+            const ord = { semtear:0, overflow:1, late:2, risk:3, ok:4, nodate:5 };
+            return (ord[a.status]??5)-(ord[b.status]??5) || (a.data_entrega||'9999').localeCompare(b.data_entrega||'9999');
         });
-        const icons  = { overflow: DOT.red, late: DOT.red, risk: DOT.yellow, ok: DOT.green, nodate: DOT.gray };
-        const labels = { overflow:'> HORIZONTE', late:'ATRASADO', risk:'EM RISCO', ok:'NO PRAZO', nodate:'SEM PRAZO' };
-        const colors = { overflow:'#ff5252', late:'#f06292', risk:'#ffca28', ok:'#26a69a', nodate:'#666' };
+        const icons  = { semtear: DOT.red, overflow: DOT.red, late: DOT.red, risk: DOT.yellow, ok: DOT.green, nodate: DOT.gray };
+        const labels = { semtear:'SEM TEAR', overflow:'> HORIZONTE', late:'ATRASADO', risk:'EM RISCO', ok:'NO PRAZO', nodate:'SEM PRAZO' };
+        const colors = { semtear:'#ff5252', overflow:'#ff5252', late:'#f06292', risk:'#ffca28', ok:'#26a69a', nodate:'#666' };
+        const stc = items.filter(s=>s.status==='semtear').length;
         const vc = items.filter(s=>s.status==='overflow').length;
         const lc = items.filter(s=>s.status==='late').length;
         const rc = items.filter(s=>s.status==='risk').length;
@@ -7351,7 +7381,7 @@ const preactor = {
         const nc = items.filter(s=>s.status==='nodate').length;
 
         let html = `<div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
-            ${[...(vc?[['#ff5252',vc,'> HORIZONTE']]:[]),['#f06292',lc,'ATRASADAS'],['#ffca28',rc,'EM RISCO'],['#26a69a',oc,'NO PRAZO'],['#666',nc,'SEM PRAZO']].map(([c,n,l])=>`
+            ${[...(stc?[['#ff5252',stc,'SEM TEAR']]:[]),...(vc?[['#ff5252',vc,'> HORIZONTE']]:[]),['#f06292',lc,'ATRASADAS'],['#ffca28',rc,'EM RISCO'],['#26a69a',oc,'NO PRAZO'],['#666',nc,'SEM PRAZO']].map(([c,n,l])=>`
             <div style="background:${c}18;border:1px solid ${c}44;border-radius:8px;padding:12px 20px;min-width:120px;text-align:center;">
                 <div style="font-size:1.5rem;font-weight:800;color:${c};">${n}</div>
                 <div style="font-size:.7rem;color:${c};letter-spacing:.07em;">${l}</div>
