@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Melhorias do Preactor — Roadmap APS</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', Arial, sans-serif; font-size: 10.5pt; line-height: 1.6; color: #1a1a2e; background: #fff; }
+  .cover { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
+    background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 60%, #16213e 100%); padding: 80px 72px; page-break-after: always; position: relative; overflow: hidden; }
+  .cover::before { content: ''; position: absolute; top: -100px; right: -100px; width: 500px; height: 500px; border-radius: 50%; background: radial-gradient(circle, rgba(99,102,241,.30) 0%, transparent 70%); }
+  .cover::after { content: ''; position: absolute; bottom: -80px; left: 200px; width: 350px; height: 350px; border-radius: 50%; background: radial-gradient(circle, rgba(38,198,218,.14) 0%, transparent 70%); }
+  .cover-tag { font-size: 9pt; font-weight: 700; letter-spacing: 3px; color: #6366f1; text-transform: uppercase; margin-bottom: 20px; position: relative; }
+  .cover h1 { font-size: 40pt; font-weight: 800; color: #fff; line-height: 1.1; margin-bottom: 14px; position: relative; }
+  .cover h1 span { color: #26c6da; }
+  .cover .sub { font-size: 13pt; color: rgba(255,255,255,.7); margin-bottom: 48px; position: relative; max-width: 640px; }
+  .cover-meta { display: flex; gap: 48px; position: relative; }
+  .cover-meta-label { font-size: 8pt; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #6366f1; margin-bottom: 4px; }
+  .cover-meta-val { font-size: 10pt; font-weight: 600; color: rgba(255,255,255,.75); }
+  .page { padding: 48px 64px; }
+  .section-header { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; padding-bottom: 14px; border-bottom: 2px solid #f0f0f8; page-break-after: avoid; }
+  .section-num { width: 36px; height: 36px; border-radius: 8px; background: #6366f1; color: #fff; font-size: 13pt; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .section-header h2 { font-size: 16pt; font-weight: 800; color: #1a1a2e; }
+  .section-header .section-badge { margin-left: auto; font-size: 7.5pt; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #6366f1; background: rgba(99,102,241,.08); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(99,102,241,.2); }
+  h3 { font-size: 11pt; font-weight: 700; color: #2d2d4e; margin: 22px 0 10px; page-break-after: avoid; }
+  h3::before { content: '▸ '; color: #6366f1; }
+  p { margin-bottom: 10px; color: #3a3a5c; }
+  ul, ol { margin: 0 0 12px 22px; color: #3a3a5c; } li { margin-bottom: 5px; }
+  strong { color: #1a1a2e; }
+  code { background: #f4f4fc; padding: 1px 6px; border-radius: 4px; font-size: 8.8pt; color: #6366f1; font-family: monospace; }
+  a { color: #2563eb; text-decoration: none; word-break: break-all; } a:hover { text-decoration: underline; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 20px; font-size: 9.3pt; }
+  th { background: #f4f4fc; color: #2d2d4e; font-weight: 700; text-align: left; padding: 9px 11px; border-bottom: 2px solid #e0e0f0; font-size: 8.2pt; letter-spacing: .3px; text-transform: uppercase; }
+  td { padding: 8px 11px; border-bottom: 1px solid #f0f0f8; color: #3a3a5c; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td strong { color: #1a1a2e; font-weight: 600; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 7.8pt; font-weight: 700; white-space: nowrap; }
+  .b-done { background: #f0fdf4; color: #16a34a; } .b-build { background: #eff6ff; color: #2563eb; }
+  .b-block { background: #fffbeb; color: #d97706; } .b-future { background: #f5f3ff; color: #7c3aed; }
+  .b-low { background: #f0fdf4; color: #16a34a; } .b-med { background: #fffbeb; color: #d97706; } .b-high { background: #fef2f2; color: #dc2626; }
+  .callout { border-left: 4px solid #6366f1; background: rgba(99,102,241,.05); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; page-break-inside: avoid; }
+  .callout.ok { border-color: #16a34a; background: rgba(22,163,74,.05); }
+  .callout.warn { border-color: #f59e0b; background: rgba(245,158,11,.06); }
+  .callout-title { font-size: 8.5pt; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 5px; color: #6366f1; }
+  .callout.ok .callout-title { color: #16a34a; } .callout.warn .callout-title { color: #b45309; }
+  .callout p { margin: 0; font-size: 9.5pt; }
+  .foot { text-align: center; color: #8b8bae; font-size: 8.5pt; padding: 30px; border-top: 1px solid #f0f0f8; margin-top: 20px; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 14px 0; font-size: 8.5pt; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="cover-tag">Roadmap · Programação de Fábrica (APS)</div>
+  <h1>Melhorias do <span>Preactor</span></h1>
+  <div class="sub">Pesquisa de boas práticas de APS (Siemens Opcenter, TOC, scheduling têxtil) cruzada com o estado atual do sistema — priorizada por retorno e honesta sobre o que depende de dado da fábrica.</div>
+  <div class="cover-meta">
+    <div class="cover-meta-item"><div class="cover-meta-label">Escopo</div><div class="cover-meta-val">Preactor / Linha do Tempo (SIGS)</div></div>
+    <div class="cover-meta-item"><div class="cover-meta-label">Base</div><div class="cover-meta-val">5 ângulos · ~30 fontes</div></div>
+    <div class="cover-meta-item"><div class="cover-meta-label">Domínio</div><div class="cover-meta-val">Malharia Stoll</div></div>
+  </div>
+</div>
+
+<!-- 1. DIAGNÓSTICO -->
+<div class="page">
+  <div class="section-header"><div class="section-num">1</div><h2>Diagnóstico honesto</h2><span class="section-badge">Ponto de partida</span></div>
+  <p>O Preactor <strong>já acerta o essencial de um APS de capacidade finita</strong>: capacidade finita por recurso, modos forward/backward, regras de prioridade (FIFO/EDD/quantidade/CPV), matriz de setup por família, Gantt de ocupação, cenários "e se", e — desde este ciclo — <strong>alocação da tecelagem por modelo de tear Stoll</strong> (530/330/303) com as telas Mix, Restrição e Simular.</p>
+  <div class="callout ok"><div class="callout-title">A mensagem que importa</div><p>O maior retorno <strong>não é o algoritmo</strong> — é <strong>dado real + medir aderência</strong>. Um sequenciador perfeito sobre tempo-padrão/setup errado gera plano bonito e inexequível. Por isso o roadmap começa barato (regras, KPIs, lint) e só depois refina o motor; o salto de valor vem quando a fábrica começar a <strong>apontar</strong>.</p></div>
+  <div class="legend">
+    <span><span class="badge b-done">✅ FEITO</span> já no ar</span>
+    <span><span class="badge b-build">🔨 CONSTRUÍVEL</span> dá pra codar já</span>
+    <span><span class="badge b-block">⛔ DADO</span> depende de dado da fábrica</span>
+    <span><span class="badge b-future">🔬 FUTURO</span> projeto estrutural</span>
+    <span><span class="badge b-low">baixo</span> <span class="badge b-med">médio</span> <span class="badge b-high">alto</span> esforço</span>
+  </div>
+</div>
+
+<!-- 2. TIER 1 -->
+<div class="page">
+  <div class="section-header"><div class="section-num">2</div><h2>Tier 1 — ganhos rápidos</h2><span class="section-badge">Feito neste ciclo</span></div>
+  <table>
+    <tr><th>Melhoria</th><th>O que muda</th><th>Esforço</th><th>Status</th></tr>
+    <tr><td><strong>Regra ATCS</strong> (Apparent Tardiness Cost with Setups)</td><td>Funde EDD + CPV + tempo + <strong>setup</strong> num índice só; o setup passa a <strong>influenciar a ordem</strong>, não só ser contado. Nova opção no seletor de prioridade.</td><td><span class="badge b-low">baixo-méd</span></td><td><span class="badge b-done">✅ FEITO</span></td></tr>
+    <tr><td><strong>KPIs do plano</strong></td><td>No Status: atraso total (dias), setup do plano (h), lead médio (semanas), utilização média com <strong>semáforo 80–90% saudável / &gt;90% frágil</strong>. Alimenta o delta do Simular.</td><td><span class="badge b-low">baixo</span></td><td><span class="badge b-done">✅ FEITO</span></td></tr>
+    <tr><td><strong>Lint de dado mestre</strong></td><td>Novo status <strong>"SEM TEMPO-PADRÃO"</strong>: código sem nenhum tempo de processo nunca sai "no prazo". Dado ruim é a causa #1 de falha de APS.</td><td><span class="badge b-low">baixo</span></td><td><span class="badge b-done">✅ FEITO</span></td></tr>
+    <tr><td>Regras compostas / CR-Slack + rótulo por objetivo</td><td>Encadear critérios (ex.: EDD → menor setup → CPV) e regras dinâmicas (Critical Ratio sobe sozinha quando o prazo aperta). Rotular "cada regra serve pra quê".</td><td><span class="badge b-low">baixo</span></td><td><span class="badge b-build">🔨 PRÓX.</span></td></tr>
+  </table>
+  <div class="callout"><div class="callout-title">Já entregou</div><p>No primeiro cálculo com ATCS, o lint <strong>já pegou 3 OPs sem tempo-padrão</strong> e a sequência ATCS ficou diferente da EDD — prova de que o índice composto está reordenando de verdade.</p></div>
+</div>
+
+<!-- 3. TIER 2 -->
+<div class="page">
+  <div class="section-header"><div class="section-num">3</div><h2>Tier 2 — estrutural</h2><span class="section-badge">Próximo ciclo</span></div>
+  <table>
+    <tr><th>Melhoria</th><th>O que muda</th><th>Esforço</th><th>Status</th></tr>
+    <tr><td><strong>Fechar o loop com o chão</strong> (o #1 de valor)</td><td>Medir <strong>aderência</strong> (bati o plano?) + <strong>attainment</strong> (bati o volume?). Attainment alto + aderência baixa = fábrica boa, plano ruim → prova onde investir. A janela = a semana do balde. Casa com o <strong>piloto</strong>.</td><td><span class="badge b-med">médio</span></td><td><span class="badge b-block">⛔ DADO</span> (precisa apontamento)</td></tr>
+    <tr><td><strong>Sequência por similaridade de setup</strong> (campanhas)</td><td>Dentro de cada tear/semana, ordenar por menor troca (vizinho mais próximo na matriz de setup) e mostrar os <strong>minutos de changeover economizados</strong>. Agrupar por fio/cor/programa.</td><td><span class="badge b-med">médio</span></td><td><span class="badge b-build">🔨 CONSTRUÍVEL</span></td></tr>
+    <tr><td><strong>Busca local / botão "Otimizar"</strong></td><td>A gulosa decide 1× e nunca reconsidera. Uma busca local (reusa o "arrastar SKU" como movimento automático, em Web Worker com tempo-limite) tira o ganho que a gulosa deixa — literatura: &lt;1% do ótimo. Delta antes/depois no Simular.</td><td><span class="badge b-med">médio</span></td><td><span class="badge b-build">🔨 CONSTRUÍVEL</span></td></tr>
+    <tr><td><strong>Fluxo entre processos (WIP)</strong></td><td>"Material Explorer" leve: por processo, entra × sai e o WIP empilhando entre etapas — mostra onde forma pilha de semiacabado e onde falta alimentação. Estende a Restrição para a cadeia toda.</td><td><span class="badge b-med">médio</span></td><td><span class="badge b-build">🔨 CONSTRUÍVEL</span></td></tr>
+    <tr><td><strong>Constraints on/off no Simular</strong></td><td>Toggles "ignorar setup / operador / fio" → mede quanto cada restrição custa em atraso. Descobre o gargalo real do plano. "Ignorar setup" dá pra fazer já; os outros vêm com as restrições secundárias.</td><td><span class="badge b-med">médio</span></td><td><span class="badge b-build">🔨 PARCIAL</span></td></tr>
+  </table>
+</div>
+
+<!-- 4. TIER 3 -->
+<div class="page">
+  <div class="section-header"><div class="section-num">4</div><h2>Tier 3 — avançado / futuro</h2><span class="section-badge">Quando o problema crescer</span></div>
+  <table>
+    <tr><th>Melhoria</th><th>O que muda</th><th>Esforço</th><th>Status</th></tr>
+    <tr><td><strong>Drum-Buffer-Rope (TOC)</strong></td><td>O sistema já <strong>detecta o gargalo</strong> — falta usá-lo como "tambor": sequenciar só ele em detalhe, derivar as datas dos outros 6 por buffer, priorizar por <strong>status de buffer</strong> (verde/amarelo/vermelho) em vez de prazo fixo. Reportado: −30% WIP, +15% utilização.</td><td><span class="badge b-high">alto</span></td><td><span class="badge b-future">🔬 FUTURO</span></td></tr>
+    <tr><td><strong>Restrições secundárias reais</strong> (operador, fio)</td><td>2ª dimensão de capacidade por semana → status "sem operador" / "sem fio". O plano deixa de prometer semanas que a fábrica não cumpre por falta de gente ou matéria-prima.</td><td><span class="badge b-high">alto</span></td><td><span class="badge b-block">⛔ DADO</span> (horas-operador, fio/semana)</td></tr>
+    <tr><td><strong>Setup por atributos físicos</strong></td><td>Derivar o setup de fio/cor/nº de carriers/galga/intarsia em vez de "família" abstrata — muito mais fiel ao tear Stoll (trocar fio/cor é o que custa, não carregar programa).</td><td><span class="badge b-med">médio</span></td><td><span class="badge b-block">⛔ DADO</span> (atributos por código)</td></tr>
+    <tr><td><strong>Galga/estrutura na capacidade</strong> por (tear, código)</td><td>Hoje a capacidade é throughput médio por tear. A galga muda as agulhas ativas e a produção real (2×1 rib usa 2/3, 2×2 usa 1/2) — a ocupação % passa a refletir a produtividade real por código.</td><td><span class="badge b-med">médio</span></td><td><span class="badge b-block">⛔ DADO</span> (tempo-padrão por código-tear)</td></tr>
+    <tr><td><strong>Lote mínimo de campanha</strong></td><td>Impedir que a OP fracionável se pulverize em micro-lotes que multiplicam changeover. Blocos econômicos por família/galga, exceto p/ fechar prazo crítico.</td><td><span class="badge b-low">baixo</span></td><td><span class="badge b-build">🔨 CONSTRUÍVEL</span></td></tr>
+    <tr><td><strong>Solver WASM (HiGHS/GLPK)</strong></td><td>Só como "polidor" de sub-problema (uma semana/um tear) e para medir a distância ao ótimo — <strong>não</strong> como motor. Adiciona lib; contraria o "JS puro". OR-Tools/CP-SAT = pesquisa, não produção.</td><td><span class="badge b-high">alto</span></td><td><span class="badge b-future">🔬 FUTURO</span></td></tr>
+  </table>
+  <div class="callout warn"><div class="callout-title">Por que "⛔ dado" e não "não dá"</div><p>Restrições de operador, fio, atributos de setup e galga são <strong>tecnicamente prontas para codar</strong> — o que falta é o <strong>dado da fábrica</strong> (quantas horas-operador por semana, disponibilidade de fio, quais códigos compartilham fio/cor/galga). Não invento esses números. Quando você tiver a regra, eu ligo a lógica — o mecanismo de "overflow / sem recurso" já existe.</p></div>
+</div>
+
+<!-- 5. FONTES -->
+<div class="page">
+  <div class="section-header"><div class="section-num">5</div><h2>Fontes</h2><span class="section-badge">Referências reais</span></div>
+  <h3>Teoria de APS &amp; regras de despacho</h3>
+  <ul>
+    <li>Lee, Bhaskaran &amp; Pinedo (1997), <em>A heuristic to minimize the total weighted tardiness with sequence-dependent setups</em> — a regra ATCS.</li>
+    <li>Cicirello, <em>Weighted Tardiness Scheduling with Sequence-Dependent Setups: A Benchmark Library</em> — <a href="https://www.cicirello.org/publications/wtsbenchmarks.pdf">cicirello.org</a></li>
+    <li>Critical Ratio / regras dinâmicas — <a href="https://metricgate.com/docs/critical-ratio-dispatch-rule/">metricgate.com</a></li>
+  </ul>
+  <h3>Preactor comercial (Siemens Opcenter APS)</h3>
+  <ul>
+    <li>Siemens Opcenter Advanced Scheduling — <a href="https://www.siemens.com/en-us/products/opcenter/advanced-planning-scheduling-aps/advanced-scheduling-software/">siemens.com</a> (Material Explorer, KPIs, constraints on/off)</li>
+    <li>ATS Lean Scheduling — <a href="https://lean-scheduling.com/products/preactor-advanced-planning-scheduling/preactor-advanced-scheduling/">lean-scheduling.com</a> (Minimize Overall Setup, Preferred Sequence, campanha, regras compostas)</li>
+  </ul>
+  <h3>Scheduling têxtil / malharia (teares)</h3>
+  <ul>
+    <li>Öztürk et al. (2022), <em>Unrelated parallel dedicated machine scheduling with sequence-dependent setup times: an application in a textile company</em> — <a href="https://www.inderscience.com/info/inarticle.php?artid=126104">inderscience.com</a></li>
+    <li><em>Mathematical models for unrelated parallel machine scheduling with family setup times</em>, OR Spectrum (2024) — <a href="https://link.springer.com/article/10.1007/s00291-024-00778-8">springer.com</a></li>
+    <li>Uddin &amp; Islam (2016), cálculo de galga &amp; produção de malha — <a href="https://file.scirp.org/Html/4-2160032_66366.htm">scirp.org</a></li>
+    <li>Shima Seiki / Stoll — Auto Yarn Carrier / Intarsia Carrier Allocation.</li>
+  </ul>
+  <h3>Otimização no browser (sem solver pesado)</h3>
+  <ul>
+    <li>Busca local / Simulated Annealing para lot-sizing capacitado — gaps &lt;1% do ótimo.</li>
+    <li>BRKGA (random-key GA) — <a href="https://arxiv.org/pdf/2312.00961">arxiv 2312.00961</a>.</li>
+    <li>Solvers WASM: HiGHS (<a href="https://github.com/lovasoa/highs-js">highs-js</a>), GLPK (<a href="https://github.com/jvail/glpk.js">glpk.js</a>).</li>
+  </ul>
+  <h3>KPIs &amp; adoção prática</h3>
+  <ul>
+    <li>Schedule Adherence — <a href="https://scw.ai/blog/schedule-adherence/">scw.ai</a>; Schedule Attainment — <a href="https://www.machinemetrics.com/blog/schedule-attainment">machinemetrics.com</a></li>
+    <li>Loop chão↔plano (estágios de maturidade) — <a href="https://usersolutions.com/blog/shop-floor-feedback-loop-scheduling">usersolutions.com</a></li>
+    <li>Por que projetos de APS falham (dado mestre / gestão de mudança) — <a href="https://www.planettogether.com/aps/what-makes-an-advanced-planning-and-scheduling-aps-project-successful-in-manufacturing">planettogether.com</a></li>
+  </ul>
+  <div class="foot">Roadmap de melhorias do Preactor · Andon / Malha Forte · gerado a partir de pesquisa de boas práticas de APS cruzada com o código atual.</div>
+</div>
+
+</body>
+</html>
