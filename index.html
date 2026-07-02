@@ -2482,10 +2482,11 @@
             <div>
                 <div style="font-size:.72rem;color:var(--text-dim);margin-bottom:6px;">PRIORIDADE</div>
                 <select id="tl-prioridade" style="padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;">
-                    <option value="fifo">FIFO (data emissão)</option>
-                    <option value="edd">EDD (data de entrega)</option>
+                    <option value="fifo">FIFO — emissão (menor lead médio)</option>
+                    <option value="edd">EDD — entrega (menor atraso)</option>
                     <option value="qty">Maior quantidade</option>
-                    <option value="cpv">CPV (valor crítico)</option>
+                    <option value="cpv">CPV — valor crítico</option>
+                    <option value="atcs">ATCS — prazo + valor + setup ⚡</option>
                 </select>
             </div>
             <div>

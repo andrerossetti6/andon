@@ -6801,6 +6801,37 @@ const preactor = {
         return row ? (row.minutos || 0) : 0;
     },
 
+    // ATCS-style (Apparent Tardiness Cost with Setups): sequência gulosa por um índice composto que
+    // combina valor/tempo × urgência de prazo × afinidade de setup (usa a matriz de setup do gargalo).
+    // Funde EDD+CPV+SPT e faz o SETUP influenciar a ORDEM, não só ser contabilizado. Ref.: Lee & Pinedo (1997).
+    _sequenciarATCS(ordens) {
+        const proc = 'tecelagem';  // setup do processo-referência (gargalo típico)
+        const setups = (this._setupMatrix || []).filter(r => r.processo === proc).map(r => Number(r.minutos) || 0).filter(v => v > 0);
+        const sBar = setups.length ? setups.reduce((s,v)=>s+v,0)/setups.length : 1;
+        const hoje = new Date();
+        const k1 = 5, k2 = 1;   // lookahead de prazo (× semana) e de setup
+        const restante = ordens.slice(), seq = [];
+        let lastFam = null;
+        while (restante.length) {
+            let bestIdx = 0, bestI = -Infinity;
+            for (let i = 0; i < restante.length; i++) {
+                const o = restante[i];
+                const w = Math.max(Number(o.cpv) || 0, 1);            // valor (peso)
+                const p = Math.max(Number(o.qty) || 1, 1);           // "tempo" ~ quantidade
+                const dias = o.data_entrega ? (new Date(o.data_entrega+'T12:00:00') - hoje) / 864e5 : 999;
+                const urg = Math.exp(-Math.max(0, dias) / (k1 * 7));  // urgência: alta se prazo perto/vencido
+                const s = this._getSetupMins(proc, lastFam, this._getFamilia(o.dados || {}));
+                const setupF = Math.exp(-s / (k2 * sBar));            // afinidade: alta se mesma família
+                const I = (w / p) * urg * setupF;
+                if (I > bestI) { bestI = I; bestIdx = i; }
+            }
+            const esc = restante.splice(bestIdx, 1)[0];
+            lastFam = this._getFamilia(esc.dados || {});
+            seq.push(esc);
+        }
+        return seq;
+    },
+
     _buildOrdens(fonte, mesSel, prioridade) {
         const ordens = [];
         const bancoMap = {};
@@ -6865,6 +6896,8 @@ const preactor = {
                 if (!b.data_entrega) return -1;
                 return a.data_entrega.localeCompare(b.data_entrega);
             });
+        } else if (prioridade === 'atcs') {
+            return this._sequenciarATCS(ordens);
         }
         return ordens;
     },
@@ -7133,9 +7166,13 @@ const preactor = {
             const vals = Object.values(fs);
             const lastSemIdx = vals.length ? Math.max(...vals) : 0;
             const estourou   = ordem._overflow || lastSemIdx >= semanas.length;
-            const finishDate = (estourou || ordem._semModelo) ? null : semanas[lastSemIdx]?.fim;
+            // Lint: código com dados mas SEM nenhum tempo-padrão em processo algum → não dá pra sequenciar
+            const semTempo = ordem.dados && this._SEQ.every(pid => !this._getTempoProc(ordem.dados, pid));
+            const finishDate = (estourou || ordem._semModelo || semTempo) ? null : semanas[lastSemIdx]?.fim;
             let s = 'nodate';
-            if (ordem._semModelo) {
+            if (semTempo) {
+                s = 'semtempo'; // dado mestre faltando — bloqueia o planejamento, nunca "no prazo"
+            } else if (ordem._semModelo) {
                 s = 'semtear'; // tem tecelagem mas nenhum tear apto — pendência, nunca "no prazo"
             } else if (estourou) {
                 s = 'overflow'; // não cabe no horizonte — sem data falsa
@@ -7384,6 +7421,7 @@ const preactor = {
         if (prioridade === 'edd') o.sort((a,b) => { if(!a.data_entrega&&!b.data_entrega) return String(a.emissao).localeCompare(String(b.emissao)); if(!a.data_entrega) return 1; if(!b.data_entrega) return -1; return a.data_entrega.localeCompare(b.data_entrega); });
         else if (prioridade === 'qty') o.sort((a,b) => b.qty - a.qty);
         else if (prioridade === 'cpv') o.sort((a,b) => b.cpv - a.cpv);
+        else if (prioridade === 'atcs') return this._sequenciarATCS(o);
         else if (prioridade === 'fifo') o.sort((a,b) => String(a.emissao).localeCompare(String(b.emissao)) || String(a.nop||'').localeCompare(String(b.nop||'')));
         return o;
     },
@@ -7565,12 +7603,13 @@ const preactor = {
         if (!r) { wrap.innerHTML = '<p style="color:var(--text-dim);padding:20px;">Calcule a linha do tempo primeiro.</p>'; return; }
 
         const items = Object.values(r.statusOrdens).sort((a,b) => {
-            const ord = { semtear:0, overflow:1, late:2, risk:3, ok:4, nodate:5 };
-            return (ord[a.status]??5)-(ord[b.status]??5) || (a.data_entrega||'9999').localeCompare(b.data_entrega||'9999');
+            const ord = { semtempo:0, semtear:1, overflow:2, late:3, risk:4, ok:5, nodate:6 };
+            return (ord[a.status]??6)-(ord[b.status]??6) || (a.data_entrega||'9999').localeCompare(b.data_entrega||'9999');
         });
-        const icons  = { semtear: DOT.red, overflow: DOT.red, late: DOT.red, risk: DOT.yellow, ok: DOT.green, nodate: DOT.gray };
-        const labels = { semtear:'SEM TEAR', overflow:'> HORIZONTE', late:'ATRASADO', risk:'EM RISCO', ok:'NO PRAZO', nodate:'SEM PRAZO' };
-        const colors = { semtear:'#ff5252', overflow:'#ff5252', late:'#f06292', risk:'#ffca28', ok:'#26a69a', nodate:'#666' };
+        const icons  = { semtempo: DOT.red, semtear: DOT.red, overflow: DOT.red, late: DOT.red, risk: DOT.yellow, ok: DOT.green, nodate: DOT.gray };
+        const labels = { semtempo:'SEM TEMPO-PADRÃO', semtear:'SEM TEAR', overflow:'> HORIZONTE', late:'ATRASADO', risk:'EM RISCO', ok:'NO PRAZO', nodate:'SEM PRAZO' };
+        const colors = { semtempo:'#ff5252', semtear:'#ff5252', overflow:'#ff5252', late:'#f06292', risk:'#ffca28', ok:'#26a69a', nodate:'#666' };
+        const stpc = items.filter(s=>s.status==='semtempo').length;
         const stc = items.filter(s=>s.status==='semtear').length;
         const vc = items.filter(s=>s.status==='overflow').length;
         const lc = items.filter(s=>s.status==='late').length;
@@ -7578,9 +7617,30 @@ const preactor = {
         const oc = items.filter(s=>s.status==='ok').length;
         const nc = items.filter(s=>s.status==='nodate').length;
 
-        let html = `<div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
-            ${[...(stc?[['#ff5252',stc,'SEM TEAR']]:[]),...(vc?[['#ff5252',vc,'> HORIZONTE']]:[]),['#f06292',lc,'ATRASADAS'],['#ffca28',rc,'EM RISCO'],['#26a69a',oc,'NO PRAZO'],['#666',nc,'SEM PRAZO']].map(([c,n,l])=>`
-            <div style="background:${c}18;border:1px solid ${c}44;border-radius:8px;padding:12px 20px;min-width:120px;text-align:center;">
+        // ── KPIs do plano (o que a fábrica sente): atraso, setup, lead time, utilização ──
+        let atrasoDias = 0, leadSomaSem = 0, leadN = 0;
+        items.forEach(it => {
+            if (it.status === 'late' && it.data_entrega && it.finishDate) atrasoDias += Math.max(0, (it.finishDate - new Date(it.data_entrega+'T12:00:00')) / 864e5);
+            if (it.status === 'ok' || it.status === 'risk' || it.status === 'late') { leadSomaSem += (it.lastSemIdx||0) + 1; leadN++; }
+        });
+        const setupTotMin = this._SEQ.reduce((s,pid) => s + (r.setupUsado[pid]||[]).reduce((a,b)=>a+b,0), 0);
+        const capTot = this._SEQ.reduce((s,pid)=> s + (r.cap[pid]||[]).reduce((a,b)=>a+b,0), 0);
+        const usoTot = this._SEQ.reduce((s,pid)=> s + (r.usado[pid]||[]).reduce((a,b)=>a+b,0), 0);
+        const utilMed = capTot > 0 ? usoTot/capTot*100 : 0;
+        const utilCor = utilMed > 90 ? '#f06292' : utilMed >= 80 ? '#26a69a' : '#ffca28';   // semáforo 80–90% saudável
+        const kpiPlano = (c,v,l,tip)=>`<div title="${tip||''}" style="background:var(--bg-input);border:1px solid var(--border-color);border-radius:8px;padding:10px 16px;min-width:120px;text-align:center;">
+            <div style="font-size:1.25rem;font-weight:800;color:${c};">${v}</div><div style="font-size:.62rem;color:var(--text-dim);letter-spacing:.05em;">${l}</div></div>`;
+        this._planKpis = { atrasoDias, setupTotMin, leadMed: leadN?leadSomaSem/leadN:0, utilMed };  // reusável no delta do SIMULAR
+
+        let html = `<div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+            ${kpiPlano(atrasoDias>0?'#f06292':'#26a69a', Math.round(atrasoDias), 'ATRASO (dias)', 'Soma dos dias de atraso das OPs atrasadas')}
+            ${kpiPlano('#ffab76', (setupTotMin/60).toFixed(0)+'h', 'SETUP DO PLANO', 'Total de horas de changeover que o plano gasta')}
+            ${kpiPlano('#26c6da', (leadN?leadSomaSem/leadN:0).toFixed(1), 'LEAD MÉDIO (sem)', 'Semanas médias da 1ª etapa até concluir')}
+            ${kpiPlano(utilCor, utilMed.toFixed(0)+'%', 'UTILIZAÇÃO', 'Média dos 7 processos. Saudável 80–90%; >90% = plano frágil')}
+        </div>
+        <div style="display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;">
+            ${[...(stpc?[['#ff5252',stpc,'SEM TEMPO-PADRÃO']]:[]),...(stc?[['#ff5252',stc,'SEM TEAR']]:[]),...(vc?[['#ff5252',vc,'> HORIZONTE']]:[]),['#f06292',lc,'ATRASADAS'],['#ffca28',rc,'EM RISCO'],['#26a69a',oc,'NO PRAZO'],['#666',nc,'SEM PRAZO']].map(([c,n,l])=>`
+            <div style="background:${c}18;border:1px solid ${c}44;border-radius:8px;padding:12px 20px;min-width:110px;text-align:center;">
                 <div style="font-size:1.5rem;font-weight:800;color:${c};">${n}</div>
                 <div style="font-size:.7rem;color:${c};letter-spacing:.07em;">${l}</div>
             </div>`).join('')}
