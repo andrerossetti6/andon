@@ -5311,12 +5311,26 @@ const previsao = {
         if (f) { f.qty=qty; f.isOverride=true; }
     },
 
+    // Exclusão de SKU da previsão (persistente) — o operador tira da lista quem não quer planejar
+    _excluidosSet() { try { return new Set(JSON.parse(localStorage.getItem('prev-excluidos') || '[]').map(String)); } catch { return new Set(); } },
+    _excluirSku(cod) {
+        const s = this._excluidosSet(); s.add(String(cod));
+        localStorage.setItem('prev-excluidos', JSON.stringify([...s]));
+        mostrarToast(`${cod} excluído da previsão. Clique "restaurar" para desfazer.`, 'aviso');
+        this.render();
+    },
+    _restaurarExcluidos() {
+        localStorage.removeItem('prev-excluidos');
+        mostrarToast('SKUs excluídos restaurados.', 'ok');
+        this.render();
+    },
+
     _populaSegFiltro() {
         const sel = document.getElementById('prev-seg-sel');
         if (!sel) return;
         const cur  = sel.value;
         const segs = [...new Set(this._forecast.map(r=>r.segmento).filter(Boolean))].sort();
-        sel.innerHTML = '<option value="">Todos</option>' + segs.map(s=>`<option value="${s}"${s===cur?' selected':''}>${s}</option>`).join('');
+        sel.innerHTML = '<option value="">Todos</option>' + segs.map(s=>`<option value="${escHTML(s)}"${s===cur?' selected':''}>${escHTML(s)}</option>`).join('');
     },
 
     _renderSazonalidade(sIdx, nextMonths) {
@@ -5351,7 +5365,8 @@ const previsao = {
         if (!res||!this._forecast.length) return;
         res.style.display='';
 
-        const filtered = this._forecast.filter(r => !segSel || r.segmento===segSel);
+        const excl = this._excluidosSet();
+        const filtered = this._forecast.filter(r => (!segSel || r.segmento===segSel) && !excl.has(String(r.codigo)));
 
         if (grupo==='familia') {
             label.textContent = 'PREVISÃO POR FAMÍLIA (SEGMENTO)';
@@ -5384,7 +5399,8 @@ const previsao = {
                 this._nextMonths.map(m=>`<th style="padding:8px 10px;text-align:right;color:var(--text-dim);font-size:.7rem;">${m.label.toUpperCase()}</th>`).join('')+
                 (hasHW  ? `<th style="padding:8px 10px;text-align:center;color:var(--text-dim);font-size:.7rem;">IC 80% (${this._nextMonths[0]?.label||'M1'})</th>` : '') +
                 (hasReg ? `<th style="padding:8px 10px;text-align:center;color:var(--text-dim);font-size:.7rem;">R²</th><th style="padding:8px 10px;text-align:center;color:var(--text-dim);font-size:.7rem;">TEND.</th>` : '') +
-                `<th style="padding:8px 10px;text-align:right;color:var(--text-dim);font-size:.7rem;">TOTAL</th>`;
+                `<th style="padding:8px 10px;text-align:right;color:var(--text-dim);font-size:.7rem;">TOTAL</th>` +
+                `<th style="padding:8px 10px;text-align:center;color:var(--text-dim);font-size:.7rem;">AÇÕES</th>`;
             const skus = Object.values(skuMap).slice(0, 400);
             tbody.innerHTML = skus.map((sku,i)=>{
                 const cells = this._nextMonths.map(m=>{
@@ -5412,9 +5428,15 @@ const previsao = {
                     <td style="padding:5px 10px;font-size:.78rem;color:var(--text-dim);">${escHTML(sku.segmento||'')}</td>
                     ${cells}${ciCell}${regCell}
                     <td style="padding:5px 10px;text-align:right;font-weight:700;">${total.toLocaleString('pt-BR')}</td>
+                    <td style="padding:5px 10px;text-align:center;white-space:nowrap;">
+                        <span title="As quantidades acima são editáveis; a edição é salva automaticamente." style="color:var(--text-dim);font-size:.9rem;margin-right:8px;cursor:default;">✎</span>
+                        <button onclick="previsao._excluirSku('${escJS(sku.codigo)}')" title="Excluir este SKU da previsão" style="background:transparent;border:none;color:#f06292;cursor:pointer;font-size:.9rem;padding:2px 4px;">🗑</button>
+                    </td>
                 </tr>`;
             }).join('');
-            count.textContent = skus.length<Object.keys(skuMap).length ? `${skus.length} / ${Object.keys(skuMap).length} SKUs (use filtro)` : `${skus.length} SKUs`;
+            const totalSku = Object.keys(skuMap).length;
+            count.innerHTML = (skus.length < totalSku ? `${skus.length} / ${totalSku} SKUs (use filtro)` : `${skus.length} SKUs`)
+                + (excl.size ? ` · <span style="color:#f06292;">${excl.size} excluído${excl.size > 1 ? 's' : ''}</span> <button onclick="previsao._restaurarExcluidos()" style="background:transparent;border:1px solid var(--border-color);border-radius:5px;color:var(--indigo-primary);cursor:pointer;font-size:.7rem;padding:2px 8px;margin-left:4px;">restaurar</button>` : '');
         }
     },
 
