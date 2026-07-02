@@ -2519,6 +2519,7 @@
         <button id="tl-tab-gantt"    onclick="preactor._selecionarAba('gantt')"    style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid var(--indigo-primary);color:var(--indigo-primary);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">GANTT</button>
         <button id="tl-tab-mix"      onclick="preactor._selecionarAba('mix')"      style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">MIX POR TEAR</button>
         <button id="tl-tab-sim"      onclick="preactor._selecionarAba('sim')"      style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">SIMULAR</button>
+        <button id="tl-tab-ctp"      onclick="preactor._selecionarAba('ctp')"      style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">PROMESSA (CTP)</button>
         <button id="tl-tab-status"   onclick="preactor._selecionarAba('status')"   style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">STATUS ORDENS</button>
         <button id="tl-tab-config"   onclick="preactor._selecionarAba('config')"   style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">SETUP MATRIX</button>
         <button id="tl-tab-cenarios" onclick="preactor._selecionarAba('cenarios')" style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">CENÁRIOS</button>
@@ -2572,6 +2573,26 @@
         <div id="tl-sim-conteudo">
             <p style="color:var(--text-dim);padding:20px;font-size:.85rem;">Calcule a linha do tempo para simular cenários: ligar/desligar teares, adicionar capacidade, mover prazos e re-priorizar — vendo o antes × depois.</p>
         </div>
+    </div>
+
+    <!-- PAINEL PROMESSA / CTP (Capable-to-Promise) -->
+    <div id="tl-pan-ctp" style="display:none;">
+        <div class="summary-card" style="margin-bottom:14px;">
+            <div class="s-label" style="margin-bottom:4px;">PROMESSA DE ENTREGA — CTP (Capable-to-Promise)</div>
+            <p style="font-size:.74rem;color:var(--text-dim);margin:0 0 12px;">Cotação de data confiável: soma a carga do pedido novo à fila do gargalo e devolve a 1ª data factível. Faz o caminho certo do make-to-order (promete <strong>antes</strong> de aceitar a OP).</p>
+            <div style="display:flex;gap:14px;flex-wrap:wrap;align-items:end;">
+                <div><div style="font-size:.68rem;color:var(--text-dim);margin-bottom:3px;">Código do produto</div>
+                    <input id="ctp-cod" type="text" placeholder="ex.: 12233" style="width:150px;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.85rem;"></div>
+                <div><div style="font-size:.68rem;color:var(--text-dim);margin-bottom:3px;">Quantidade</div>
+                    <input id="ctp-qtd" type="number" min="1" placeholder="500" style="width:100px;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.85rem;text-align:right;"></div>
+                <div><div style="font-size:.68rem;color:var(--text-dim);margin-bottom:3px;">Data desejada (opcional)</div>
+                    <input id="ctp-data" type="date" style="padding:6px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.85rem;"></div>
+                <div><div style="font-size:.68rem;color:var(--text-dim);margin-bottom:3px;">Horas/dia</div>
+                    <input id="ctp-horas" type="number" min="1" max="24" value="8" style="width:70px;padding:6px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.85rem;text-align:right;"></div>
+                <button onclick="preactor._promessaCTP()" style="padding:8px 22px;background:var(--indigo-btn);color:#fff;border:none;border-radius:6px;font-size:.82rem;font-weight:700;cursor:pointer;">CALCULAR PROMESSA</button>
+            </div>
+        </div>
+        <div id="tl-ctp-resultado"></div>
     </div>
 
     <!-- PAINEL STATUS DAS ORDENS -->

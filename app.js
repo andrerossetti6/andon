@@ -6598,7 +6598,7 @@ const preactor = {
 
     _selecionarAba(aba) {
         this._abaAtiva = aba;
-        ['gantt','mix','sim','status','config','cenarios'].forEach(a => {
+        ['gantt','mix','sim','ctp','status','config','cenarios'].forEach(a => {
             const btn = document.getElementById(`tl-tab-${a}`);
             const pan = document.getElementById(`tl-pan-${a}`);
             if (btn) {
@@ -7596,6 +7596,49 @@ const preactor = {
             msg = `Stoll <strong>${escHTML(gModelo)}</strong> está em ${Math.round(R.gargalo[1].util*100)}% e os demais teares também estão cheios — capacidade real insuficiente. Simule "+ teares" ou "capacidade ×" para ver quanto resolve.`;
         }
         return `<div class="summary-card" style="border-left:3px solid var(--indigo-primary);"><div class="s-label" style="margin-bottom:6px;">💡 RECOMENDAÇÃO DE PREENCHIMENTO</div><p style="font-size:.82rem;color:var(--text-primary);margin:0;line-height:1.5;">${msg}</p></div>`;
+    },
+
+    // CTP — Capable-to-Promise: cota uma data de entrega factível para um pedido novo
+    async _promessaCTP() {
+        const cod = (document.getElementById('ctp-cod')?.value || '').trim();
+        const qtd = parseInt(document.getElementById('ctp-qtd')?.value) || 0;
+        const data = document.getElementById('ctp-data')?.value || '';
+        const horas = parseInt(document.getElementById('ctp-horas')?.value) || 8;
+        const alvo = document.getElementById('tl-ctp-resultado');
+        if (!alvo) return;
+        if (!cod || qtd <= 0) { alvo.innerHTML = '<div class="summary-card" style="color:#ffca28;padding:14px;">Informe o código do produto e a quantidade.</div>'; return; }
+        alvo.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:14px;">Calculando...</div>';
+        const q = `codigo=${encodeURIComponent(cod)}&qtd=${qtd}&horas=${horas}${data ? `&data=${data}` : ''}`;
+        const r = await api.get('/api/mf/promessa?' + q).catch(() => null);
+        if (!r) { alvo.innerHTML = '<div class="summary-card" style="color:#f06292;padding:14px;">Erro ao calcular — tente de novo.</div>'; return; }
+        if (!r.encontrado) { alvo.innerHTML = `<div class="summary-card" style="color:#ffca28;padding:14px;">Produto <strong>${escHTML(cod)}</strong> não encontrado no cadastro do MES.</div>`; return; }
+        const dProm = r.data_promessa ? new Date(r.data_promessa + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
+        const cumpre = r.cumpre === null ? '' : (r.cumpre
+            ? `<span style="color:#26a69a;font-weight:700;">✓ cumpre o desejado</span>`
+            : `<span style="color:#f06292;font-weight:700;">✗ NÃO cumpre (${new Date(r.data_desejada + 'T12:00:00').toLocaleDateString('pt-BR')})</span>`);
+        const cor = r.confiavel ? '#26a69a' : '#ffca28';
+        let html = `<div class="summary-card" style="margin-bottom:14px;border-left:3px solid ${cor};">
+            <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;">
+                <div><div style="font-size:1.7rem;font-weight:800;color:${cor};">${dProm}</div>
+                    <div style="font-size:.66rem;color:var(--text-dim);">DATA FACTÍVEL · ${r.dias_uteis} dias úteis</div></div>
+                <div style="font-size:.82rem;">${escHTML(r.produto.descricao || r.produto.codigo)} · <strong>${r.qtd.toLocaleString('pt-BR')}</strong> un · gargalo: <strong>${escHTML(r.etapa_gargalo || '—')}</strong></div>
+                <div style="margin-left:auto;">${cumpre}</div>
+            </div>`;
+        if (!r.confiavel) html += `<div style="margin-top:10px;font-size:.74rem;color:#ffca28;">⚠ Data <strong>NÃO confiável</strong>: ${r.sem_padrao_etapas} etapa(s) sem tempo-padrão cadastrado. Cadastre o tempo-padrão (MES › Engenharia / piloto) para a promessa valer.</div>`;
+        html += `</div>`;
+        html += `<div class="summary-card"><div class="s-label" style="margin-bottom:8px;">CARGA POR ETAPA (fila atual + este pedido)</div>
+            <table style="width:100%;border-collapse:collapse;font-size:.8rem;"><thead><tr style="color:var(--text-dim);font-size:.66rem;border-bottom:1px solid var(--border-color);">
+            <th style="text-align:left;padding:6px 10px;">ETAPA</th><th style="text-align:right;padding:6px 10px;">MÁQ</th><th style="text-align:right;padding:6px 10px;">FILA (h)</th><th style="text-align:right;padding:6px 10px;">ESTE PEDIDO (h)</th><th style="text-align:right;padding:6px 10px;">DIAS</th></tr></thead><tbody>`;
+        (r.etapas || []).forEach(e => {
+            html += `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+                <td style="padding:6px 10px;font-weight:600;">${escHTML(e.etapa)}${e.etapa === r.etapa_gargalo ? ' <span style="color:#f06292;font-size:.66rem;">◆ gargalo</span>' : ''}</td>
+                <td style="padding:6px 10px;text-align:right;">${e.maquinas}</td>
+                <td style="padding:6px 10px;text-align:right;color:var(--text-dim);">${(e.backlog_h || 0).toLocaleString('pt-BR')}</td>
+                <td style="padding:6px 10px;text-align:right;">${e.sem_padrao ? '<span style="color:#ffca28;">sem padrão</span>' : (e.novo_h || 0).toLocaleString('pt-BR')}</td>
+                <td style="padding:6px 10px;text-align:right;font-weight:700;">${e.dias != null ? e.dias : '—'}</td></tr>`;
+        });
+        html += `</tbody></table></div>`;
+        alvo.innerHTML = html;
     },
 
     _renderStatus() {

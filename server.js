@@ -2639,6 +2639,72 @@ app.get('/api/mf/capacidade', auth, async (req, res) => {
     res.json({ etapas, horasDia, gargalo, ops_ativas: ops.length });
 });
 
+// soma N dias ÚTEIS (pula sáb/dom) a uma data
+function somaDiasUteis(base, n) {
+    const d = new Date(base);
+    let add = 0;
+    while (add < Math.max(0, Math.ceil(n))) { d.setDate(d.getDate() + 1); const dow = d.getDay(); if (dow !== 0 && dow !== 6) add++; }
+    return d;
+}
+
+// ── CTP (Capable-to-Promise): data de entrega factível de um pedido novo ──────────
+// Rough-cut: soma a carga da OP nova ao backlog de cada etapa do roteiro e devolve a 1ª data
+// factível (hoje + dias úteis até a etapa-gargalo esvaziar). Depende de tempo_padrao cadastrado.
+app.get('/api/mf/promessa', auth, async (req, res) => {
+    const codigo = String(req.query.codigo || '').trim();
+    const qtd = Number(req.query.qtd) || 0;
+    const horasDia = Math.min(24, Math.max(1, Number(req.query.horas) || 8));
+    const dataDesejada = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.data || '')) ? req.query.data : null;
+    if (!codigo || !(qtd > 0)) return res.status(400).json({ erro: 'codigo e qtd>0 obrigatórios' });
+
+    const produto = (await supabase.from('produto').select('id,codigo,descricao').ilike('codigo', codigo).limit(1)).data?.[0];
+    if (!produto) return res.json({ ok: true, encontrado: false, codigo });
+
+    const etapasR = await supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).order('ordem');
+    if (etapasR.error && /schema cache|does not exist|column/i.test(etapasR.error.message || '')) return res.status(503).json({ erro: 'Fluxo não inicializado. Rode mes_wip_unificado.sql.' });
+    if (etapasR.error) return erro500(res, etapasR.error);
+    let opsAll;
+    try { opsAll = await fetchAllSelect('ordem_producao', 'produto_id,qtd_planejada, etapa:etapa_atual_id(ordem)', q => q.not('status', 'in', '(concluida,cancelada)')); }
+    catch (e) { return erro500(res, e); }
+    const [maqsR, temposR, peR] = await Promise.all([
+        supabase.from('maquina').select('id,etapa_id').eq('ativo', true),
+        supabase.from('tempo_padrao').select('etapa_id,produto_id,seg_por_unidade'),
+        supabase.from('produto_etapa').select('produto_id,etapa_id'),
+    ]);
+    const maqCount = {}; (maqsR.data || []).forEach(m => { if (m.etapa_id) maqCount[m.etapa_id] = (maqCount[m.etapa_id] || 0) + 1; });
+    const stdDef = {}, stdOv = {};
+    (temposR.data || []).forEach(t => { if (t.produto_id) stdOv[t.etapa_id + '|' + t.produto_id] = Number(t.seg_por_unidade); else stdDef[t.etapa_id] = Number(t.seg_por_unidade); });
+    const rotProd = {}; (peR.data || []).forEach(x => { (rotProd[x.produto_id] = rotProd[x.produto_id] || new Set()).add(x.etapa_id); });
+    const usaEtapa = (prod, eid) => { const s = rotProd[prod]; return !s || s.size === 0 || s.has(eid); };
+    const std = (eid, prod) => stdOv[eid + '|' + prod] ?? stdDef[eid] ?? 0;
+    const ops = opsAll || [];
+
+    let diasGargalo = 0, semPadrao = 0;
+    const etapasOut = [];
+    for (const e of (etapasR.data || [])) {
+        if (!usaEtapa(produto.id, e.id)) continue;
+        let backlogSeg = 0;
+        for (const o of ops) { const ord = o.etapa?.ordem || 0; if ((ord === 0 || ord <= e.ordem) && usaEtapa(o.produto_id, e.id)) backlogSeg += Number(o.qtd_planejada || 0) * std(e.id, o.produto_id); }
+        const s = std(e.id, produto.id), novoSeg = qtd * s, maquinas = maqCount[e.id] || 0;
+        const capDiaSeg = maquinas * horasDia * 3600;
+        const diasEtapa = capDiaSeg > 0 ? (backlogSeg + novoSeg) / capDiaSeg : null;
+        if (s === 0) semPadrao++;
+        if (diasEtapa != null) diasGargalo = Math.max(diasGargalo, diasEtapa);
+        etapasOut.push({ etapa: e.nome, ordem: e.ordem, backlog_h: Math.round(backlogSeg / 360) / 10, novo_h: Math.round(novoSeg / 360) / 10, maquinas, dias: diasEtapa != null ? Math.round(diasEtapa * 10) / 10 : null, sem_padrao: s === 0 });
+    }
+    const confiavel = etapasOut.length > 0 && semPadrao === 0;   // só é data confiável se todas as etapas têm tempo-padrão
+    const diasUteis = Math.ceil(diasGargalo);
+    const dataPromessa = somaDiasUteis(new Date(), diasUteis);
+    const gargaloEtapa = etapasOut.filter(x => x.dias != null).sort((a, b) => b.dias - a.dias)[0]?.etapa || null;
+    res.json({
+        ok: true, encontrado: true, produto: { codigo: produto.codigo, descricao: produto.descricao }, qtd, horasDia,
+        confiavel, sem_padrao_etapas: semPadrao,
+        dias_uteis: diasUteis, data_promessa: dataPromessa.toISOString().slice(0, 10),
+        data_desejada: dataDesejada, cumpre: dataDesejada ? (dataPromessa <= new Date(dataDesejada + 'T23:59:59')) : null,
+        etapa_gargalo: gargaloEtapa, etapas: etapasOut, ops_ativas: ops.length,
+    });
+});
+
 // ── Rastreabilidade por código da peça: todo o histórico do código ───────────
 app.get('/api/mf/rastreio/:codigo', auth, async (req, res) => {
     const cod = String(req.params.codigo || '').trim();
