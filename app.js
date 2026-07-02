@@ -5393,14 +5393,14 @@ const previsao = {
                 (hasHW  ? ' — Holt-Winters (IC 80%)' : hasReg ? ' — Regressão Linear (R²)' : '');
             const skuMap = {};
             filtered.forEach(r => { if(!skuMap[r.codigo]) skuMap[r.codigo]={...r,meses:{}}; skuMap[r.codigo].meses[r.mes]=r; });
-            thead.innerHTML = `<th style="padding:8px 10px;text-align:left;color:var(--text-dim);font-size:.7rem;">CÓDIGO</th>
+            thead.innerHTML = `<th style="padding:8px 10px;text-align:center;color:var(--text-dim);font-size:.7rem;position:sticky;left:0;background:var(--bg-obsidian);">AÇÕES</th>
+                <th style="padding:8px 10px;text-align:left;color:var(--text-dim);font-size:.7rem;">CÓDIGO</th>
                 <th style="padding:8px 10px;text-align:left;color:var(--text-dim);font-size:.7rem;">DESCRIÇÃO</th>
                 <th style="padding:8px 10px;text-align:left;color:var(--text-dim);font-size:.7rem;">SEGMENTO</th>`+
                 this._nextMonths.map(m=>`<th style="padding:8px 10px;text-align:right;color:var(--text-dim);font-size:.7rem;">${m.label.toUpperCase()}</th>`).join('')+
                 (hasHW  ? `<th style="padding:8px 10px;text-align:center;color:var(--text-dim);font-size:.7rem;">IC 80% (${this._nextMonths[0]?.label||'M1'})</th>` : '') +
                 (hasReg ? `<th style="padding:8px 10px;text-align:center;color:var(--text-dim);font-size:.7rem;">R²</th><th style="padding:8px 10px;text-align:center;color:var(--text-dim);font-size:.7rem;">TEND.</th>` : '') +
-                `<th style="padding:8px 10px;text-align:right;color:var(--text-dim);font-size:.7rem;">TOTAL</th>` +
-                `<th style="padding:8px 10px;text-align:center;color:var(--text-dim);font-size:.7rem;">AÇÕES</th>`;
+                `<th style="padding:8px 10px;text-align:right;color:var(--text-dim);font-size:.7rem;">TOTAL</th>`;
             const skus = Object.values(skuMap).slice(0, 400);
             tbody.innerHTML = skus.map((sku,i)=>{
                 const cells = this._nextMonths.map(m=>{
@@ -5422,16 +5422,16 @@ const previsao = {
                     ? `<td style="padding:5px 10px;text-align:center;font-weight:700;font-size:.78rem;color:${r2Cor};">${r2Val!==null?r2Val.toFixed(2):'—'}</td>
                        <td style="padding:5px 10px;text-align:center;font-size:.85rem;">${escHTML(tSeta)}</td>`
                     : '';
+                const bgRow = i%2 ? 'var(--bg-input)' : 'var(--bg-obsidian)';
                 return `<tr style="background:${i%2?'var(--bg-input)':'transparent'};">
+                    <td style="padding:5px 10px;text-align:center;white-space:nowrap;position:sticky;left:0;background:${bgRow};">
+                        <button onclick="previsao._excluirSku('${escJS(sku.codigo)}')" title="Excluir este SKU da previsão" style="background:transparent;border:1px solid rgba(240,98,146,.4);border-radius:5px;color:#f06292;cursor:pointer;font-size:.82rem;padding:2px 8px;">🗑 excluir</button>
+                    </td>
                     <td style="padding:5px 10px;font-weight:600;font-size:.78rem;">${escHTML(sku.codigo)}</td>
                     <td style="padding:5px 10px;font-size:.78rem;">${escHTML((sku.descricao||'').slice(0,28))}</td>
                     <td style="padding:5px 10px;font-size:.78rem;color:var(--text-dim);">${escHTML(sku.segmento||'')}</td>
                     ${cells}${ciCell}${regCell}
                     <td style="padding:5px 10px;text-align:right;font-weight:700;">${total.toLocaleString('pt-BR')}</td>
-                    <td style="padding:5px 10px;text-align:center;white-space:nowrap;">
-                        <span title="As quantidades acima são editáveis; a edição é salva automaticamente." style="color:var(--text-dim);font-size:.9rem;margin-right:8px;cursor:default;">✎</span>
-                        <button onclick="previsao._excluirSku('${escJS(sku.codigo)}')" title="Excluir este SKU da previsão" style="background:transparent;border:none;color:#f06292;cursor:pointer;font-size:.9rem;padding:2px 4px;">🗑</button>
-                    </td>
                 </tr>`;
             }).join('');
             const totalSku = Object.keys(skuMap).length;
