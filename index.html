@@ -2517,6 +2517,7 @@
     <div style="display:flex;gap:0;border-bottom:1px solid var(--border-color);margin-bottom:20px;align-items:center;">
         <button id="tl-tab-gantt"    onclick="preactor._selecionarAba('gantt')"    style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid var(--indigo-primary);color:var(--indigo-primary);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">GANTT</button>
         <button id="tl-tab-mix"      onclick="preactor._selecionarAba('mix')"      style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">MIX POR TEAR</button>
+        <button id="tl-tab-sim"      onclick="preactor._selecionarAba('sim')"      style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">SIMULAR</button>
         <button id="tl-tab-status"   onclick="preactor._selecionarAba('status')"   style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">STATUS ORDENS</button>
         <button id="tl-tab-config"   onclick="preactor._selecionarAba('config')"   style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">SETUP MATRIX</button>
         <button id="tl-tab-cenarios" onclick="preactor._selecionarAba('cenarios')" style="padding:10px 20px;background:transparent;border:none;border-bottom:2px solid transparent;color:var(--text-dim);font-size:.82rem;font-weight:600;cursor:pointer;letter-spacing:.05em;">CENÁRIOS</button>
@@ -2562,6 +2563,13 @@
     <div id="tl-pan-mix" style="display:none;">
         <div id="tl-mix-conteudo">
             <p style="color:var(--text-dim);padding:20px;font-size:.85rem;">Calcule a linha do tempo para ver o mix de produção por modelo de tear (530/330/303), a restrição do mix e o que não coube.</p>
+        </div>
+    </div>
+
+    <!-- PAINEL SIMULAR (cenários de tear) -->
+    <div id="tl-pan-sim" style="display:none;">
+        <div id="tl-sim-conteudo">
+            <p style="color:var(--text-dim);padding:20px;font-size:.85rem;">Calcule a linha do tempo para simular cenários: ligar/desligar teares, adicionar capacidade, mover prazos e re-priorizar — vendo o antes × depois.</p>
         </div>
     </div>
 

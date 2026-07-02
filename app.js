@@ -6597,7 +6597,7 @@ const preactor = {
 
     _selecionarAba(aba) {
         this._abaAtiva = aba;
-        ['gantt','mix','status','config','cenarios'].forEach(a => {
+        ['gantt','mix','sim','status','config','cenarios'].forEach(a => {
             const btn = document.getElementById(`tl-tab-${a}`);
             const pan = document.getElementById(`tl-pan-${a}`);
             if (btn) {
@@ -6610,6 +6610,7 @@ const preactor = {
         if (aba === 'cenarios') this._carregarCenarios();
         if (aba === 'status' && this._resultado) this._renderStatus();
         if (aba === 'mix' && this._resultado) this._renderMix();
+        if (aba === 'sim' && this._resultado) this._renderSimulacao();
     },
 
     _popularMeses() {
@@ -6695,18 +6696,29 @@ const preactor = {
     // Capacidade de TECELAGEM por modelo de tear × semana (soma máquina-a-máquina com OEE individual,
     // mesma fórmula do TOC _renderStoll). Teares sem modelo entram numa capacidade residual (não alocável,
     // mas somada ao agregado p/ não sumir do Gantt). Devolve { modelos, capTec, nTeares, capResidual, nSemModelo }.
-    _capTecPorModelo(semanas, maquinasTec) {
+    _capTecPorModelo(semanas, maquinasTec, ov) {
+        ov = ov || {};   // simulação: { off:Set(modelos desligados), addTeares:{modelo:n}, fator:{modelo:mult} }
         const porModelo = {};   // modelo → [oeeFrac de cada tear]
         (maquinasTec || []).forEach(m => {
             const modelo = toc._normModelo(m.modelo) || '(sem modelo)';
+            if (ov.off && ov.off.has(modelo)) return;   // modelo desligado na simulação
             const oee = m.oee == null ? 100 : Number(m.oee);   // OEE 0 = tear parado (0 capacidade), não 100%
             (porModelo[modelo] = porModelo[modelo] || []).push(Math.min(oee, 100) / 100);
+        });
+        // teares extras da simulação (usam o OEE médio do modelo, ou 100% se o modelo é novo)
+        if (ov.addTeares) Object.entries(ov.addTeares).forEach(([modelo, n]) => {
+            if (!n || n <= 0) return;
+            const cur = porModelo[modelo] || [];
+            const oeeMed = cur.length ? cur.reduce((s, o) => s + o, 0) / cur.length : 1;
+            porModelo[modelo] = cur;
+            for (let i = 0; i < n; i++) porModelo[modelo].push(oeeMed);
         });
         const modelos = Object.keys(porModelo).filter(m => m !== '(sem modelo)');
         const capTec = {}, nTeares = {};
         modelos.forEach(modelo => {
             const somaOee = porModelo[modelo].reduce((s, o) => s + o, 0);
-            capTec[modelo] = semanas.map(s => this._minutosMaqSemana('tecelagem', s) * somaOee);
+            const fator = (ov.fator && ov.fator[modelo] > 0) ? ov.fator[modelo] : 1;   // +turno etc.
+            capTec[modelo] = semanas.map(s => this._minutosMaqSemana('tecelagem', s) * somaOee * fator);
             nTeares[modelo] = porModelo[modelo].length;
         });
         // teares sem modelo: capacidade real que existe mas não é alocável por modelo
@@ -6714,6 +6726,41 @@ const preactor = {
         const somaOeeSM = semMod.reduce((s, o) => s + o, 0);
         const capResidual = semanas.map(s => this._minutosMaqSemana('tecelagem', s) * somaOeeSM);
         return { modelos, capTec, nTeares, capResidual, nSemModelo: semMod.length };
+    },
+
+    // Aloca UMA ordem de tecelagem entre os modelos aptos (prazo + equilíbrio). Muta usadoTec/setupUsadoTec/
+    // lastFamTec do ctx; devolve o modelo escolhido + as fatias alocadas (o chamador espelha nos agregados).
+    // Núcleo compartilhado entre o motor (calcular) e a simulação (_simularMix) — mesma lógica, sem divergir.
+    _alocarTecOrdem(aptos, cargaMin, familiaT, startBase, dl, ctx) {
+        const { capTec, usadoTec, setupUsadoTec, lastFamTec, nSemanas, nTeares } = ctx;
+        const cand = aptos.map(modelo => {
+            const usoCopia = usadoTec[modelo].slice();
+            const setupMins = this._getSetupMins('tecelagem', lastFamTec[modelo], familiaT);
+            let rest = cargaMin, sem = startBase;
+            if (setupMins > 0 && sem < nSemanas) usoCopia[sem] += setupMins;
+            while (rest > 0 && sem < nSemanas) {
+                const disp = capTec[modelo][sem] - usoCopia[sem];
+                if (disp > 0) { const a = Math.min(rest, disp); usoCopia[sem] += a; rest -= a; }
+                if (rest > 0) sem++;
+            }
+            const overflow = rest > 0, finish = Math.min(sem, nSemanas - 1);
+            const capTot = capTec[modelo].reduce((s, v) => s + v, 0) || 1;
+            const usoTot = usoCopia.reduce((s, v) => s + v, 0) + (overflow ? rest : 0);
+            return { modelo, overflow, atraso: Math.max(0, finish - dl), utilPct: usoTot / capTot * 100,
+                     setupMins, nTeares: (nTeares && nTeares[modelo]) || 0 };
+        });
+        cand.sort((a, b) => (a.overflow - b.overflow) || (a.atraso - b.atraso) || (a.utilPct - b.utilPct)
+                            || (b.nTeares - a.nTeares) || String(a.modelo).localeCompare(String(b.modelo)));
+        const esc = cand[0], modelo = esc.modelo;
+        const slices = []; let setupSlice = null, rest = cargaMin, sem = startBase;
+        if (esc.setupMins > 0 && sem < nSemanas) { usadoTec[modelo][sem] += esc.setupMins; setupUsadoTec[modelo][sem] += esc.setupMins; setupSlice = { sem, mins: esc.setupMins }; }
+        while (rest > 0 && sem < nSemanas) {
+            const disp = capTec[modelo][sem] - usadoTec[modelo][sem];
+            if (disp > 0) { const a = Math.min(rest, disp); usadoTec[modelo][sem] += a; slices.push({ sem, mins: a }); rest -= a; }
+            if (rest > 0) sem++;
+        }
+        lastFamTec[modelo] = familiaT;
+        return { modelo, restante: rest, finishSem: sem, slices, setupSlice };
     },
 
     // Índice da 1ª semana cujo fim já cobre o prazo da ordem (semana-limite). Sem prazo → última.
@@ -6998,50 +7045,20 @@ const preactor = {
                         return;
                     }
 
-                    // Simula a alocação em cada modelo apto e pontua (menor = melhor): overflow » atraso » ocupação
-                    const cand = aptos.map(modelo => {
-                        const usoCopia = usadoTec[modelo].slice();
-                        const setupMins = this._getSetupMins(pid, lastFamTec[modelo], familiaT);
-                        let rest = cargaMin, sem = startBase;
-                        if (setupMins > 0 && sem < nSemanas) usoCopia[sem] += setupMins;
-                        while (rest > 0 && sem < nSemanas) {
-                            const disp = capTec[modelo][sem] - usoCopia[sem];
-                            if (disp > 0) { const a = Math.min(rest, disp); usoCopia[sem] += a; rest -= a; }
-                            if (rest > 0) sem++;
-                        }
-                        const overflow = rest > 0;
-                        const finish = Math.min(sem, nSemanas - 1);
-                        const capTot = capTec[modelo].reduce((s, v) => s + v, 0) || 1;
-                        const usoTot = usoCopia.reduce((s, v) => s + v, 0) + (overflow ? rest : 0);
-                        return { modelo, overflow, atraso: Math.max(0, finish - dl), utilPct: usoTot / capTot * 100,
-                                 setupMins, nTeares: maquinasTec.filter(mm => toc._normModelo(mm.modelo) === modelo).length };
+                    // Escolhe o tear e aloca (helper compartilhado com a simulação), depois espelha no agregado do Gantt
+                    const res = this._alocarTecOrdem(aptos, cargaMin, familiaT, startBase, dl,
+                        { capTec, usadoTec, setupUsadoTec, lastFamTec, nSemanas, nTeares: nTearesTec });
+                    const modelo = res.modelo;
+                    if (res.setupSlice) { usado[pid][res.setupSlice.sem] += res.setupSlice.mins; setupUsado[pid][res.setupSlice.sem] += res.setupSlice.mins; }
+                    res.slices.forEach(sl => {
+                        usado[pid][sl.sem] += sl.mins;
+                        const entry = { codigo: ordem.codigo, label: ordem.label, qty: qtyRest, nop: ordem.nop || '', mins: sl.mins, fonte: ordem.fonte, data_entrega: ordem.data_entrega, cpv: ordem.cpv, modelo };
+                        detalheTec[modelo][sl.sem].push(entry); detalhe[pid][sl.sem].push(entry);
                     });
-                    cand.sort((a, b) => (a.overflow - b.overflow) || (a.atraso - b.atraso) || (a.utilPct - b.utilPct)
-                                        || (b.nTeares - a.nTeares) || String(a.modelo).localeCompare(String(b.modelo)));
-                    const esc = cand[0], modelo = esc.modelo;
-
-                    // Commit real no balde do modelo escolhido, espelhando no agregado (Gantt consolidado)
-                    let rest = cargaMin, sem = startBase;
-                    if (esc.setupMins > 0 && sem < nSemanas) {
-                        usadoTec[modelo][sem] += esc.setupMins; setupUsadoTec[modelo][sem] += esc.setupMins;
-                        usado[pid][sem]       += esc.setupMins; setupUsado[pid][sem]       += esc.setupMins;
-                    }
-                    while (rest > 0 && sem < nSemanas) {
-                        const disp = capTec[modelo][sem] - usadoTec[modelo][sem];
-                        if (disp > 0) {
-                            const a = Math.min(rest, disp);
-                            usadoTec[modelo][sem] += a; usado[pid][sem] += a;
-                            const entry = { codigo: ordem.codigo, label: ordem.label, qty: qtyRest, nop: ordem.nop || '', mins: a, fonte: ordem.fonte, data_entrega: ordem.data_entrega, cpv: ordem.cpv, modelo };
-                            detalheTec[modelo][sem].push(entry); detalhe[pid][sem].push(entry);
-                            rest -= a;
-                        }
-                        if (rest > 0) sem++;
-                    }
-                    if (rest > 0) { ordem._overflow = true; ordem._overflowTec = true; minutosOverflow += rest; }
-                    lastFamTec[modelo] = familiaT;
+                    if (res.restante > 0) { ordem._overflow = true; ordem._overflowTec = true; minutosOverflow += res.restante; }
                     ordemModelo[oi] = modelo;
-                    finishSem[id][pid] = sem;
-                    anteriorFim = sem;
+                    finishSem[id][pid] = res.finishSem;
+                    anteriorFim = res.finishSem;
                     return;
                 }
 
@@ -7089,6 +7106,7 @@ const preactor = {
         this._renderGantt();
         if (this._abaAtiva === 'status') this._renderStatus();
         if (this._abaAtiva === 'mix') this._renderMix();
+        if (this._abaAtiva === 'sim') this._renderSimulacao();
         if (minutosOverflow > 0) {
             const nOver = ordens.filter(o => o._overflow).length;
             mostrarToast(`${nOver} orden${nOver>1?'s':''} (${(minutosOverflow/60).toFixed(0)}h) não couberam em ${nSemanas} semanas — aumente o horizonte.`, 'aviso');
@@ -7358,6 +7376,186 @@ const preactor = {
         }
 
         wrap.innerHTML = html;
+    },
+
+    // Reordena ordens por prioridade (mesma lógica de _buildOrdens) — usado na simulação
+    _ordenarPor(ordens, prioridade) {
+        const o = ordens.slice();
+        if (prioridade === 'edd') o.sort((a,b) => { if(!a.data_entrega&&!b.data_entrega) return String(a.emissao).localeCompare(String(b.emissao)); if(!a.data_entrega) return 1; if(!b.data_entrega) return -1; return a.data_entrega.localeCompare(b.data_entrega); });
+        else if (prioridade === 'qty') o.sort((a,b) => b.qty - a.qty);
+        else if (prioridade === 'cpv') o.sort((a,b) => b.cpv - a.cpv);
+        else if (prioridade === 'fifo') o.sort((a,b) => String(a.emissao).localeCompare(String(b.emissao)) || String(a.nop||'').localeCompare(String(b.nop||'')));
+        return o;
+    },
+
+    // Roda a alocação da tecelagem sobre a carteira do baseline com overrides (capacidade/prazo/prioridade),
+    // SEM gravar nada. Devolve um tecMix simulado para comparar com o baseline.
+    _simularMix(ov) {
+        const base = this._resultado;
+        if (!base || !base.tecMix) return null;
+        const horizonte = (ov.horizonte && ov.horizonte > 0) ? Math.min(ov.horizonte, base.semanas.length) : base.semanas.length;
+        const semanas = base.semanas.slice(0, horizonte);
+        const nSemanas = semanas.length;
+        const { modelos, capTec, nTeares } = this._capTecPorModelo(semanas, toc._maquinasTec || [], ov);
+        if (!modelos.length) return null;
+        let ordens = base.ordens.map(o => ({ ...o }));
+        if (ov.prazos) ordens.forEach(o => { if (ov.prazos[o.codigo] !== undefined) o.data_entrega = ov.prazos[o.codigo] || null; });
+        if (ov.prioridade) ordens = this._ordenarPor(ordens, ov.prioridade);
+        const usadoTec = {}, detalheTec = {}, setupUsadoTec = {}, lastFamTec = {};
+        modelos.forEach(m => { usadoTec[m] = new Array(nSemanas).fill(0); detalheTec[m] = Array.from({length:nSemanas},()=>[]); setupUsadoTec[m] = new Array(nSemanas).fill(0); lastFamTec[m] = null; });
+        const ordemModelo = {}, semModelo = []; let nOverflow = 0;
+        ordens.forEach((ordem, oi) => {
+            if (!ordem.dados) return;
+            const tempoUn = this._getTempoProc(ordem.dados, 'tecelagem');
+            if (!tempoUn) return;
+            const aptos = toc._getModelosStoll(ordem.dados).filter(m => modelos.includes(m));
+            const cargaMin = tempoUn * ordem.qty;
+            if (!aptos.length) { semModelo.push({ codigo: ordem.codigo, qty: ordem.qty, mins: cargaMin }); return; }
+            const dl = this._deadlineIdx(ordem, semanas);
+            const res = this._alocarTecOrdem(aptos, cargaMin, this._getFamilia(ordem.dados), 0, dl,
+                { capTec, usadoTec, setupUsadoTec, lastFamTec, nSemanas, nTeares });
+            res.slices.forEach(sl => detalheTec[res.modelo][sl.sem].push({ codigo: ordem.codigo, mins: sl.mins }));
+            if (res.restante > 0) nOverflow++;
+            ordemModelo[oi] = res.modelo;
+        });
+        return { modelos, capTec, usadoTec, detalheTec, nTeares, ordemModelo, semModelo, nOverflow, semanas };
+    },
+
+    // Resumo por modelo (cap, uso, util, ocioso) — usado no delta da simulação
+    _resumoMix(mix) {
+        const out = {};
+        (mix.modelos || []).forEach(m => {
+            const cap = mix.capTec[m].reduce((s,v)=>s+v,0);
+            const uso = mix.usadoTec[m].reduce((s,v)=>s+v,0);
+            out[m] = { cap, uso, util: cap>0?uso/cap:(uso>0?Infinity:0), ocioso: Math.max(0,cap-uso) };
+        });
+        const capT = Object.values(out).reduce((s,x)=>s+x.cap,0);
+        const usoT = Object.values(out).reduce((s,x)=>s+x.uso,0);
+        return { porModelo: out, utilGeral: capT>0?usoT/capT:0, ociosoH: Object.values(out).reduce((s,x)=>s+x.ocioso,0)/60,
+                 gargalo: Object.entries(out).sort((a,b)=>(b[1].util===Infinity?9e9:b[1].util)-(a[1].util===Infinity?9e9:a[1].util))[0] };
+    },
+
+    _renderSimulacao() {
+        const wrap = document.getElementById('tl-sim-conteudo');
+        if (!wrap) return;
+        const r = this._resultado;
+        if (!r || !r.tecMix) { wrap.innerHTML = `<div class="summary-card" style="color:var(--text-dim);padding:16px;font-size:.85rem;">Calcule a linha do tempo (com teares cadastrados) para simular cenários de tear.</div>`; return; }
+        const mix = r.tecMix;
+        const cor = u => u >= 1 ? '#f06292' : u >= 0.8 ? '#ffca28' : '#26a69a';
+        const inp = 'padding:4px 6px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:5px;color:var(--text-primary);font-size:.78rem;';
+        const linhasMod = mix.modelos.map(m => {
+            const cap = mix.capTec[m].reduce((s,v)=>s+v,0), uso = mix.usadoTec[m].reduce((s,v)=>s+v,0);
+            const util = cap>0?uso/cap:0;
+            return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border-color);">
+                <div style="width:160px;font-weight:600;font-size:.82rem;">Stoll ${escHTML(m)} <span style="font-size:.66rem;color:var(--text-dim);font-weight:400;">· ${mix.nTeares[m]||0} máq · ${Math.round(util*100)}%</span></div>
+                <label style="display:flex;align-items:center;gap:4px;font-size:.72rem;color:var(--text-dim);"><input type="checkbox" id="sim-on-${escHTML(m)}" checked> ligado</label>
+                <span style="font-size:.72rem;color:var(--text-dim);">+ teares <input type="number" id="sim-tear-${escHTML(m)}" value="0" min="0" style="width:52px;${inp}"></span>
+                <span style="font-size:.72rem;color:var(--text-dim);">capac. × <input type="number" id="sim-fator-${escHTML(m)}" value="1" min="0.1" step="0.25" title="ex.: 2 = dobro de turnos" style="width:58px;${inp}"></span>
+            </div>`;
+        }).join('');
+        wrap.innerHTML = `
+            <div class="summary-card" style="margin-bottom:14px;">
+                <div class="s-label" style="margin-bottom:4px;">SIMULAR CENÁRIO DE TEAR</div>
+                <p style="font-size:.74rem;color:var(--text-dim);margin:0 0 12px;">Mexa nas alavancas e clique SIMULAR. Nada é gravado — é só um "e se". Compare o antes × depois abaixo.</p>
+                ${linhasMod}
+                <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:end;margin-top:14px;">
+                    <div><div style="font-size:.68rem;color:var(--text-dim);margin-bottom:3px;">Prioridade</div>
+                        <select id="sim-prio" style="${inp}"><option value="">(mantém)</option><option value="edd">Prazo (EDD)</option><option value="fifo">Emissão (FIFO)</option><option value="qty">Quantidade</option><option value="cpv">Valor (CPV)</option></select></div>
+                    <div><div style="font-size:.68rem;color:var(--text-dim);margin-bottom:3px;">Horizonte (semanas)</div>
+                        <input type="number" id="sim-horizonte" value="${r.semanas.length}" min="1" max="${r.semanas.length}" style="width:70px;${inp}"></div>
+                    <div><div style="font-size:.68rem;color:var(--text-dim);margin-bottom:3px;">Mover prazo — código</div>
+                        <input type="text" id="sim-prazo-cod" placeholder="código" style="width:110px;${inp}"></div>
+                    <div><div style="font-size:.68rem;color:var(--text-dim);margin-bottom:3px;">novo prazo</div>
+                        <input type="date" id="sim-prazo-data" style="${inp}"></div>
+                    <button onclick="preactor._simular()" style="padding:8px 22px;background:var(--indigo-btn);color:#fff;border:none;border-radius:6px;font-size:.82rem;font-weight:700;cursor:pointer;">SIMULAR</button>
+                </div>
+            </div>
+            <div id="tl-sim-resultado">${this._recomendarPreench(mix, r.semanas)}</div>`;
+    },
+
+    _simular() {
+        const base = this._resultado;
+        if (!base?.tecMix) return;
+        const ov = { off: new Set(), addTeares: {}, fator: {}, prazos: {} };
+        base.tecMix.modelos.forEach(m => {
+            if (!document.getElementById(`sim-on-${m}`)?.checked) ov.off.add(m);
+            const t = parseInt(document.getElementById(`sim-tear-${m}`)?.value) || 0; if (t > 0) ov.addTeares[m] = t;
+            const f = parseFloat(document.getElementById(`sim-fator-${m}`)?.value); if (f > 0 && f !== 1) ov.fator[m] = f;
+        });
+        ov.prioridade = document.getElementById('sim-prio')?.value || '';
+        ov.horizonte = parseInt(document.getElementById('sim-horizonte')?.value) || 0;
+        const pc = (document.getElementById('sim-prazo-cod')?.value || '').trim().toUpperCase();
+        if (pc) ov.prazos[pc] = document.getElementById('sim-prazo-data')?.value || null;
+        const sim = this._simularMix(ov);
+        const alvo = document.getElementById('tl-sim-resultado');
+        if (!alvo) return;
+        if (!sim) { alvo.innerHTML = `<div class="summary-card" style="color:#ffca28;padding:14px;">Cenário sem nenhum tear ligado — ligue ao menos um modelo.</div>`; return; }
+        alvo.innerHTML = this._renderDeltaMix(base.tecMix, sim, base.semanas);
+    },
+
+    _renderDeltaMix(baseMix, sim, semanasBase) {
+        const A = this._resumoMix(baseMix), B = this._resumoMix(sim);
+        const cor = u => u >= 1 ? '#f06292' : u >= 0.8 ? '#ffca28' : '#26a69a';
+        const nAlocA = (baseMix.semModelo?.length||0) + this._resultado.ordens.filter(o=>o._overflowTec).length;
+        const nAlocB = (sim.semModelo?.length||0) + (sim.nOverflow||0);
+        const fmtP = u => u===Infinity?'∞':Math.round(u*100)+'%';
+        const seta = (a,b,inv) => { const d=b-a; if(Math.abs(d)<1e-9) return '<span style="color:var(--text-dim);">→</span>'; const bom=inv?d<0:d>0; return `<span style="color:${bom?'#26a69a':'#f06292'};">${d>0?'▲':'▼'}</span>`; };
+        const kpi = (titulo, a, b, inv) => `<div style="background:var(--bg-input);border:1px solid var(--border-color);border-radius:8px;padding:10px 16px;min-width:150px;">
+            <div style="font-size:.64rem;color:var(--text-dim);letter-spacing:.05em;margin-bottom:4px;">${titulo}</div>
+            <div style="font-size:1.05rem;font-weight:700;"><span style="color:var(--text-dim);">${a}</span> ${seta(parseFloat(a),parseFloat(b),inv)} <span>${b}</span></div></div>`;
+        let html = `<div class="summary-card" style="margin-bottom:14px;"><div class="s-label" style="margin-bottom:10px;">RESULTADO DA SIMULAÇÃO — antes → depois</div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                ${kpi('UTIL. MÉDIA', fmtP(A.utilGeral), fmtP(B.utilGeral), false)}
+                ${kpi('GARGALO', A.gargalo?fmtP(A.gargalo[1].util):'—', B.gargalo?fmtP(B.gargalo[1].util):'—', true)}
+                ${kpi('OCIOSO (h)', A.ociosoH.toFixed(0), B.ociosoH.toFixed(0), true)}
+                ${kpi('NÃO ALOCADAS', String(nAlocA), String(nAlocB), true)}
+            </div>
+            <div style="font-size:.72rem;color:var(--text-dim);margin-top:10px;">Gargalo: ${A.gargalo?'Stoll '+escHTML(A.gargalo[0]):'—'} → ${B.gargalo?'Stoll '+escHTML(B.gargalo[0]):'—'}</div>
+        </div>`;
+        // tabela por modelo antes/depois
+        html += `<div class="summary-card"><div class="s-label" style="margin-bottom:8px;">UTILIZAÇÃO POR TEAR</div>
+            <table style="width:100%;border-collapse:collapse;font-size:.8rem;"><thead><tr style="border-bottom:1px solid var(--border-color);color:var(--text-dim);font-size:.66rem;">
+            <th style="text-align:left;padding:6px 10px;">TEAR</th><th style="text-align:right;padding:6px 10px;">ANTES</th><th style="text-align:right;padding:6px 10px;">DEPOIS</th><th style="text-align:right;padding:6px 10px;">OCIOSO ANTES→DEPOIS</th></tr></thead><tbody>`;
+        const modelos = [...new Set([...Object.keys(A.porModelo), ...Object.keys(B.porModelo)])];
+        modelos.forEach(m => {
+            const a = A.porModelo[m], b = B.porModelo[m];
+            html += `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+                <td style="padding:6px 10px;font-weight:600;">Stoll ${escHTML(m)}</td>
+                <td style="padding:6px 10px;text-align:right;color:${a?cor(a.util):'var(--text-dim)'};">${a?fmtP(a.util):'—'}</td>
+                <td style="padding:6px 10px;text-align:right;font-weight:700;color:${b?cor(b.util):'#ff5252'};">${b?fmtP(b.util):'desligado'}</td>
+                <td style="padding:6px 10px;text-align:right;color:var(--text-dim);">${a?(a.ocioso/60).toFixed(0):'—'}h → ${b?(b.ocioso/60).toFixed(0):'—'}h</td></tr>`;
+        });
+        html += `</tbody></table></div>`;
+        return html;
+    },
+
+    // Recomendação de preenchimento: cruza folga por modelo com OPs multi-aptas no gargalo
+    _recomendarPreench(mix, semanas) {
+        const R = this._resumoMix(mix);
+        if (!R.gargalo) return '';
+        const gModelo = R.gargalo[0];
+        const ociosos = Object.entries(R.porModelo).filter(([m,x]) => m!==gModelo && x.ocioso > 0 && x.util < 0.8).map(([m])=>m);
+        // OPs no gargalo que também são aptas a um modelo ocioso
+        const ordens = this._resultado.ordens || [];
+        const movER = [];
+        ordens.forEach((o, oi) => {
+            if (mix.ordemModelo[oi] !== gModelo || !o.dados) return;
+            const aptos = toc._getModelosStoll(o.dados).filter(m => mix.modelos.includes(m));
+            const destino = aptos.find(m => ociosos.includes(m));
+            if (destino) movER.push({ codigo: o.codigo, de: gModelo, para: destino });
+        });
+        let msg;
+        if (R.gargalo[1].util < 0.85) {
+            msg = `<span style="color:#26a69a;">Sem gargalo crítico — o tear mais carregado (Stoll ${escHTML(gModelo)}) está em ${Math.round(R.gargalo[1].util*100)}%.</span>`;
+        } else if (movER.length) {
+            const cods = movER.slice(0,6).map(x=>escHTML(x.codigo)).join(', ');
+            msg = `Stoll <strong>${escHTML(gModelo)}</strong> é o gargalo. Você pode <strong>mover ${movER.length} OP(s)</strong> dele para o(s) tear(es) ocioso(s) <strong>${ociosos.map(escHTML).join(', ')}</strong> — elas são aptas em ambos: ${cods}${movER.length>6?'…':''}. Ou ligue "+ teares/capacidade" no ${escHTML(gModelo)} na simulação.`;
+        } else if (ociosos.length) {
+            msg = `Stoll <strong>${escHTML(gModelo)}</strong> é o gargalo (${Math.round(R.gargalo[1].util*100)}%) e há capacidade ociosa no(s) tear(es) ${ociosos.map(escHTML).join(', ')}, <strong>mas nenhuma OP do gargalo é apta neles</strong>. Preencha a coluna Stoll desses códigos com o modelo ocioso (ex.: <code>${escHTML(gModelo)}, ${escHTML(ociosos[0])}</code>) para o motor poder equilibrar.`;
+        } else {
+            msg = `Stoll <strong>${escHTML(gModelo)}</strong> está em ${Math.round(R.gargalo[1].util*100)}% e os demais teares também estão cheios — capacidade real insuficiente. Simule "+ teares" ou "capacidade ×" para ver quanto resolve.`;
+        }
+        return `<div class="summary-card" style="border-left:3px solid var(--indigo-primary);"><div class="s-label" style="margin-bottom:6px;">💡 RECOMENDAÇÃO DE PREENCHIMENTO</div><p style="font-size:.82rem;color:var(--text-primary);margin:0;line-height:1.5;">${msg}</p></div>`;
     },
 
     _renderStatus() {
