@@ -8,6 +8,8 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&l
 // Seguro DENTRO de onclick="fn('...')": escapa barra/aspa p/ o parser JS e DEPOIS esc() p/ o HTML.
 // (esc() antes do replace de aspa não protege — o &#39; é decodificado de volta para ' no atributo.)
 const escJS = s => esc(String(s ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+// URL de foto segura: só aceita data:image/ ou http(s); senão '' (evita XSS/scheme perigoso no src). Escapar com esc() ao usar.
+const fotoUrlSegura = u => { u = String(u ?? ''); return /^(data:image\/|https?:\/\/)/i.test(u) ? u : ''; };
 const TOKEN_KEY = 'sin1_token';
 function toast(msg, tipo = 'ok') {
     let el = $('mf-toast');
@@ -743,9 +745,11 @@ const mf = {
     async salvarConsumoFio(apId) {
         const lote = $('mf-cf-lote').value, kg = parseFloat($('mf-cf-kg').value);
         if (!lote || !(kg > 0)) return toast('Selecione o lote e a quantidade.', 'erro');
-        const r = await api.post('/api/mf/consumo-fio', { apontamento_id: apId, lote_fio_id: lote, qtd_consumida_kg: kg });
-        if (!r?.ok) return toast(r?.erro || 'Erro.', 'erro');
-        this._fecharModal(); toast('Consumo registrado (baixou o estoque).');
+        if (this._dup('consumo:' + apId)) return;
+        const id = this._uuid();  // offline-first: fila idempotente, não se perde sem rede
+        await fila.enfileirar('POST', '/api/mf/consumo-fio', { id, apontamento_id: apId, lote_fio_id: lote, qtd_consumida_kg: kg });
+        this._fecharModal();
+        toast(navigator.onLine ? 'Consumo registrado (baixou o estoque).' : 'Consumo na fila (offline).', navigator.onLine ? 'ok' : 'aviso');
     },
 
     // ═══ DOCUMENTOS / INSTRUÇÕES ═══════════════════════════════════════════════
@@ -1403,7 +1407,7 @@ const mf = {
     },
 
     async fecharSessao(id) {
-        if (this._dup('fechar')) return;  // trava duplo-toque
+        if (this._dup('fechar:' + id)) return;  // trava duplo-toque, escopada por sessão (não bloqueia fechar outra sessão)
         if (!confirm('Encerrar esta sessão de produção? Isso conclui o apontamento.')) return;  // A5: evita fechar por toque acidental
         const qtd = { qtd_boa: parseFloat($('mf-qb-' + id).value) || 0, qtd_refugo: parseFloat($('mf-qr-' + id).value) || 0, qtd_retrabalho: parseFloat($('mf-qt-' + id).value) || 0 };
         const avancar = $('mf-av-' + id)?.checked || false;  // concluir a etapa e mover a OP no fluxo
@@ -1475,10 +1479,11 @@ const mf = {
         const a = this._abertas.find(x => x.id === apId);
         const op = a && this._cad.ops.find(o => o.id === a.op_id);
         if (!op?.produto_id) return toast('OP sem produto vinculado.', 'erro');
-        if (this._dup('medicao')) return;  // trava duplo-toque
-        const r = await api.post('/api/mf/medicao', { apontamento_id: apId, produto_id: op.produto_id, operador_id: a.operador_id || null, tipo: $('mf-ms-tipo').value, valor: v });
-        if (!r?.ok) return toast('Erro: ' + (r?.erro || ''), 'erro');
-        this._fecharModal(); toast('Medição registrada (alimenta o CEP).');
+        if (this._dup('medicao:' + apId)) return;  // trava duplo-toque
+        const id = this._uuid();  // offline-first: vai pela fila (idempotente), não se perde sem rede
+        await fila.enfileirar('POST', '/api/mf/medicao', { id, apontamento_id: apId, produto_id: op.produto_id, operador_id: a.operador_id || null, tipo: $('mf-ms-tipo').value, valor: v });
+        this._fecharModal();
+        toast(navigator.onLine ? 'Medição registrada (alimenta o CEP).' : 'Medição na fila (offline).', navigator.onLine ? 'ok' : 'aviso');
     },
 
     // ── NC com foto ──
@@ -1580,7 +1585,7 @@ const mf = {
                 <td style="padding:8px;">${esc(n.disposicao)}</td>
                 <td style="padding:8px;text-align:center;"><span style="color:${sevCor[n.severidade_aplicada]};font-weight:700;">${n.severidade_aplicada}</span></td>
                 <td style="padding:8px;text-align:center;">${n.gera_rnc?'<span style="color:#f06292;font-weight:700;">SIM</span>':'—'}</td>
-                <td style="padding:8px;text-align:center;">${n.foto?.length?`<img src="${n.foto[0].url}" style="width:34px;height:34px;object-fit:cover;border-radius:5px;cursor:pointer;" onclick="window.open().document.write('<img src=\\'' + this.src + '\\'>')">`:'—'}</td>
+                <td style="padding:8px;text-align:center;">${(n.foto?.length && fotoUrlSegura(n.foto[0].url))?`<img src="${esc(fotoUrlSegura(n.foto[0].url))}" style="width:34px;height:34px;object-fit:cover;border-radius:5px;cursor:pointer;" onclick="window.open(this.src,'_blank')">`:'—'}</td>
             </tr>`).join('')}</tbody></table></div>`;
     },
 
@@ -2550,7 +2555,7 @@ const mf = {
         let lo = Math.min(...vals), hi = Math.max(...vals); const m = (hi - lo) * 0.1 || 1; lo -= m; hi += m;
         const x = i => pad + (i / Math.max(pts.length - 1, 1)) * (W - 2 * pad);
         const y = v => H - pad - ((v - lo) / (hi - lo)) * (H - 2 * pad);
-        const linha = (v, cor, dash, lbl) => v == null ? '' : `<line x1="${pad}" y1="${y(v).toFixed(1)}" x2="${W-pad}" y2="${y(v).toFixed(1)}" stroke="${cor}" stroke-width="1" stroke-dasharray="${dash}"/><text x="${W-pad+2}" y="${y(v).toFixed(1)+3}" fill="${cor}" font-size="9">${lbl} ${Number(v).toFixed(0)}</text>`;
+        const linha = (v, cor, dash, lbl) => v == null ? '' : `<line x1="${pad}" y1="${y(v).toFixed(1)}" x2="${W-pad}" y2="${y(v).toFixed(1)}" stroke="${cor}" stroke-width="1" stroke-dasharray="${dash}"/><text x="${W-pad+2}" y="${(y(v)+3).toFixed(1)}" fill="${cor}" font-size="9">${lbl} ${Number(v).toFixed(0)}</text>`;
         const path = pts.map((v, i) => `${i?'L':'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
         const pontos = pts.map((v, i) => { const fora = (ucl != null && v > ucl) || (lcl != null && v < lcl); return `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="${fora?4:3}" fill="${fora?'#f06292':'#26c6da'}"/>`; }).join('');
         return `<svg width="100%" viewBox="0 0 ${W} ${H}" style="min-width:520px;">
@@ -2682,7 +2687,7 @@ const mf = {
         const card = e => `<div class="mf-et-card" draggable="true" ondragstart="mf._etDragStart(event,'${e.id}')"
             style="background:var(--bg-card);border:1px solid var(--border-color);border-left:3px solid ${corG[e.gravidade]};border-radius:8px;padding:9px 11px;margin-bottom:8px;cursor:grab;">
             <div style="display:flex;gap:8px;">
-                ${e.foto_url ? `<img src="${e.foto_url}" style="width:38px;height:38px;object-fit:cover;border-radius:5px;flex-shrink:0;cursor:pointer;" draggable="false" onclick="event.stopPropagation();window.open().document.write('<img src=\\'' + this.src + '\\'>')">` : ''}
+                ${fotoUrlSegura(e.foto_url) ? `<img src="${esc(fotoUrlSegura(e.foto_url))}" style="width:38px;height:38px;object-fit:cover;border-radius:5px;flex-shrink:0;cursor:pointer;" draggable="false" onclick="event.stopPropagation();window.open(this.src,'_blank')">` : ''}
                 <div style="min-width:0;">
                     <div style="font-weight:600;font-size:.8rem;">${esc(e.maquina?.codigo||'—')} <span style="font-size:.62rem;color:${corG[e.gravidade]};">● ${e.gravidade}</span></div>
                     <div style="font-size:.74rem;color:#ddd;">${esc((e.descricao||'').slice(0,52))}</div>

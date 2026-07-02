@@ -172,15 +172,18 @@ app.post('/api/auth/trocar-senha', auth, async (req, res) => {
     if (!senhaAtual || !novaSenha || novaSenha.length < 6)
         return res.status(400).json({ erro: 'Senha nova deve ter pelo menos 6 caracteres' });
 
-    const { data: usuario } = await supabase
-        .from('usuarios').select('senha_hash').eq('id', req.usuario.id).single();
+    try {
+        const { data: usuario, error } = await supabase
+            .from('usuarios').select('senha_hash').eq('id', req.usuario.id).single();
+        if (error || !usuario) return res.status(401).json({ erro: 'Usuário não encontrado — faça login novamente.' });
 
-    if (!await bcrypt.compare(senhaAtual, usuario.senha_hash))
-        return res.status(401).json({ erro: 'Senha atual incorreta' });
+        if (!await bcrypt.compare(senhaAtual, usuario.senha_hash))
+            return res.status(401).json({ erro: 'Senha atual incorreta' });
 
-    const hash = await bcrypt.hash(novaSenha, 10);
-    await supabase.from('usuarios').update({ senha_hash: hash }).eq('id', req.usuario.id);
-    res.json({ ok: true });
+        const hash = await bcrypt.hash(novaSenha, 10);
+        await supabase.from('usuarios').update({ senha_hash: hash }).eq('id', req.usuario.id);
+        res.json({ ok: true });
+    } catch (e) { return erro500(res, e, 'trocar-senha'); }
 });
 
 // ── GET /api/usuarios (admin) ─────────────────────────────────
@@ -703,9 +706,10 @@ app.delete('/api/estoque-minimo/:codigo', auth, adminOnly, async (req, res) => {
 
 // ── APS — DATAS DE ENTREGA POR SKU ───────────────────────────
 app.get('/api/op-datas', auth, async (_req, res) => {
-    const { data, error } = await supabase.from('op_datas').select('*').order('data_entrega', { ascending: true });
-    if (error) return erro500(res, error);
-    res.json(data || []);
+    try {  // paginado (sem teto de 1000) — prazos/CPV do Preactor
+        const data = await fetchAllSelect('op_datas', '*', q => q.order('data_entrega', { ascending: true }));
+        res.json(data || []);
+    } catch (e) { return erro500(res, e); }
 });
 app.post('/api/op-datas/bulk', auth, async (req, res) => {
     const { items } = req.body;
@@ -1274,11 +1278,10 @@ const mfNorm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-
 
 // ── Cadastros (leitura) ───────────────────────────────────────
 async function mfLista(res, tabela, cols, orderCol) {
-    let q = supabase.from(tabela).select(cols || '*');
-    if (orderCol) q = q.order(orderCol);
-    const { data, error } = await q;
-    if (error) return erro500(res, error);
-    res.json(data || []);
+    try {  // paginado (sem teto de 1000) — catálogos (produto/peça) podem passar de 1000 itens
+        const data = await fetchAllSelect(tabela, cols || '*', q => orderCol ? q.order(orderCol) : q);
+        res.json(data || []);
+    } catch (e) { return erro500(res, e); }
 }
 app.get('/api/mf/produtos',  auth, (_q, res) => mfLista(res, 'produto', '*', 'codigo'));
 app.get('/api/mf/maquinas',  auth, (_q, res) => mfLista(res, 'maquina', '*', 'codigo'));
@@ -2065,8 +2068,13 @@ app.post('/api/mf/lotes-fio', auth, mfEscrita, async (req, res) => {
 app.post('/api/mf/consumo-fio', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.apontamento_id || !b.lote_fio_id || !(Number(b.qtd_consumida_kg) > 0)) return res.status(400).json({ erro: 'apontamento_id, lote_fio_id e qtd_consumida_kg>0 obrigatórios' });
-    const { error: e1 } = await supabase.from('consumo_fio').insert({ apontamento_id: b.apontamento_id, lote_fio_id: b.lote_fio_id, qtd_consumida_kg: b.qtd_consumida_kg });
-    if (e1) return res.status(500).json({ erro: e1.message });
+    const row = { apontamento_id: b.apontamento_id, lote_fio_id: b.lote_fio_id, qtd_consumida_kg: b.qtd_consumida_kg };
+    if (b.id) row.id = b.id;   // idempotente: reenvio da fila offline não baixa o estoque 2×
+    const { error: e1 } = await supabase.from('consumo_fio').insert(row);
+    if (e1) {
+        if (e1.code === '23505') return res.json({ ok: true, duplicado: true });  // já processado — não baixa de novo
+        return erro500(res, e1);
+    }
     const { data: lf } = await supabase.from('lote_fio').select('qtd_disponivel_kg').eq('id', b.lote_fio_id).single();
     if (lf) await supabase.from('lote_fio').update({ qtd_disponivel_kg: Math.max(0, Number(lf.qtd_disponivel_kg) - Number(b.qtd_consumida_kg)) }).eq('id', b.lote_fio_id);
     res.json({ ok: true });
@@ -2089,7 +2097,8 @@ app.post('/api/mf/medicao', auth, mfEscrita, async (req, res) => {
     if (!b.produto_id || !b.tipo || b.valor === undefined) return res.status(400).json({ erro: 'produto_id, tipo e valor obrigatórios' });
     const row = { produto_id: b.produto_id, tipo: b.tipo, valor: b.valor, apontamento_id: b.apontamento_id || null,
         operador_id: b.operador_id || null, datahora: b.datahora || new Date().toISOString() };
-    const { data, error } = await supabase.from('medicao').insert(row).select().single();
+    if (b.id) row.id = b.id;   // idempotente: fila offline pode reenviar
+    const { data, error } = await supabase.from('medicao').upsert(row).select().single();
     if (error && /schema cache|does not exist/i.test(error.message || '')) return res.status(503).json({ erro: 'CEP ainda não criado. Rode mes_cep.sql.' });
     if (error) return erro500(res, error);
     res.json({ ok: true, medicao: data });
@@ -2503,12 +2512,15 @@ app.get('/api/mf/fluxo-tempo', auth, async (req, res) => {
     const etapasR = await supabase.from('etapa_processo').select('id,nome,ordem,limite_wip').eq('ativo', true).order('ordem');
     if (etapasR.error && /schema cache|does not exist|column/i.test(etapasR.error.message || '')) return res.status(503).json({ erro: 'Fluxo não inicializado. Rode mes_wip_unificado.sql.' });
     if (etapasR.error) return res.status(500).json({ erro: etapasR.error.message });
-    const [apsR, opsR, ltR] = await Promise.all([
-        supabase.from('apontamento').select('etapa_id,datahora_inicio,datahora_fim,qtd_boa').not('datahora_fim', 'is', null).gte('datahora_fim', desde),
-        supabase.from('ordem_producao').select('etapa_atual_id,qtd_planejada').not('status', 'in', '(concluida,cancelada)').not('etapa_atual_id', 'is', null),
-        supabase.from('vw_wip_leadtime').select('*'),
-    ]);
-    const aps = apsR.data || [];
+    let aps, opsData, ltR;
+    try {  // apontamento e OPs paginados (sem teto de 1000) — senão throughput/lead saem subcontados
+        [aps, opsData, ltR] = await Promise.all([
+            fetchAllSelect('apontamento', 'etapa_id,datahora_inicio,datahora_fim,qtd_boa', q => q.not('datahora_fim', 'is', null).gte('datahora_fim', desde)),
+            fetchAllSelect('ordem_producao', 'etapa_atual_id,qtd_planejada', q => q.not('status', 'in', '(concluida,cancelada)').not('etapa_atual_id', 'is', null)),
+            supabase.from('vw_wip_leadtime').select('*'),
+        ]);
+    } catch (e) { return erro500(res, e); }
+    const opsR = { data: opsData };
     // série diária (throughput + lead time médio)
     const byDay = {};
     for (const a of aps) {
@@ -2565,12 +2577,16 @@ app.get('/api/mf/capacidade', auth, async (req, res) => {
     const etapasR = await supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).order('ordem');
     if (etapasR.error && /schema cache|does not exist|column/i.test(etapasR.error.message || '')) return res.status(503).json({ erro: 'Fluxo não inicializado.' });
     if (etapasR.error) return res.status(500).json({ erro: etapasR.error.message });
-    const [maqsR, temposR, opsR, peR] = await Promise.all([
+    let opsAll;
+    try {  // OPs ativas paginadas (sem teto de 1000)
+        opsAll = await fetchAllSelect('ordem_producao', 'produto_id,qtd_planejada, etapa:etapa_atual_id(ordem)', q => q.not('status', 'in', '(concluida,cancelada)'));
+    } catch (e) { return erro500(res, e); }
+    const [maqsR, temposR, peR] = await Promise.all([
         supabase.from('maquina').select('id,etapa_id').eq('ativo', true),
         supabase.from('tempo_padrao').select('etapa_id,produto_id,seg_por_unidade'),
-        supabase.from('ordem_producao').select('produto_id,qtd_planejada, etapa:etapa_atual_id(ordem)').not('status', 'in', '(concluida,cancelada)'),
         supabase.from('produto_etapa').select('produto_id,etapa_id'),
     ]);
+    const opsR = { data: opsAll };
     if (temposR.error && /schema cache|does not exist/i.test(temposR.error.message || '')) return res.status(503).json({ erro: 'Tempo padrão não inicializado. Rode mes_leva2.sql.' });
     const maqCount = {}; (maqsR.data || []).forEach(m => { if (m.etapa_id) maqCount[m.etapa_id] = (maqCount[m.etapa_id] || 0) + 1; });
     const stdDef = {}, stdOv = {};
@@ -2861,12 +2877,16 @@ app.put('/api/mf/kaizen/:id', auth, mfEscrita, async (req, res) => {
 // ═══ LEAN MANUFACTURING ══════════════════════════════════════════════════════
 // VSM — Mapa do Fluxo de Valor: lead time × tempo de valor agregado (%VA) por etapa
 app.get('/api/mf/vsm', auth, async (_q, res) => {
-    const [etapasR, opsR, leadR, temposR] = await Promise.all([
+    let opsAll;
+    try {  // OPs ativas paginadas (sem teto de 1000) — senão WIP/lead do VSM subconta
+        opsAll = await fetchAllSelect('ordem_producao', 'etapa_atual_id,qtd_planejada,etapa_desde', q => q.neq('status', 'cancelada').neq('status', 'concluida'));
+    } catch (e) { return erro500(res, e); }
+    const [etapasR, leadR, temposR] = await Promise.all([
         supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).order('ordem'),
-        supabase.from('ordem_producao').select('etapa_atual_id,qtd_planejada,etapa_desde').neq('status', 'cancelada').neq('status', 'concluida'),
         supabase.from('vw_wip_leadtime').select('etapa_id,horas_medias').then(r => r, () => ({ data: [] })),
         supabase.from('tempo_padrao').select('etapa_id,seg_por_unidade').is('produto_id', null),
     ]);
+    const opsR = { data: opsAll };
     if (etapasR.error) return erro500(res, etapasR.error);
     const leadDe = Object.fromEntries((leadR.data || []).map(l => [l.etapa_id, Number(l.horas_medias) || 0]));
     const segDe = Object.fromEntries((temposR.data || []).map(t => [t.etapa_id, Number(t.seg_por_unidade) || 0]));

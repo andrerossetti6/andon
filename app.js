@@ -419,7 +419,7 @@ const homeDash = {
     },
 
     _kpis() {
-        const toNum = v => parseFloat(String(v??'0').replace(/\./g,'').replace(',','.')) || 0;
+        const toNum = v => typeof v === 'number' ? v : (parseFloat(String(v??'0').replace(/\./g,'').replace(',','.')) || 0);
         const fmtK  = v => v >= 1000 ? (v/1000).toFixed(1) + 'k' : v.toLocaleString('pt-BR');
 
         // ── Vendas ──
@@ -932,9 +932,9 @@ function abrirDetalhe(descricao, segmento) {
 
     document.getElementById('detail-tbody').innerHTML = variantRows.map(({ r, vendQtd, estQtd }) => `<tr>
             <td class="td-code">${escHTML(r.codigo)}</td>
-            <td>${r.modelo || '<span style="opacity:.3">—</span>'}</td>
-            <td>${r.marca  || '<span style="opacity:.3">—</span>'}</td>
-            <td class="td-center"><strong>${r.tamanho}</strong></td>
+            <td>${r.modelo ? escHTML(r.modelo) : '<span style="opacity:.3">—</span>'}</td>
+            <td>${r.marca  ? escHTML(r.marca)  : '<span style="opacity:.3">—</span>'}</td>
+            <td class="td-center"><strong>${escHTML(r.tamanho)}</strong></td>
             <td class="td-right">${vendQtd.toLocaleString('pt-BR')}</td>
             <td class="td-right">${estQtd !== null ? estQtd.toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>'}</td>
         </tr>`).join('');
@@ -2129,7 +2129,7 @@ const vendas = {
             elPorCod.innerHTML = topCods.map(([cod, qtd]) => {
                 const w = (qtd / maxCod * 100).toFixed(0);
                 return `<div class="bd-row" style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
-                    <span style="font-size:0.72rem;color:var(--indigo-primary);font-weight:600;min-width:52px;">${cod}</span>
+                    <span style="font-size:0.72rem;color:var(--indigo-primary);font-weight:600;min-width:52px;">${escHTML(cod)}</span>
                     <div style="flex:1;height:4px;border-radius:2px;background:var(--border);">
                         <div style="height:4px;border-radius:2px;background:var(--indigo-primary);width:${w}%;"></div>
                     </div>
@@ -2183,10 +2183,10 @@ const vendas = {
                 const pct      = total > 0 ? Math.round(val / total * 100) : 0;
                 const ativo    = selecionado === label;
                 const clicavel = campo
-                    ? `onclick="vendas.clickBreakdown('${campo}','${label.replace(/'/g, "\\'")}')"` : '';
+                    ? `onclick="vendas.clickBreakdown('${escJS(campo)}','${escJS(label)}')"` : '';
                 return `
                 <div class="breakdown-item${ativo ? ' bd-ativo' : ''}${campo ? ' bd-click' : ''}" ${clicavel}>
-                    <span class="bd-label">${label}</span>
+                    <span class="bd-label">${escHTML(label)}</span>
                     <div class="bd-bar-wrap">
                         <div class="bd-bar" style="width:${pct}%"></div>
                     </div>
@@ -2590,7 +2590,7 @@ const estoque = {
 
         // Cabeçalho dinâmico
         table.querySelector('thead tr').innerHTML =
-            extraCols.map(h => `<th>${h.toUpperCase()}</th>`).join('') +
+            extraCols.map(h => `<th>${escHTML(String(h).toUpperCase())}</th>`).join('') +
             '<th class="td-right">QUANTIDADE</th>';
 
         // Linhas
@@ -2599,7 +2599,7 @@ const estoque = {
             const zero = r.quantidade === 0;
             const cells = extraCols.map(h => {
                 const v = r.dados?.[h];
-                return `<td>${v !== undefined && v !== '' ? v : '<span style="opacity:.3">—</span>'}</td>`;
+                return `<td>${v !== undefined && v !== '' ? escHTML(String(v)) : '<span style="opacity:.3">—</span>'}</td>`;
             }).join('');
             return `<tr${zero ? ' class="row-zero"' : ''}>
                 ${cells}
@@ -2609,7 +2609,7 @@ const estoque = {
 
         const total = this.filtered.length;
         document.getElementById('est-count').textContent =
-            `${total.toLocaleString('pt-BR')} itens${total > 500 ? ' (exibindo 500)' : ''}`;
+            `${total.toLocaleString('pt-BR')} itens${total > 2000 ? ' (exibindo 2.000)' : ''}`;
     },
 
     // ── Salvar / Histórico ────────────────────────────────────
@@ -3565,7 +3565,7 @@ const cliente = {
     render() {
         const total  = this.rawData.length;
         const filt   = this.filtered.length;
-        const toNum  = v => parseFloat(String(v ?? '0').replace(/\./g,'').replace(',','.')) || 0;
+        const toNum  = v => typeof v === 'number' ? v : (parseFloat(String(v ?? '0').replace(/\./g,'').replace(',','.')) || 0);
         const up     = v => String(v || '').toUpperCase().trim();
 
         const qtdTotal = this._colQtd
@@ -3607,13 +3607,13 @@ const cliente = {
                 const vUnit   = toNum(r.dados?.[this._colValUnit]);
                 const vTot    = toNum(r.dados?.[this._colValTotal]);
                 return `<tr>
-                    <td><span style="font-family:monospace;color:#26c6da;font-weight:600;">${cod||empty}</span></td>
-                    <td>${modelo||empty}</td>
-                    <td>${cor||empty}</td>
-                    <td>${marca||empty}</td>
-                    <td style="font-weight:600;">${tamanho||empty}</td>
-                    <td>${data||empty}</td>
-                    <td style="font-weight:500;">${cli||empty}</td>
+                    <td><span style="font-family:monospace;color:#26c6da;font-weight:600;">${cod?escHTML(cod):empty}</span></td>
+                    <td>${modelo?escHTML(modelo):empty}</td>
+                    <td>${cor?escHTML(cor):empty}</td>
+                    <td>${marca?escHTML(marca):empty}</td>
+                    <td style="font-weight:600;">${tamanho?escHTML(tamanho):empty}</td>
+                    <td>${data?escHTML(data):empty}</td>
+                    <td style="font-weight:500;">${cli?escHTML(cli):empty}</td>
                     <td style="text-align:right;font-weight:600;">${qtd?qtd.toLocaleString('pt-BR'):empty}</td>
                     <td style="text-align:right;color:#8b949e;">${vUnit?'R$ '+vUnit.toLocaleString('pt-BR',{minimumFractionDigits:3}):empty}</td>
                     <td style="text-align:right;color:#26a69a;font-weight:600;">${vTot?'R$ '+vTot.toLocaleString('pt-BR',{minimumFractionDigits:2}):empty}</td>
@@ -3630,12 +3630,12 @@ const cliente = {
                 [this._colValTotal]: 'VALOR TOTAL',
             };
             table.querySelector('thead tr').innerHTML =
-                this.colunas.map(h => `<th>${LABELS[h] || h.toUpperCase()}</th>`).join('');
+                this.colunas.map(h => `<th>${LABELS[h] || escHTML(String(h).toUpperCase())}</th>`).join('');
             table.querySelector('tbody').innerHTML = this.filtered.slice(0, 2000).map(r => {
                 const cells = this.colunas.map(h => {
                     const v = r.dados?.[h];
                     if (v === undefined || v === '') return `<td>${empty}</td>`;
-                    const vu = up(v);
+                    const vu = escHTML(up(v));
                     if (h === this._colCodigo)
                         return `<td><span style="font-family:monospace;color:#26c6da;font-weight:600;">${vu}</span></td>`;
                     if (h === this._colQtd)
@@ -4556,6 +4556,7 @@ const toc = {
     },
 
     _getTempoMinutos(dados, cols) {
+        if (!dados) return 0;   // null-guard: código sem dados no banco
         // Busca tolerante: tenta exato, depois trim, depois case-insensitive
         const dadosTrim = Object.fromEntries(Object.entries(dados).map(([k,v])=>[k.trim().toLowerCase(), v]));
         let total = 0;
@@ -6817,7 +6818,8 @@ const preactor = {
             for (let i = 0; i < restante.length; i++) {
                 const o = restante[i];
                 const w = Math.max(Number(o.cpv) || 0, 1);            // valor (peso)
-                const p = Math.max(Number(o.qty) || 1, 1);           // "tempo" ~ quantidade
+                const tUn = this._getTempoProc(o.dados || {}, 'tecelagem');
+                const p = Math.max((tUn || 0) * (Number(o.qty) || 1), 1);   // tempo real de gargalo (min), não a qtd
                 const dias = o.data_entrega ? (new Date(o.data_entrega+'T12:00:00') - hoje) / 864e5 : 999;
                 const urg = Math.exp(-Math.max(0, dias) / (k1 * 7));  // urgência: alta se prazo perto/vencido
                 const s = this._getSetupMins(proc, lastFam, this._getFamilia(o.dados || {}));
@@ -7666,7 +7668,7 @@ const preactor = {
                 <td style="padding:9px 14px;">${escHTML((item.label||'').slice(0,30))}</td>
                 <td style="padding:9px 14px;text-align:right;">${item.qty.toLocaleString('pt-BR')}</td>
                 <td style="padding:4px 14px;text-align:center;">
-                    <input type="date" value="${item.data_entrega||''}" onchange="preactor._salvarPrazo('${escHTML(item.codigo)}', this.value)"
+                    <input type="date" value="${item.data_entrega||''}" onchange="preactor._salvarPrazo('${escJS(item.codigo)}', this.value)"
                         title="Definir/ajustar prazo de entrega deste código"
                         style="padding:4px 6px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:5px;color:${item.data_entrega?cor:'var(--text-dim)'};font-size:.75rem;"></td>
                 <td style="padding:9px 14px;text-align:center;color:${cor};">${item.status==='overflow'?`> SEM ${r.semanas.length}`:finishStr?new Date(finishStr+'T12:00:00').toLocaleDateString('pt-BR'):'—'}</td>
@@ -9313,14 +9315,14 @@ const abc = {
             const cellCls = isDesc ? 'td-desc' : isMarca ? 'td-desc' : 'td-code';
             const seg = vendas.rawData.find(v => (isDesc ? v.descricao : v.codigo) === r.label)?.segmento || '';
             const clickAttr = isDesc
-                ? `onclick="abrirDetalhe('${r.label.replace(/'/g,"\\'")}','${seg.replace(/'/g,"\\'")}'); event.stopPropagation();" style="cursor:pointer;"`
+                ? `onclick="abrirDetalhe('${escJS(r.label)}','${escJS(seg)}'); event.stopPropagation();" style="cursor:pointer;"`
                 : '';
             return `<tr ${clickAttr} title="${isDesc ? 'Clique para ver detalhe' : ''}">
                 <td class="td-dim td-center">${i + 1}</td>
-                <td class="${cellCls}" style="${(isDesc || isMarca) ? 'color:var(--indigo-primary);' : ''}">${r.label}</td>
-                <td style="font-size:0.75rem;color:var(--text-dim)">${r.modelo || '—'}</td>
-                <td style="font-size:0.75rem;color:var(--text-dim)">${r.marca  || '—'}</td>
-                <td style="font-size:0.72rem;color:var(--text-dim)">${r.tamanho || '—'}</td>
+                <td class="${cellCls}" style="${(isDesc || isMarca) ? 'color:var(--indigo-primary);' : ''}">${escHTML(r.label)}</td>
+                <td style="font-size:0.75rem;color:var(--text-dim)">${escHTML(r.modelo) || '—'}</td>
+                <td style="font-size:0.75rem;color:var(--text-dim)">${escHTML(r.marca)  || '—'}</td>
+                <td style="font-size:0.72rem;color:var(--text-dim)">${escHTML(r.tamanho) || '—'}</td>
                 <td class="td-qtd">${r.quantidade.toLocaleString('pt-BR')}</td>
                 <td class="td-right td-dim">${r.pct.toFixed(2)}%</td>
                 <td class="td-right td-dim">${r.cumPct.toFixed(1)}%</td>
@@ -9660,16 +9662,16 @@ const abcMicro = {
             const cellCls = isDesc ? 'td-desc' : 'td-code';
             const seg = vendas.rawData.find(v => (isDesc ? v.descricao : v.codigo) === r.label)?.segmento || '';
             const clickAttr = isDesc
-                ? `onclick="abrirDetalhe('${r.label.replace(/'/g,"\\'")}','${seg.replace(/'/g,"\\'")}'); event.stopPropagation();" style="cursor:pointer;"`
+                ? `onclick="abrirDetalhe('${escJS(r.label)}','${escJS(seg)}'); event.stopPropagation();" style="cursor:pointer;"`
                 : '';
             const estQtd  = estMap[String(r.label || '').trim()];
             const estCell = estQtd !== undefined ? estQtd.toLocaleString('pt-BR') : '<span style="opacity:.3">—</span>';
             return `<tr ${clickAttr} title="${isDesc ? 'Clique para ver detalhe' : ''}">
                 <td class="td-dim td-center">${i + 1}</td>
-                <td class="${cellCls}" style="${isDesc ? 'color:var(--indigo-primary);' : ''}">${r.label}</td>
-                <td style="font-size:0.75rem;color:var(--text-dim)">${r.modelo || '—'}</td>
-                <td style="font-size:0.75rem;color:var(--text-dim)">${r.marca  || '—'}</td>
-                <td style="font-size:0.72rem;color:var(--text-dim)">${r.tamanho || '—'}</td>
+                <td class="${cellCls}" style="${isDesc ? 'color:var(--indigo-primary);' : ''}">${escHTML(r.label)}</td>
+                <td style="font-size:0.75rem;color:var(--text-dim)">${escHTML(r.modelo) || '—'}</td>
+                <td style="font-size:0.75rem;color:var(--text-dim)">${escHTML(r.marca)  || '—'}</td>
+                <td style="font-size:0.72rem;color:var(--text-dim)">${escHTML(r.tamanho) || '—'}</td>
                 <td class="td-qtd">${r.quantidade.toLocaleString('pt-BR')}</td>
                 <td class="td-right">${estCell}</td>
                 <td class="td-right td-dim">${r.pct.toFixed(2)}%</td>
@@ -9930,14 +9932,14 @@ const pedidos = {
             const barW = (r.total / maxQtd * 100).toFixed(0);
             return `<tr>
                 <td style="text-align:center;color:var(--text-dim);font-size:0.85rem;">${i + 1}</td>
-                <td class="td-code" style="color:var(--indigo-primary);font-weight:700;position:sticky;left:0;background:var(--bg-obsidian);">${r.codigo}</td>
+                <td class="td-code" style="color:var(--indigo-primary);font-weight:700;position:sticky;left:0;background:var(--bg-obsidian);">${escHTML(r.codigo)}</td>
                 <td>
-                    <div style="font-size:0.82rem;">${r.descricao}</div>
+                    <div style="font-size:0.82rem;">${escHTML(r.descricao)}</div>
                     <div style="margin-top:3px;height:3px;border-radius:2px;background:var(--border);">
                         <div style="height:3px;border-radius:2px;background:var(--indigo-primary);width:${barW}%;"></div>
                     </div>
                 </td>
-                <td style="font-size:0.78rem;color:var(--text-dim);">${r.marca}</td>
+                <td style="font-size:0.78rem;color:var(--text-dim);">${escHTML(r.marca)}</td>
                 <td class="td-right" style="font-weight:700;color:var(--indigo-primary);">${r.total.toLocaleString('pt-BR')}</td>
                 <td class="td-right" style="color:var(--text-dim);font-size:0.82rem;">${pct}%</td>
             </tr>`;
@@ -10301,8 +10303,8 @@ const opDash = {
                 <td style="text-align:center;padding:4px 8px;"><input type="checkbox" ${sel?'checked':''} onclick="opDash._toggleSelect(${r._id})" style="cursor:pointer;accent-color:var(--indigo-primary);width:15px;height:15px;"></td>
                 <td class="td-code" style="color:var(--indigo-primary);">${escHTML(r.codigo)}</td>
                 <td class="td-desc">${escHTML(r.descricao)}</td>
-                <td style="font-size:0.75rem;">${r.marca}</td>
-                <td class="td-center">${r.tamanho}</td>
+                <td style="font-size:0.75rem;">${escHTML(r.marca)}</td>
+                <td class="td-center">${escHTML(r.tamanho)}</td>
                 <td class="td-right" style="color:var(--indigo-primary);font-weight:600;">${fmt(r.vendMedia)}</td>
                 <td class="td-right" style="color:var(--green-accent);font-weight:600;">${fmt(r.estoque)}</td>
                 <td class="td-right" style="color:var(--orange-accent);font-weight:600;">${fmt(r.emProcesso)}</td>
@@ -10648,9 +10650,9 @@ const pesquisa = {
             return `<tr>
                 <td class="td-code">${escHTML(r.codigo)}</td>
                 <td class="td-desc">${escHTML(r.descricao)}</td>
-                <td>${r.marca || '<span style="opacity:.3">—</span>'}</td>
-                <td><span class="seg-badge">${r.segmento}</span></td>
-                <td class="td-center">${r.tamanho}</td>
+                <td>${r.marca ? escHTML(r.marca) : '<span style="opacity:.3">—</span>'}</td>
+                <td><span class="seg-badge">${escHTML(r.segmento)}</span></td>
+                <td class="td-center">${escHTML(r.tamanho)}</td>
                 <td class="td-right">${fmt(totalV)}</td>
                 <td class="td-right" style="color:#26c6da;font-weight:600;">${fmt(media)}</td>
                 <td class="td-right" style="color:#26a69a;font-weight:600;">${fmt(est)}</td>
@@ -10929,7 +10931,7 @@ const clientesDash = {
     _sortAsc:  false,
     _anoSel:   '',
 
-    _toNum: v => parseFloat(String(v ?? '0').replace(/\./g,'').replace(',','.')) || 0,
+    _toNum: v => typeof v === 'number' ? v : (parseFloat(String(v ?? '0').replace(/\./g,'').replace(',','.')) || 0),
     _parseDt: s => { const [d,m,y]=String(s||'').split('/'); return y?new Date(+y,+m-1,+d):null; },
     _fmtBRL: v => 'R$ ' + v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}),
 
