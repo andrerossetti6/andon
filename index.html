@@ -2370,7 +2370,11 @@
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;" id="soep-kpis"></div>
 
     <!-- Abas -->
-    <div style="display:flex;gap:8px;margin-bottom:20px;">
+    <div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap;">
+        <button id="soep-tab-ciclo" onclick="soepDash._selecionarAba('ciclo')"
+            style="padding:8px 22px;border-radius:8px;border:none;font-size:.83rem;font-weight:600;cursor:pointer;background:var(--bg-input);color:var(--text-dim);">
+            📋 Ciclo do Mês
+        </button>
         <button id="soep-tab-visao-geral" onclick="soepDash._selecionarAba('visao-geral')"
             style="padding:8px 22px;border-radius:8px;border:none;font-size:.83rem;font-weight:600;cursor:pointer;background:var(--indigo-btn);color:#fff;">
             Visão Geral
@@ -2392,6 +2396,11 @@
     <!-- Painel: Financeiro / Reconciliação -->
     <div id="soep-panel-financeiro" style="display:none;">
         <div id="soep-financeiro-content"></div>
+    </div>
+
+    <!-- Painel: Ciclo mensal de S&OP -->
+    <div id="soep-panel-ciclo" style="display:none;">
+        <div id="soep-ciclo-content"></div>
     </div>
 
     <!-- Painel: Visão Geral -->

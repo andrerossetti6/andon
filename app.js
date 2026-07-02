@@ -6087,7 +6087,7 @@ const soepDash = {
 
     _selecionarAba(aba) {
         this._abaAtiva = aba;
-        ['visao-geral','prev-real','horizonte','financeiro'].forEach(a => {
+        ['ciclo','visao-geral','prev-real','horizonte','financeiro'].forEach(a => {
             const btn = document.getElementById(`soep-tab-${a}`);
             const pnl = document.getElementById(`soep-panel-${a}`);
             const ativo = a === aba;
@@ -6097,6 +6097,7 @@ const soepDash = {
         if (aba === 'prev-real') this._renderPrevReal();
         if (aba === 'horizonte') this._renderHorizonte6m();
         if (aba === 'financeiro') this._renderFinanceiro();
+        if (aba === 'ciclo') this._renderCiclo();
     },
 
     async render() {
@@ -6568,6 +6569,91 @@ const soepDash = {
         });
         html += `</tbody></table></div>`;
         if (semPrecoSet.size) html += `<div style="margin-top:10px;font-size:.72rem;color:#ffca28;">⚠ ${semPrecoSet.size} produto(s) do plano sem preço de venda no histórico — ficam de fora da receita. Importe Vendas com o valor desses códigos para incluir.</div>`;
+        el.innerHTML = html;
+    },
+
+    // ── Ciclo mensal de S&OP: os 5 passos, dono/estado e a aprovação do plano-único ──
+    _cicloMes() { return (previsao._nextMonths && previsao._nextMonths[0]) || { mes: new Date().toISOString().slice(0, 7), label: 'este mês' }; },
+    _cicloState(mes) { try { return JSON.parse(localStorage.getItem('soep-ciclo-' + mes) || '{}'); } catch { return {}; } },
+    _cicloSet(mes, st) { localStorage.setItem('soep-ciclo-' + mes, JSON.stringify(st)); },
+    _cicloToggle(passo) { const m = this._cicloMes().mes; const st = this._cicloState(m); st[passo] = st[passo] || {}; st[passo].feito = !st[passo].feito; this._cicloSet(m, st); this._renderCiclo(); },
+    _cicloDono(passo, val) { const m = this._cicloMes().mes; const st = this._cicloState(m); st[passo] = st[passo] || {}; st[passo].dono = val; this._cicloSet(m, st); },
+    _cicloAprovar() {
+        const c = this._cicloMes(); const st = this._cicloState(c.mes);
+        st.aprovado = !st.aprovado; st.aprovadoEm = st.aprovado ? new Date().toISOString() : null;
+        this._cicloSet(c.mes, st);
+        mostrarToast(st.aprovado ? `Plano de ${c.label} APROVADO (plano-único do mês). Congele o Plano de Produção para travar a versão.` : `Aprovação de ${c.label} desfeita.`, st.aprovado ? 'ok' : 'aviso');
+        this._renderCiclo();
+    },
+
+    _renderCiclo() {
+        const el = document.getElementById('soep-ciclo-content');
+        if (!el) return;
+        const c = this._cicloMes();
+        const st = this._cicloState(c.mes);
+        // sinais automáticos
+        const dados = vendas.rawData.length > 0 && (typeof estoque !== 'undefined' && estoque.rawData.length > 0) && (typeof op !== 'undefined' && op.rawData.length > 0);
+        const demanda = previsao._forecast.length > 0;
+        const capOk = toc._resultProcs && toc._resultProcs.length > 0;
+        const gargalo = capOk ? toc._resultProcs.filter(p => !p.semDados).sort((a, b) => (b.util || 0) - (a.util || 0))[0] : null;
+        const capViavel = capOk ? !toc._resultProcs.some(p => !p.semDados && (p.util || 0) > 1) : null;
+        const meta = parseFloat(localStorage.getItem('soep-meta-receita')) || 0;
+        const temPlano = Object.keys(planoProducao._plano || {}).length > 0;
+
+        const passos = [
+            { id: 'dados', nome: '1 · Coleta de dados', desc: 'Vendas, Estoque e OPs importados e atualizados.', auto: dados, dica: dados ? 'Dados presentes' : 'Faltam Vendas/Estoque/OP', view: 'vendas' },
+            { id: 'demanda', nome: '2 · Revisão de Demanda', desc: 'Previsão estatística + consenso comercial (unidades e R$). Documente as premissas dos overrides.', auto: demanda, dica: demanda ? `${previsao._forecast.filter(f => f.mes === c.mes).length} SKUs previstos p/ ${c.label}` : 'Rode a Previsão', view: 'previsao' },
+            { id: 'capacidade', nome: '3 · Revisão de Capacidade (Supply)', desc: 'A demanda-consenso cabe na fábrica? Onde não couber, quantifique o gap e as contramedidas.', auto: capViavel, dica: capOk ? (capViavel ? 'Plano viável na capacidade nominal' : `Gargalo estoura: ${gargalo ? gargalo.nome + ' ' + Math.round((gargalo.util || 0) * 100) + '%' : ''}`) : 'Rode o TOC (Gargalo)', view: 'toc' },
+            { id: 'financeiro', nome: '4 · Reconciliação Financeira', desc: 'Plano em R$ (receita/margem) × meta/orçamento. Só o que exige autoridade sobe para a reunião.', auto: meta > 0, dica: meta > 0 ? 'Meta definida — veja o gap na aba Financeiro' : 'Defina a meta na aba Financeiro (R$)', tab: 'financeiro' },
+            { id: 'consenso', nome: '5 · Reunião Executiva / Consenso', desc: 'Aprova UM conjunto de números — o plano-único do mês — e registra as decisões (dono/prazo).', auto: !!st.aprovado, dica: st.aprovado ? `Aprovado em ${new Date(st.aprovadoEm).toLocaleDateString('pt-BR')}` : 'Pendente de aprovação', consenso: true },
+        ];
+        const feito = p => (st[p.id]?.feito) || p.auto;
+        const nDone = passos.filter(feito).length;
+        const pct = Math.round(nDone / passos.length * 100);
+
+        let html = `<div class="summary-card" style="margin-bottom:16px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                <div><div class="s-label">CICLO S&OP — ${escHTML(c.label)}</div>
+                    <div style="font-size:.74rem;color:var(--text-dim);margin-top:2px;">${temPlano ? 'Plano de produção salvo' : 'Sem plano salvo ainda'} · ${nDone}/${passos.length} passos concluídos</div></div>
+                <div style="text-align:right;"><div style="font-size:1.8rem;font-weight:800;color:${pct === 100 ? '#26a69a' : 'var(--indigo-primary)'};">${pct}%</div></div>
+            </div>
+            <div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;margin-top:10px;"><div style="height:100%;width:${pct}%;background:${pct === 100 ? '#26a69a' : 'var(--indigo-primary)'};border-radius:4px;transition:width .4s;"></div></div>
+        </div>`;
+
+        passos.forEach(p => {
+            const ok = feito(p);
+            const cor = ok ? '#26a69a' : (p.auto === false ? '#ffca28' : 'var(--text-dim)');
+            const irBtn = p.view ? `<button onclick="navigateTo('${p.view}')" style="padding:4px 12px;border-radius:6px;border:1px solid var(--border-color);background:transparent;color:var(--indigo-primary);font-size:.72rem;cursor:pointer;">abrir →</button>`
+                : p.tab ? `<button onclick="soepDash._selecionarAba('${p.tab}')" style="padding:4px 12px;border-radius:6px;border:1px solid var(--border-color);background:transparent;color:var(--indigo-primary);font-size:.72rem;cursor:pointer;">abrir →</button>` : '';
+            html += `<div class="summary-card" style="margin-bottom:10px;border-left:3px solid ${cor};">
+                <div style="display:flex;align-items:flex-start;gap:12px;">
+                    <div style="font-size:1.3rem;">${ok ? '✅' : (p.auto === false ? '⚠️' : '⬜')}</div>
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-weight:700;font-size:.9rem;color:var(--text-primary);">${escHTML(p.nome)}</div>
+                        <div style="font-size:.76rem;color:var(--text-dim);margin:3px 0 8px;">${escHTML(p.desc)}</div>
+                        <div style="font-size:.74rem;color:${cor};">${ok ? '✓ ' : ''}${escHTML(p.dica)}</div>
+                        <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;">
+                            <label style="display:flex;align-items:center;gap:5px;font-size:.72rem;color:var(--text-dim);cursor:pointer;"><input type="checkbox" ${st[p.id]?.feito ? 'checked' : ''} onchange="soepDash._cicloToggle('${p.id}')"> marcar concluído</label>
+                            <span style="font-size:.72rem;color:var(--text-dim);">Dono: <input type="text" value="${escHTML(st[p.id]?.dono || '')}" placeholder="responsável" onchange="soepDash._cicloDono('${p.id}', this.value)" style="width:130px;padding:3px 8px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:5px;color:var(--text-primary);font-size:.72rem;"></span>
+                            ${irBtn}
+                            ${p.consenso ? `<button onclick="soepDash._cicloAprovar()" style="margin-left:auto;padding:6px 18px;border-radius:6px;border:none;background:${st.aprovado ? '#26a69a' : 'var(--indigo-btn)'};color:#fff;font-size:.76rem;font-weight:700;cursor:pointer;">${st.aprovado ? '✓ PLANO APROVADO — desfazer' : 'APROVAR PLANO-ÚNICO'}</button>` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+        });
+
+        // Log de decisões/ações (reusa soep-acoes)
+        const acoes = this._acoes || [];
+        html += `<div class="summary-card" style="margin-top:6px;"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <div class="s-label">DECISÕES / AÇÕES DO CICLO</div>
+            <button onclick="soepDash._selecionarAba('visao-geral');setTimeout(()=>soepDash.novaAcao(),200)" style="padding:4px 12px;border-radius:6px;border:1px solid var(--border-color);background:transparent;color:var(--indigo-primary);font-size:.72rem;cursor:pointer;">+ nova ação</button></div>`;
+        if (!acoes.length) html += `<div style="font-size:.76rem;color:var(--text-dim);">Nenhuma ação registrada. As decisões da reunião viram ações com dono e prazo.</div>`;
+        else html += acoes.slice(0, 8).map(a => `<div style="display:flex;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:.78rem;">
+            <span style="color:${a.status === 'concluida' ? '#26a69a' : '#ffca28'};">${a.status === 'concluida' ? '✓' : '○'}</span>
+            <span style="flex:1;">${escHTML((a.descricao || '').slice(0, 70))}</span>
+            <span style="color:var(--text-dim);font-size:.7rem;">${escHTML(a.responsavel || '')}${a.prazo ? ' · ' + new Date(a.prazo + 'T12:00:00').toLocaleDateString('pt-BR') : ''}</span></div>`).join('');
+        html += `</div>`;
         el.innerHTML = html;
     },
 
