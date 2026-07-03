@@ -2278,12 +2278,13 @@
         </div>
         <div style="margin-top:8px;">
             <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:.8rem;color:var(--text-dim);">
-                <input type="checkbox" id="pol-usar-prev" style="accent-color:var(--indigo-primary);width:15px;height:15px;">
+                <input type="checkbox" id="pol-usar-prev" onchange="previsao._togglePolBadge()" style="accent-color:var(--indigo-primary);width:15px;height:15px;">
                 Usar demanda da <b style="color:var(--text-primary);font-weight:600;">Previsão</b> (plano ativo) — média mensal prevista no lugar do histórico; o desvio (segurança) continua do histórico
             </label>
             <span id="pol-prev-info" style="font-size:.74rem;color:var(--indigo-primary);margin-left:8px;"></span>
         </div>
     </div>
+    <div class="summary-card" id="pol-plano-badge-wrap" style="margin-bottom:20px;padding:10px 16px;display:none;"><div id="pol-plano-badge" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;"></div></div>
     <div id="pol-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px;"></div>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
         <input id="pol-search" type="text" placeholder="Buscar SKU ou descrição..."
@@ -2318,6 +2319,7 @@
             <p class="page-subtitle">Planejamento mensal validado contra a capacidade disponível</p>
         </div>
     </header>
+    <div class="summary-card" style="margin-bottom:18px;padding:10px 16px;"><div id="plano-prod-badge" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;"></div></div>
     <div style="display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:center;">
         <div id="plano-mes-tabs" style="display:flex;gap:8px;"></div>
         <div style="flex:1;"></div>

@@ -1308,8 +1308,10 @@ function navigateTo(viewName) {
             if (saved.nMeses  != null) { const e = document.getElementById('pol-hist');  if (e) e.value = saved.nMeses; }
             if (saved.usarPrev != null) { const e = document.getElementById('pol-usar-prev'); if (e) e.checked = !!saved.usarPrev; }
         } catch {}
+        previsao._togglePolBadge();   // mostra o selo do plano se "usar Previsão" estiver ligado
     } else if (viewName === 'plano-prod') {
         document.querySelector('[data-view="plano-prod"]')?.classList.add('sub-active');
+        previsao._renderBadge('plano-prod-badge', 'plano-prod');
         if (previsao._forecast.length) setTimeout(() => planoProducao.render(), 50);
     } else if (viewName === 'soep') {
         document.querySelector('[data-view="soep"]')?.classList.add('sub-active');
@@ -5174,6 +5176,49 @@ const previsao = {
                 ${this._planoAtivo ? b(atual && atual.congelado ? '🔓 Descongelar' : '🔒 Congelar', '_congelarPlano()', '#0ea5e9') : ''}
                 ${this._planoAtivo ? b('🗑 Excluir plano', '_excluirPlano()', '#f06292') : ''}
             </span>`;
+        // mantém os selos das outras telas em sincronia com o plano ativo
+        this._renderBadge('pol-plano-badge', 'politica');
+        this._renderBadge('plano-prod-badge', 'plano-prod');
+    },
+
+    // Selo compartilhado do plano ativo (Política e Plano de Produção leem o MESMO plano)
+    _renderBadge(containerId, origem) {
+        const el = document.getElementById(containerId); if (!el) return;
+        if (this._planosIndisp) { el.innerHTML = `<span style="font-size:.76rem;color:var(--text-dim);">Demanda: previsão crua (planos inativos — rode <code>previsao_plano.sql</code>)</span>`; return; }
+        const atual   = this._planos.find(p => p.id === this._planoAtivo);
+        const cong    = !!(atual && atual.congelado);
+        const temPrev = this._forecast.length > 0;
+        const opts = `<option value="">Base (importação)</option>` + this._planos.map(p =>
+            `<option value="${escHTML(p.id)}"${p.id === this._planoAtivo ? ' selected' : ''}>${escHTML(p.nome)}${p.congelado ? ' 🔒' : ''}</option>`).join('');
+        const estado = cong
+            ? `<span style="font-size:.72rem;color:#0ea5e9;font-weight:700;">🔒 congelado</span>`
+            : (this._planoAtivo ? `<span style="font-size:.72rem;color:#26a69a;">vivo</span>` : `<span style="font-size:.72rem;color:var(--text-dim);">base crua</span>`);
+        const dirty  = this._dirty ? `<span style="font-size:.72rem;color:#ffca28;font-weight:600;">● não salvo</span>` : '';
+        const aviso  = (origem === 'plano-prod' && temPrev && !cong)
+            ? `<span style="font-size:.72rem;color:#ffca28;">⚠ demanda ainda viva — congele na Previsão para fechar o plano</span>` : '';
+        const semPrev = !temPrev ? `<span style="font-size:.72rem;color:#f06292;">⚠ sem previsão calculada — abra a Previsão e clique CALCULAR</span>` : '';
+        el.innerHTML = `
+            <span style="font-size:.72rem;color:var(--text-dim);font-weight:600;letter-spacing:.05em;">DEMANDA (plano):</span>
+            <select onchange="previsao._trocarPlanoBadge(this.value)" style="padding:6px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;min-width:200px;">${opts}</select>
+            ${estado} ${dirty} ${aviso} ${semPrev}
+            <a onclick="navigateTo('previsao')" style="font-size:.72rem;color:var(--indigo-primary);cursor:pointer;margin-left:auto;">editar na Previsão →</a>`;
+    },
+    async _trocarPlanoBadge(id) {
+        await this._selecionarPlano(id);   // troca o plano ativo global (recomputa o forecast)
+        this._refreshDownstream();
+    },
+    _refreshDownstream() {
+        const vis = id => { const e = document.getElementById(id); return e && e.style.display !== 'none'; };
+        if (vis('view-politica') && document.getElementById('pol-usar-prev')?.checked && politicaEstoque._rows.length) politicaEstoque.calcular();
+        if (vis('view-plano-prod')) planoProducao.render();
+        this._renderBadge('pol-plano-badge', 'politica');
+        this._renderBadge('plano-prod-badge', 'plano-prod');
+    },
+    _togglePolBadge() {
+        const on   = !!document.getElementById('pol-usar-prev')?.checked;
+        const wrap = document.getElementById('pol-plano-badge-wrap');
+        if (wrap) wrap.style.display = on ? '' : 'none';
+        if (on) this._renderBadge('pol-plano-badge', 'politica');
     },
     async _selecionarPlano(id) {
         if (!id) { this._planoAtivo = null; this._congeladoSnap = null; this._setEdicoes({}); this._dirty = false; this._draftSave(); this.calcular(); this._renderBarraPlanos(); return; }
