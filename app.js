@@ -5875,7 +5875,7 @@ const planoProducao = {
         // Alerta de capacidade antes de salvar
         if (this._mesSel && banco.rawData.length) {
             const demMapa = {};
-            previsao._forecast.filter(r=>r.mes===this._mesSel).forEach(r=>{
+            previsao._forecast.filter(r=>r.mes===this._mesSel && !previsao._excluidosSet().has(String(r.codigo))).forEach(r=>{
                 const qty = this._plano[`${this._mesSel}_${r.codigo}`] ?? r.qty;
                 if (qty>0) demMapa[r.codigo]=(demMapa[r.codigo]||0)+qty;
             });
@@ -5932,7 +5932,7 @@ const planoProducao = {
         if (!previsao._forecast.length) { alert('Calcule a Previsão de Demanda primeiro.'); return; }
         if (!this._mesSel) return;
         const { estMap, opMap } = this._buildMaps();
-        previsao._forecast.filter(r=>r.mes===this._mesSel).forEach(r=>{
+        previsao._forecast.filter(r=>r.mes===this._mesSel && !previsao._excluidosSet().has(String(r.codigo))).forEach(r=>{
             const min      = this._estMin[r.codigo] || 0;
             // Fórmula: produzir = previsão + estoque_min - estoque_atual - op_aberta
             const sugerido = Math.max(0, r.qty + min - (estMap[r.codigo]||0) - (opMap[r.codigo]||0));
@@ -5965,7 +5965,7 @@ const planoProducao = {
         const search = (document.getElementById('plano-search')?.value||'').toLowerCase().trim();
         const { estMap, opMap } = this._buildMaps();
         const rows = previsao._forecast
-            .filter(r=>r.mes===this._mesSel && (!search || r.codigo.toLowerCase().includes(search)||r.descricao.toLowerCase().includes(search)))
+            .filter(r=>r.mes===this._mesSel && !previsao._excluidosSet().has(String(r.codigo)) && (!search || r.codigo.toLowerCase().includes(search)||r.descricao.toLowerCase().includes(search)))
             .map(r=>({
                 ...r,
                 estqtd:   estMap[r.codigo]||0,
@@ -6026,7 +6026,7 @@ const planoProducao = {
         const mesLbl = document.getElementById('plano-cap-mes');
         if (!wrap||!barras||!this._mesSel||!banco.rawData.length) { if(wrap) wrap.style.display='none'; return; }
         const demMapa = {};
-        previsao._forecast.filter(r=>r.mes===this._mesSel).forEach(r=>{
+        previsao._forecast.filter(r=>r.mes===this._mesSel && !previsao._excluidosSet().has(String(r.codigo))).forEach(r=>{
             const qty = this._plano[`${this._mesSel}_${r.codigo}`]??r.qty;
             if (qty>0) demMapa[r.codigo]=(demMapa[r.codigo]||0)+qty;
         });
