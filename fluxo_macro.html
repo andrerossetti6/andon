@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fluxo Macro — Andon (BPMN)</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Inter', Arial, sans-serif; font-size: 10.5pt; line-height: 1.6; color: #1a1a2e; background: #fff; }
+  .cover { min-height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: flex-start;
+    background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 60%, #16213e 100%); padding: 80px 72px; page-break-after: always; position: relative; overflow: hidden; }
+  .cover::before { content: ''; position: absolute; top: -100px; right: -100px; width: 500px; height: 500px; border-radius: 50%; background: radial-gradient(circle, rgba(99,102,241,.30) 0%, transparent 70%); }
+  .cover::after { content: ''; position: absolute; bottom: -80px; left: 200px; width: 350px; height: 350px; border-radius: 50%; background: radial-gradient(circle, rgba(38,198,218,.14) 0%, transparent 70%); }
+  .cover-tag { font-size: 9pt; font-weight: 700; letter-spacing: 3px; color: #6366f1; text-transform: uppercase; margin-bottom: 20px; position: relative; }
+  .cover h1 { font-size: 40pt; font-weight: 800; color: #fff; line-height: 1.1; margin-bottom: 14px; position: relative; }
+  .cover h1 span { color: #26c6da; }
+  .cover .sub { font-size: 13pt; color: rgba(255,255,255,.7); margin-bottom: 48px; position: relative; max-width: 640px; }
+  .cover-meta { display: flex; gap: 40px; position: relative; flex-wrap: wrap; }
+  .cover-meta-label { font-size: 8pt; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #6366f1; margin-bottom: 4px; }
+  .cover-meta-val { font-size: 10pt; font-weight: 600; color: rgba(255,255,255,.75); }
+  .page { padding: 48px 64px; }
+  .section-header { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; padding-bottom: 14px; border-bottom: 2px solid #f0f0f8; }
+  .section-num { width: 36px; height: 36px; border-radius: 8px; background: #6366f1; color: #fff; font-size: 13pt; font-weight: 800; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .section-header h2 { font-size: 16pt; font-weight: 800; color: #1a1a2e; }
+  .section-header .section-badge { margin-left: auto; font-size: 7.5pt; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: #6366f1; background: rgba(99,102,241,.08); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(99,102,241,.2); }
+  h3 { font-size: 11pt; font-weight: 700; color: #2d2d4e; margin: 22px 0 8px; }
+  p { margin-bottom: 10px; color: #3a3a5c; }
+  strong { color: #1a1a2e; }
+  code { background: #f4f4fc; padding: 1px 6px; border-radius: 4px; font-size: 8.8pt; color: #6366f1; font-family: monospace; }
+
+  /* ── BPMN ── */
+  .bpmn-legend { display: flex; gap: 22px; flex-wrap: wrap; margin: 8px 0 26px; font-size: 8.6pt; color: #3a3a5c; align-items: center; }
+  .lg { display: inline-flex; align-items: center; gap: 7px; }
+  .lg .ev { width: 20px; height: 20px; border-radius: 50%; border: 2.5px solid #16a34a; }
+  .lg .ev.end { border-color: #dc2626; border-width: 3.5px; }
+  .lg .tk { width: 30px; height: 18px; border-radius: 5px; background: #eef0ff; border: 1.5px solid #6366f1; }
+  .lg .gw { width: 18px; height: 18px; background: #fff7ed; border: 1.5px solid #f59e0b; transform: rotate(45deg); }
+
+  .flow { display: flex; flex-direction: column; align-items: center; gap: 0; }
+  .lane { width: 100%; border: 1px solid #e6e6f2; border-radius: 12px; padding: 14px 16px 18px; margin: 0; background: #fafaff; position: relative; }
+  .lane-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .lane-badge { font-size: 8pt; font-weight: 800; letter-spacing: .5px; padding: 3px 10px; border-radius: 20px; color: #fff; }
+  .lane-sys { font-size: 8pt; font-weight: 600; color: #8b8bae; margin-left: auto; text-transform: uppercase; letter-spacing: .5px; }
+  .row { display: flex; align-items: stretch; gap: 8px; flex-wrap: wrap; }
+  .task { flex: 1; min-width: 150px; background: #fff; border: 1.6px solid #6366f1; border-radius: 9px; padding: 10px 12px; box-shadow: 0 1px 3px rgba(99,102,241,.08); }
+  .task .t-name { font-size: 9.5pt; font-weight: 700; color: #1a1a2e; }
+  .task .t-desc { font-size: 8pt; color: #6b6b8a; margin-top: 3px; line-height: 1.4; }
+  .task.exec { border-color: #26a69a; } .task.exec .t-name { color: #0f766e; }
+  .task.mes  { border-color: #f06292; }
+  .arrow-r { align-self: center; color: #b8b8d8; font-size: 15pt; flex: 0 0 auto; }
+  .connector { width: 2px; height: 26px; background: linear-gradient(#c0c0e0, #c0c0e0); position: relative; }
+  .connector::after { content: '▼'; position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); color: #c0c0e0; font-size: 11pt; }
+  .ev-circle { width: 46px; height: 46px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16pt; }
+  .ev-start { border: 3px solid #16a34a; background: #f0fdf4; color: #16a34a; }
+  .ev-end { border: 4px solid #dc2626; background: #fef2f2; color: #dc2626; }
+  .gateway { width: 60px; height: 60px; background: #fff7ed; border: 2px solid #f59e0b; transform: rotate(45deg); display: flex; align-items: center; justify-content: center; margin: 4px 0; }
+  .gateway span { transform: rotate(-45deg); font-size: 15pt; color: #b45309; font-weight: 800; }
+  .gw-wrap { display: flex; flex-direction: column; align-items: center; }
+  .gw-label { font-size: 8.5pt; font-weight: 700; color: #b45309; margin-top: 6px; }
+  .loop-note { width: 100%; margin-top: 4px; border: 1.5px dashed #26c6da; background: rgba(38,198,218,.06); border-radius: 10px; padding: 11px 15px; font-size: 9pt; color: #0e7490; }
+  .loop-note strong { color: #0e7490; }
+
+  table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 9.4pt; }
+  th { background: #f4f4fc; color: #2d2d4e; font-weight: 700; text-align: left; padding: 8px 11px; border-bottom: 2px solid #e0e0f0; font-size: 8.2pt; letter-spacing: .3px; text-transform: uppercase; }
+  td { padding: 8px 11px; border-bottom: 1px solid #f0f0f8; color: #3a3a5c; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  td strong { color: #1a1a2e; font-weight: 600; }
+  .callout { border-left: 4px solid #6366f1; background: rgba(99,102,241,.05); padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 16px 0; }
+  .callout.warn { border-color: #f59e0b; background: rgba(245,158,11,.06); }
+  .callout-title { font-size: 8.5pt; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 5px; color: #6366f1; }
+  .callout.warn .callout-title { color: #b45309; }
+  .callout p { margin: 0; font-size: 9.5pt; }
+  .foot { text-align: center; color: #8b8bae; font-size: 8.5pt; padding: 30px; border-top: 1px solid #f0f0f8; margin-top: 20px; }
+  .phase-dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="cover-tag">Processo de Negócio · BPMN</div>
+  <h1>Fluxo <span>Macro</span></h1>
+  <div class="sub">A operação inteira do Andon numa página: da entrada de dados ao chão de fábrica e de volta — um ciclo fechado de <strong>planejar → executar → medir → aprender</strong>, unindo o SIGS (planejamento) e o MES Malha Forte (execução).</div>
+  <div class="cover-meta">
+    <div><div class="cover-meta-label">Sistemas</div><div class="cover-meta-val">SIGS + MES Malha Forte</div></div>
+    <div><div class="cover-meta-label">Fases</div><div class="cover-meta-val">6 · loop fechado</div></div>
+    <div><div class="cover-meta-label">Notação</div><div class="cover-meta-val">BPMN (simplificado)</div></div>
+  </div>
+</div>
+
+<!-- 1. LEGENDA -->
+<div class="page">
+  <div class="section-header"><div class="section-num">1</div><h2>Como ler</h2><span class="section-badge">Legenda BPMN</span></div>
+  <p>O fluxo vai de cima para baixo em <strong>6 fases</strong>. Dentro de cada fase, as atividades correm da esquerda para a direita. No fim, uma seta tracejada volta ao planejamento — é o que torna o sistema um <strong>ciclo</strong>, não uma linha reta.</p>
+  <div class="bpmn-legend">
+    <span class="lg"><span class="ev"></span> Evento de início</span>
+    <span class="lg"><span class="ev end"></span> Evento de fim</span>
+    <span class="lg"><span class="tk"></span> Atividade (tarefa)</span>
+    <span class="lg"><span class="gw"></span> Decisão (gateway)</span>
+    <span class="lg">→ ▼ Sequência do fluxo</span>
+    <span class="lg" style="color:#0e7490;">- - - ↺ Retorno (loop de aprendizado)</span>
+  </div>
+</div>
+
+<!-- 2. O DIAGRAMA -->
+<div class="page">
+  <div class="section-header"><div class="section-num">2</div><h2>O fluxo</h2><span class="section-badge">Diagrama</span></div>
+
+  <div class="flow">
+    <div class="ev-circle ev-start">▶</div>
+    <div class="connector"></div>
+
+    <!-- FASE 1 -->
+    <div class="lane">
+      <div class="lane-head"><span class="lane-badge" style="background:#8b5cf6;">FASE 1 · ENTRADA</span><span class="lane-sys">SIGS — Importação</span></div>
+      <div class="row">
+        <div class="task"><div class="t-name">Importar Vendas</div><div class="t-desc">Histórico de vendas por SKU/mês (base da previsão e do preço).</div></div>
+        <div class="arrow-r">→</div>
+        <div class="task"><div class="t-name">Importar Estoque</div><div class="t-desc">Posição atual + valor (preço/custo de referência).</div></div>
+        <div class="arrow-r">→</div>
+        <div class="task"><div class="t-name">Importar Carteira / OP</div><div class="t-desc">Pedidos e ordens do ERP (o que já está comprometido).</div></div>
+        <div class="arrow-r">→</div>
+        <div class="task"><div class="t-name">Banco de Dados</div><div class="t-desc">Cadastro: tempos por processo, modelo Stoll, família.</div></div>
+      </div>
+    </div>
+    <div class="connector"></div>
+
+    <!-- FASE 2 -->
+    <div class="lane">
+      <div class="lane-head"><span class="lane-badge" style="background:#6366f1;">FASE 2 · PLANEJAR (S&OP)</span><span class="lane-sys">SIGS — Planejamento tático</span></div>
+      <div class="row">
+        <div class="task"><div class="t-name">Previsão de Demanda</div><div class="t-desc">Estatística (sazonalidade/Holt-Winters) + ajuste comercial.</div></div>
+        <div class="arrow-r">→</div>
+        <div class="task"><div class="t-name">Política de Estoques</div><div class="t-desc">Estoque de segurança e ponto de reposição (ABC × nível de serviço).</div></div>
+        <div class="arrow-r">→</div>
+        <div class="task"><div class="t-name">Plano de Produção</div><div class="t-desc">Quanto produzir por SKU/mês = demanda + mín − estoque − OP.</div></div>
+        <div class="arrow-r">→</div>
+        <div class="task"><div class="t-name">Reconciliação Financeira</div><div class="t-desc">Plano em R$ (receita/margem) × meta/orçamento.</div></div>
+      </div>
+    </div>
+    <div class="connector"></div>
+
+    <!-- GATEWAY consenso -->
+    <div class="gw-wrap">
+      <div class="gateway"><span>?</span></div>
+      <div class="gw-label">Reunião de consenso — plano aprovado?</div>
+    </div>
+    <div class="connector"></div>
+
+    <!-- FASE 3 -->
+    <div class="lane">
+      <div class="lane-head"><span class="lane-badge" style="background:#0ea5e9;">FASE 3 · RESTRINGIR & SEQUENCIAR</span><span class="lane-sys">SIGS — TOC + Preactor (APS)</span></div>
+      <div class="row">
+        <div class="task"><div class="t-name">TOC — Gargalo</div><div class="t-desc">Onde a capacidade aperta (inclusive por modelo de tear Stoll).</div></div>
+        <div class="arrow-r">→</div>
+        <div class="task"><div class="t-name">Preactor — Sequenciar</div><div class="t-desc">Aloca por tear (ATCS: prazo+valor+setup) + janela congelada.</div></div>
+        <div class="arrow-r">→</div>
+        <div class="task"><div class="t-name">CTP — Promessa</div><div class="t-desc">Data de entrega factível antes de aceitar o pedido.</div></div>
+      </div>
+    </div>
+    <div class="connector"></div>
+
+    <!-- FASE 4 -->
+    <div class="lane" style="background:#f7fffd;border-color:#bfe9e2;">
+      <div class="lane-head"><span class="lane-badge" style="background:#26a69a;">FASE 4 · EXECUTAR</span><span class="lane-sys">MES Malha Forte — Chão (PWA)</span></div>
+      <div class="row">
+        <div class="task exec"><div class="t-name">Abrir sessão</div><div class="t-desc">OP + máquina + operador + turno (raiz do apontamento).</div></div>
+        <div class="arrow-r">→</div>
+        <div class="task exec"><div class="t-name">Apontar produção</div><div class="t-desc">Quantidade boa / refugo / retrabalho (offline-first).</div></div>
+        <div class="arrow-r">→</div>
+        <div class="task mes"><div class="t-name">NC · Parada · Fio</div><div class="t-desc">Não-conformidade (→RNC), parada (Andon), consumo de fio (rastreio).</div></div>
+        <div class="arrow-r">→</div>
+        <div class="task exec"><div class="t-name">Fechar sessão</div><div class="t-desc">Registra fim → alimenta lead time e realizado.</div></div>
+      </div>
+    </div>
+    <div class="connector"></div>
+
+    <!-- FASE 5 -->
+    <div class="lane">
+      <div class="lane-head"><span class="lane-badge" style="background:#f59e0b;">FASE 5 · MEDIR & APRENDER</span><span class="lane-sys">MES → SIGS</span></div>
+      <div class="row">
+        <div class="task"><div class="t-name">Realizado</div><div class="t-desc">O que foi de fato produzido volta ao Plano.</div></div>
+        <div class="arrow-r">→</div>
+        <div class="task"><div class="t-name">OEE · VSM · CEP · CNQ</div><div class="t-desc">Eficiência, fluxo de valor, controle estatístico, custo da não-qualidade.</div></div>
+        <div class="arrow-r">→</div>
+        <div class="task"><div class="t-name">Aderência & Acurácia</div><div class="t-desc">Bati o plano? A previsão acertou? (fecha o ciclo)</div></div>
+      </div>
+    </div>
+    <div class="connector"></div>
+    <div class="ev-circle ev-end">■</div>
+
+    <div class="loop-note">↺ <strong>Loop de aprendizado:</strong> o <strong>realizado</strong>, a <strong>aderência</strong> e a <strong>acurácia da previsão</strong> voltam para a <strong>Fase 2 (Planejar)</strong> no ciclo seguinte — o plano do próximo mês nasce corrigido pelo que aconteceu de verdade. É isso que separa um S&OP de um simples cálculo de plano.</div>
+  </div>
+</div>
+
+<!-- 3. CADA OPERAÇÃO -->
+<div class="page">
+  <div class="section-header"><div class="section-num">3</div><h2>Cada operação, explicada</h2><span class="section-badge">Detalhe</span></div>
+
+  <h3><span class="phase-dot" style="background:#8b5cf6;"></span>Fase 1 — Entrada (dados)</h3>
+  <table>
+    <tr><th>Operação</th><th>O que faz</th><th>Por que importa</th></tr>
+    <tr><td><strong>Importar Vendas</strong></td><td>Sobe o histórico de vendas por SKU e mês.</td><td>É a base da <strong>previsão</strong> e do <strong>preço médio de venda</strong> (receita).</td></tr>
+    <tr><td><strong>Importar Estoque</strong></td><td>Posição atual de estoque + valor.</td><td>Entra no <strong>plano</strong> (o que já tem não precisa produzir) e dá o <strong>preço/custo</strong> de referência.</td></tr>
+    <tr><td><strong>Importar Carteira / OP</strong></td><td>Ordens e pedidos vindos do ERP.</td><td>É o que já está <strong>comprometido</strong>; alimenta o TOC e o Preactor.</td></tr>
+    <tr><td><strong>Banco de Dados</strong></td><td>Cadastro dos produtos: tempos por processo, modelo de tear (Stoll), família.</td><td>Sem tempo-padrão não há capacidade real — é o <strong>combustível</strong> de todo o resto.</td></tr>
+  </table>
+
+  <h3><span class="phase-dot" style="background:#6366f1;"></span>Fase 2 — Planejar (S&OP)</h3>
+  <table>
+    <tr><th>Operação</th><th>O que faz</th><th>Por que importa</th></tr>
+    <tr><td><strong>Previsão de Demanda</strong></td><td>Projeta a demanda futura por SKU com sazonalidade/tendência + ajuste comercial.</td><td>É o ponto de partida: o que o mercado vai querer.</td></tr>
+    <tr><td><strong>Política de Estoques</strong></td><td>Calcula estoque de segurança e ponto de reposição por classe ABC e nível de serviço.</td><td>Protege contra ruptura sem inchar o capital parado.</td></tr>
+    <tr><td><strong>Plano de Produção</strong></td><td>Define quanto produzir por SKU/mês (demanda + mínimo − estoque − OP aberta).</td><td>Traduz a demanda em <strong>ordem de fábrica</strong>.</td></tr>
+    <tr><td><strong>Reconciliação Financeira</strong></td><td>Converte o plano em receita/margem e compara com a meta.</td><td>Dá a dimensão de <strong>R$</strong> à decisão — o salto para IBP.</td></tr>
+    <tr><td><strong>Consenso (gateway)</strong></td><td>A reunião executiva aprova UM conjunto de números — o <strong>plano-único</strong> do mês.</td><td>Se não aprovado, volta ao ajuste; se aprovado, vira a verdade operacional.</td></tr>
+  </table>
+
+  <h3><span class="phase-dot" style="background:#0ea5e9;"></span>Fase 3 — Restringir & Sequenciar</h3>
+  <table>
+    <tr><th>Operação</th><th>O que faz</th><th>Por que importa</th></tr>
+    <tr><td><strong>TOC — Gargalo</strong></td><td>Identifica o processo restritivo (inclusive por modelo de tear Stoll).</td><td>É o gargalo que dita o ritmo de toda a fábrica.</td></tr>
+    <tr><td><strong>Preactor — Sequenciar</strong></td><td>Aloca cada OP no tear apto (regra ATCS: prazo + valor + setup) e congela as semanas comprometidas.</td><td>Transforma o plano mensal em <strong>sequência executável</strong>.</td></tr>
+    <tr><td><strong>CTP — Promessa</strong></td><td>Calcula a 1ª data de entrega factível de um pedido novo (fila do gargalo).</td><td>Promete prazo <strong>confiável</strong> antes de aceitar — essencial no make-to-order.</td></tr>
+  </table>
+
+  <h3><span class="phase-dot" style="background:#26a69a;"></span>Fase 4 — Executar (chão de fábrica · MES)</h3>
+  <table>
+    <tr><th>Operação</th><th>O que faz</th><th>Por que importa</th></tr>
+    <tr><td><strong>Abrir sessão</strong></td><td>Operador inicia OP + máquina + operador + turno no tablet.</td><td>É a <strong>raiz</strong> do apontamento — tudo pendura nela.</td></tr>
+    <tr><td><strong>Apontar produção</strong></td><td>Registra quantidade boa, refugo e retrabalho (funciona offline).</td><td>É a fonte do <strong>realizado</strong> e do OEE.</td></tr>
+    <tr><td><strong>NC / Parada / Fio</strong></td><td>Não-conformidade (que pode virar RNC), parada com motivo (Andon) e consumo de fio (rastreabilidade).</td><td>Captura qualidade, disponibilidade e origem — a matéria-prima dos indicadores.</td></tr>
+    <tr><td><strong>Fechar sessão</strong></td><td>Encerra e grava a hora de fim.</td><td>Fecha o lead time real e consolida o produzido.</td></tr>
+  </table>
+
+  <h3><span class="phase-dot" style="background:#f59e0b;"></span>Fase 5 — Medir & Aprender</h3>
+  <table>
+    <tr><th>Operação</th><th>O que faz</th><th>Por que importa</th></tr>
+    <tr><td><strong>Realizado</strong></td><td>O que foi produzido volta e aparece no Plano de Produção.</td><td>Fecha o elo planejado × feito.</td></tr>
+    <tr><td><strong>OEE · VSM · CEP · CNQ</strong></td><td>Eficiência do equipamento, fluxo de valor, controle estatístico e custo da não-qualidade.</td><td>Mostram <strong>onde</strong> melhorar — não só que houve um problema.</td></tr>
+    <tr><td><strong>Aderência & Acurácia</strong></td><td>Mede se o plano foi cumprido e se a previsão acertou.</td><td>É o espelho: sem medir isso, o S&OP não aprende.</td></tr>
+  </table>
+</div>
+
+<!-- 4. O LOOP -->
+<div class="page">
+  <div class="section-header"><div class="section-num">4</div><h2>O que faz isso ser um sistema (e não telas soltas)</h2><span class="section-badge">O loop</span></div>
+  <p>O valor não está em nenhuma caixa isolada — está nas <strong>setas</strong>. O plano vira sequência, a sequência vira apontamento, o apontamento vira indicador, e o indicador <strong>corrige o próximo plano</strong>. Cada volta do ciclo deixa o planejamento mais perto da realidade da fábrica.</p>
+  <div class="callout warn">
+    <div class="callout-title">O elo que ainda falta fechar</div>
+    <p>Hoje a <strong>Fase 4 (Executar)</strong> ainda não gera dado — a fábrica não aponta e o tempo-padrão é zero. Por isso OEE, aderência, CTP com data real e o realizado ficam "aguardando". O software das 6 fases está pronto; o <strong>piloto de apontamento</strong> é o gatilho que liga a Fase 4 → 5 e faz o loop girar de verdade.</p>
+  </div>
+  <div class="callout">
+    <div class="callout-title">Como usar este mapa</div>
+    <p>Cada caixa é uma tela real do sistema: Fases 1–3 e 5 no <strong>SIGS</strong> (menu S&OP, TOC, Preactor, Dashboard) e a Fase 4 no <strong>MES Malha Forte</strong> (PWA do operador). Siga as setas para entender por que uma decisão em Vendas chega até o tear — e volta.</p>
+  </div>
+  <div class="foot">Fluxo Macro · Andon (SIGS + MES Malha Forte) · processo de negócio em BPMN simplificado.</div>
+</div>
+
+</body>
+</html>
