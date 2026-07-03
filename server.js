@@ -754,6 +754,52 @@ app.delete('/api/op-datas/:id', auth, adminOnly, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── Planos de Previsão de Demanda (versões de trabalho: params + edições) ─────
+const PREV_503 = 'Tabela previsao_plano não criada. Rode previsao_plano.sql no Supabase.';
+app.get('/api/previsao-planos', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('previsao_plano').select('id,nome,congelado,atualizado_em').order('atualizado_em', { ascending: false });
+    if (error && /schema cache|does not exist|relation/i.test(error.message || '')) return res.status(503).json({ erro: PREV_503 });
+    if (error) return erro500(res, error);
+    res.json(data || []);
+});
+app.get('/api/previsao-planos/:id', auth, async (req, res) => {
+    const { data, error } = await supabase.from('previsao_plano').select('*').eq('id', req.params.id).single();
+    if (error && /schema cache|does not exist|relation/i.test(error.message || '')) return res.status(503).json({ erro: PREV_503 });
+    if (error) return erro500(res, error);
+    res.json(data);
+});
+app.post('/api/previsao-planos', auth, async (req, res) => {
+    const b = req.body || {};
+    if (!b.nome || !String(b.nome).trim()) return res.status(400).json({ erro: 'nome obrigatório' });
+    const row = {
+        nome: String(b.nome).trim().slice(0, 120),
+        params: b.params && typeof b.params === 'object' ? b.params : {},
+        edicoes: b.edicoes && typeof b.edicoes === 'object' ? b.edicoes : {},
+        usuario_id: req.usuario.id,
+        atualizado_em: new Date().toISOString(),
+    };
+    if (b.id) row.id = b.id;
+    // congelado/snapshot: usa o que veio; se não veio num update (ex.: renomear), preserva o existente
+    if (b.congelado !== undefined) {
+        row.congelado = !!b.congelado;
+        row.snapshot  = b.snapshot && typeof b.snapshot === 'object' ? b.snapshot : {};
+    } else if (b.id) {
+        const { data: prev } = await supabase.from('previsao_plano').select('congelado,snapshot').eq('id', b.id).single();
+        if (prev) { row.congelado = prev.congelado; row.snapshot = prev.snapshot; }
+    } else {
+        row.congelado = false; row.snapshot = {};
+    }
+    const { data, error } = await supabase.from('previsao_plano').upsert(row).select().single();
+    if (error && /schema cache|does not exist|relation/i.test(error.message || '')) return res.status(503).json({ erro: PREV_503 });
+    if (error) return erro500(res, error);
+    res.json({ ok: true, plano: data });
+});
+app.delete('/api/previsao-planos/:id', auth, async (req, res) => {
+    const { error } = await supabase.from('previsao_plano').delete().eq('id', req.params.id);
+    if (error) return erro500(res, error);
+    res.json({ ok: true });
+});
+
 // ── APS — MATRIZ DE SETUP/CHANGEOVER ─────────────────────────
 app.get('/api/setup-matrix', auth, async (_req, res) => {
     const { data, error } = await supabase.from('setup_matrix').select('*').order('processo').order('familia_de');
@@ -1212,6 +1258,7 @@ app.get('/api/setup', async (req, res) => {
         { nome: 'soep_acoes',           sql: `CREATE TABLE IF NOT EXISTS soep_acoes (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), descricao TEXT NOT NULL, responsavel TEXT, prazo DATE, status TEXT DEFAULT 'aberta', modulo TEXT, criado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE soep_acoes DISABLE ROW LEVEL SECURITY;` },
         { nome: 'soep_plano',           sql: `CREATE TABLE IF NOT EXISTS soep_plano (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), mes TEXT NOT NULL, codigo TEXT NOT NULL, quantidade INTEGER DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), atualizado_em TIMESTAMPTZ DEFAULT NOW(), UNIQUE(mes,codigo)); ALTER TABLE soep_plano DISABLE ROW LEVEL SECURITY;` },
         { nome: 'estoque_minimo',       sql: `CREATE TABLE IF NOT EXISTS estoque_minimo (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), codigo TEXT NOT NULL UNIQUE, quantidade INTEGER DEFAULT 0, atualizado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE estoque_minimo DISABLE ROW LEVEL SECURITY;` },
+        { nome: 'previsao_plano',       sql: `CREATE TABLE IF NOT EXISTS previsao_plano (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), nome TEXT NOT NULL, params JSONB DEFAULT '{}', edicoes JSONB DEFAULT '{}', congelado BOOLEAN DEFAULT false, snapshot JSONB DEFAULT '{}', usuario_id UUID REFERENCES usuarios(id), criado_em TIMESTAMPTZ DEFAULT NOW(), atualizado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE previsao_plano DISABLE ROW LEVEL SECURITY;` },
         { nome: 'soep_snapshot',        sql: `CREATE TABLE IF NOT EXISTS soep_snapshot (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), mes TEXT NOT NULL, codigo TEXT NOT NULL, qty_prevista INTEGER DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), criado_em TIMESTAMPTZ DEFAULT NOW()); CREATE INDEX IF NOT EXISTS idx_soep_snap_mes ON soep_snapshot(mes,codigo); ALTER TABLE soep_snapshot DISABLE ROW LEVEL SECURITY;` },
         { nome: 'plano_versao',         sql: `CREATE TABLE IF NOT EXISTS plano_versao (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), versao TEXT NOT NULL, label TEXT, mes TEXT NOT NULL, codigo TEXT NOT NULL, quantidade INTEGER DEFAULT 0, usuario_id UUID REFERENCES usuarios(id), criado_em TIMESTAMPTZ DEFAULT NOW()); CREATE INDEX IF NOT EXISTS idx_plano_versao ON plano_versao(versao); ALTER TABLE plano_versao DISABLE ROW LEVEL SECURITY;` },
         { nome: 'capacidade_config',    sql: `CREATE TABLE IF NOT EXISTS capacidade_config (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), processo TEXT NOT NULL UNIQUE, maquinas NUMERIC(8,2) DEFAULT 1, horas_dia NUMERIC(5,2) DEFAULT 8, oee NUMERIC(5,2) DEFAULT 100, atualizado_em TIMESTAMPTZ DEFAULT NOW()); ALTER TABLE capacidade_config DISABLE ROW LEVEL SECURITY;` },

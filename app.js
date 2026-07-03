@@ -5115,11 +5115,150 @@ const previsao = {
     _forecast:  [],
     _nextMonths:[],
     _seasonality:{},
+    _excl: new Set(),      // SKUs excluídos (em memória; parte do plano)
+    _adicionados: [],      // SKUs adicionados à mão [{codigo,descricao,segmento}]
+    _planos: [],           // planos salvos (do banco)
+    _planoAtivo: null,     // id do plano ativo, ou null = Base
+    _dirty: false,         // há edições não salvas?
+    _planosIndisp: false,  // tabela previsao_plano ainda não criada?
+    _congeladoSnap: null,  // foto de qtd por mês_cod quando o plano está congelado
 
-    init() { this._loadOverrides(); },
+    init() { this._draftLoad(); this._carregarPlanos(); },
 
-    _loadOverrides() { try { this._overrides = JSON.parse(localStorage.getItem('soep-prev-ov')||'{}'); } catch { this._overrides = {}; } },
-    _saveOverrides()  { localStorage.setItem('soep-prev-ov', JSON.stringify(this._overrides)); },
+    _loadOverrides() { /* legado — o estado agora vem do rascunho/plano (_draftLoad) */ },
+    _saveOverrides()  { this._marcarDirty(); },
+
+    // Rascunho: sobrevive ao reload sem obrigar a salvar no banco
+    _draftSave() { try { localStorage.setItem('prev-draft', JSON.stringify({ planoAtivo: this._planoAtivo, dirty: this._dirty, overrides: this._overrides, excluidos: [...this._excl], adicionados: this._adicionados })); } catch {} },
+    _draftLoad() {
+        try {
+            const raw = localStorage.getItem('prev-draft');
+            if (raw) { const d = JSON.parse(raw); this._overrides = d.overrides || {}; this._excl = new Set((d.excluidos || []).map(String)); this._adicionados = d.adicionados || []; this._planoAtivo = d.planoAtivo || null; this._dirty = !!d.dirty; return; }
+            // migração do formato antigo (localStorage solto)
+            this._overrides = JSON.parse(localStorage.getItem('soep-prev-ov') || '{}');
+            this._excl = new Set(JSON.parse(localStorage.getItem('prev-excluidos') || '[]').map(String));
+            this._adicionados = []; this._planoAtivo = null;
+            this._dirty = Object.keys(this._overrides).length > 0 || this._excl.size > 0;
+        } catch { this._overrides = {}; this._excl = new Set(); this._adicionados = []; }
+    },
+
+    // ── Parâmetros e edições do plano ──
+    _getParams() { return { historico: document.getElementById('prev-base-meses')?.value, horizonte: document.getElementById('prev-horizonte')?.value, metodo: document.getElementById('prev-metodo')?.value, agrupamento: document.getElementById('prev-grupo')?.value, segmento: document.getElementById('prev-seg-sel')?.value || '', usarClientes: !!document.getElementById('prev-usar-cliente')?.checked }; },
+    _setParams(p) { p = p || {}; const set = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; }; set('prev-base-meses', p.historico); set('prev-horizonte', p.horizonte); set('prev-metodo', p.metodo); set('prev-grupo', p.agrupamento); const uc = document.getElementById('prev-usar-cliente'); if (uc) uc.checked = !!p.usarClientes; this._segPend = p.segmento || ''; },
+    _getEdicoes() { return { overrides: this._overrides, excluidos: [...this._excl], adicionados: this._adicionados }; },
+    _setEdicoes(e) { e = e || {}; this._overrides = e.overrides || {}; this._excl = new Set((e.excluidos || []).map(String)); this._adicionados = e.adicionados || []; },
+    _marcarDirty() { this._dirty = true; this._draftSave(); this._renderBarraPlanos(); },
+
+    // ── CRUD de planos ──
+    async _carregarPlanos() {
+        const r = await api.get('/api/previsao-planos').catch(() => null);
+        this._planosIndisp = !Array.isArray(r);
+        this._planos = Array.isArray(r) ? r : [];
+        this._renderBarraPlanos();
+    },
+    _renderBarraPlanos() {
+        const bar = document.getElementById('prev-plano-bar'); if (!bar) return;
+        if (this._planosIndisp) { bar.innerHTML = `<span style="font-size:.78rem;color:#ffca28;">⚠ Planos de previsão: rode <code>previsao_plano.sql</code> no Supabase (ou /setup) para ativar. As edições continuam salvas neste navegador até lá.</span>`; return; }
+        const opts = `<option value="">Base (importação)</option>` + this._planos.map(p => `<option value="${escHTML(p.id)}"${p.id === this._planoAtivo ? ' selected' : ''}>${escHTML(p.nome)}${p.congelado ? ' 🔒' : ''}</option>`).join('');
+        const b = (txt, fn, cor) => `<button onclick="previsao.${fn}" style="padding:6px 12px;border-radius:6px;border:1px solid var(--border-color);background:transparent;color:${cor || 'var(--indigo-primary)'};font-size:.75rem;font-weight:600;cursor:pointer;">${txt}</button>`;
+        const atual = this._planos.find(p => p.id === this._planoAtivo);
+        bar.innerHTML = `<span style="font-size:.72rem;color:var(--text-dim);font-weight:600;letter-spacing:.05em;">PLANO:</span>
+            <select onchange="previsao._selecionarPlano(this.value)" style="padding:6px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;min-width:210px;">${opts}</select>
+            ${this._dirty ? `<span style="font-size:.72rem;color:#ffca28;font-weight:600;">● não salvo</span>` : (this._planoAtivo ? `<span style="font-size:.72rem;color:#26a69a;">✓ salvo</span>` : `<span style="font-size:.72rem;color:var(--text-dim);">base crua</span>`)}
+            <span style="margin-left:auto;display:inline-flex;gap:6px;flex-wrap:wrap;">
+                ${b('➕ SKU', '_adicionarSku()', '#26a69a')}
+                ${b('+ Novo', '_novoPlano()')}
+                ${b('💾 Salvar', '_salvarPlano()')}
+                ${this._planoAtivo ? b('✎ Renomear', '_renomearPlano()') : ''}
+                ${this._planoAtivo ? b(atual && atual.congelado ? '🔓 Descongelar' : '🔒 Congelar', '_congelarPlano()', '#0ea5e9') : ''}
+                ${this._planoAtivo ? b('🗑 Excluir plano', '_excluirPlano()', '#f06292') : ''}
+            </span>`;
+    },
+    async _selecionarPlano(id) {
+        if (!id) { this._planoAtivo = null; this._congeladoSnap = null; this._setEdicoes({}); this._dirty = false; this._draftSave(); this.calcular(); this._renderBarraPlanos(); return; }
+        const p = await api.get('/api/previsao-planos/' + id).catch(() => null);
+        if (!p || !p.id) { mostrarToast('Não consegui carregar o plano.', 'erro'); this._renderBarraPlanos(); return; }
+        this._planoAtivo = p.id;
+        this._setParams(p.params);
+        this._setEdicoes(p.edicoes);
+        this._congeladoSnap = (p.congelado && p.snapshot && Object.keys(p.snapshot).length) ? p.snapshot : null;
+        this._dirty = false; this._draftSave();
+        this.calcular();
+        const seg = document.getElementById('prev-seg-sel'); if (seg && this._segPend != null) { seg.value = this._segPend; this.render(); }
+        this._renderBarraPlanos();
+        mostrarToast(`Plano "${p.nome}" carregado.`, 'ok');
+    },
+    async _salvarPlano() {
+        if (this._planosIndisp) { mostrarToast('Rode previsao_plano.sql no Supabase primeiro.', 'erro'); return; }
+        let id = this._planoAtivo, nome = this._planos.find(x => x.id === id)?.nome;
+        if (!id) { nome = (prompt('Nome do plano:') || '').trim(); if (!nome) return; }
+        const body = { nome, params: this._getParams(), edicoes: this._getEdicoes() };
+        if (id) body.id = id;
+        const congAtual = this._planos.find(x => x.id === id);
+        if (congAtual) { body.congelado = congAtual.congelado; if (congAtual.congelado && this._congeladoSnap) body.snapshot = this._congeladoSnap; }
+        const r = await api.post('/api/previsao-planos', body).catch(() => null);
+        if (!r?.ok) { mostrarToast('Erro ao salvar o plano.', 'erro'); return; }
+        this._planoAtivo = r.plano.id; this._dirty = false; this._draftSave();
+        await this._carregarPlanos();
+        mostrarToast(`Plano "${r.plano.nome}" salvo.`, 'ok');
+    },
+    _novoPlano() {
+        const nome = (prompt('Nome do novo plano (parte do estado atual):') || '').trim(); if (!nome) return;
+        this._planoAtivo = null;   // força criar novo no salvar
+        this._salvarPlanoComNome(nome);
+    },
+    async _salvarPlanoComNome(nome) {
+        const r = await api.post('/api/previsao-planos', { nome, params: this._getParams(), edicoes: this._getEdicoes() }).catch(() => null);
+        if (!r?.ok) { mostrarToast('Erro ao criar o plano.', 'erro'); return; }
+        this._planoAtivo = r.plano.id; this._dirty = false; this._draftSave();
+        await this._carregarPlanos();
+        mostrarToast(`Plano "${nome}" criado.`, 'ok');
+    },
+    async _renomearPlano() {
+        if (!this._planoAtivo) return;
+        const atual = this._planos.find(x => x.id === this._planoAtivo);
+        const nome = (prompt('Novo nome:', atual?.nome || '') || '').trim(); if (!nome) return;
+        const r = await api.post('/api/previsao-planos', { id: this._planoAtivo, nome, params: this._getParams(), edicoes: this._getEdicoes() }).catch(() => null);
+        if (!r?.ok) { mostrarToast('Erro ao renomear.', 'erro'); return; }
+        await this._carregarPlanos();
+    },
+    async _excluirPlano() {
+        if (!this._planoAtivo) return;
+        const atual = this._planos.find(x => x.id === this._planoAtivo);
+        if (!confirm(`Excluir o plano "${atual?.nome || ''}"? (a base e os outros planos não são afetados)`)) return;
+        await api.delete('/api/previsao-planos/' + this._planoAtivo).catch(() => null);
+        this._planoAtivo = null; this._congeladoSnap = null; this._setEdicoes({}); this._dirty = false; this._draftSave();
+        await this._carregarPlanos();
+        this.calcular();
+        mostrarToast('Plano excluído.', 'ok');
+    },
+    async _congelarPlano() {
+        if (!this._planoAtivo) { mostrarToast('Salve o plano antes de congelar.', 'aviso'); return; }
+        const atual = this._planos.find(x => x.id === this._planoAtivo);
+        const congelar = !(atual && atual.congelado);
+        const snapshot = congelar ? this._snapshotAtual() : {};
+        const r = await api.post('/api/previsao-planos', { id: this._planoAtivo, nome: atual?.nome, params: this._getParams(), edicoes: this._getEdicoes(), congelado: congelar, snapshot }).catch(() => null);
+        if (!r?.ok) { mostrarToast('Erro ao congelar.', 'erro'); return; }
+        this._congeladoSnap = congelar ? snapshot : null;
+        await this._carregarPlanos();
+        this.calcular();
+        mostrarToast(congelar ? 'Plano CONGELADO — números fixos como foto do mês.' : 'Plano descongelado (voltou a vivo).', 'ok');
+    },
+    _snapshotAtual() { const s = {}; (this._forecast || []).forEach(f => { s[`${f.mes}_${String(f.codigo).toUpperCase()}`] = f.qty; }); return s; },
+    _adicionarSku() {
+        if (!vendas.rawData.length) { alert('Importe dados de Vendas primeiro.'); return; }
+        const codigo = (prompt('Código do SKU a adicionar à previsão:') || '').trim(); if (!codigo) return;
+        const cu = codigo.toUpperCase();
+        if (this._forecast.some(f => String(f.codigo).toUpperCase() === cu && !this._excl.has(cu))) { mostrarToast('Esse SKU já está na previsão.', 'aviso'); return; }
+        const v = vendas.rawData.find(r => String(r.codigo || '').trim().toUpperCase() === cu);
+        const descricao = (prompt('Descrição:', v ? String(v.descricao || '').trim() : '') || '').trim();
+        const segmento  = (prompt('Segmento:', v ? String(v.segmento || '').trim() : '') || '').trim();
+        this._excl.delete(cu);   // caso estivesse excluído, reativa
+        if (!this._adicionados.some(a => String(a.codigo).toUpperCase() === cu)) this._adicionados.push({ codigo: cu, descricao, segmento });
+        this._marcarDirty();
+        this.calcular();
+        mostrarToast(`SKU ${cu} adicionado — ajuste as quantidades por mês na tabela.`, 'ok');
+    },
 
     _getNextMonths(n) {
         const now = new Date();
@@ -5278,6 +5417,22 @@ const previsao = {
         });
 
         this._forecast = forecast;
+        // SKUs adicionados à mão (parte do plano): entram na tabela mesmo sem histórico de vendas
+        (this._adicionados || []).forEach(a => {
+            const cod = String(a.codigo || '').trim().toUpperCase(); if (!cod) return;
+            nextMonths.forEach(({ mes, abbr, label }) => {
+                if (this._forecast.some(f => String(f.codigo).toUpperCase() === cod && f.mes === mes)) return; // já veio das vendas
+                const chave = `${mes}_${cod}`;
+                const qty   = this._overrides[chave] !== undefined ? this._overrides[chave] : 0;
+                this._forecast.push({ mes, abbr, label, chave, codigo: cod,
+                    descricao: String(a.descricao || '').trim() || cod, segmento: String(a.segmento || '').trim(),
+                    modelo: '', baseMedia: 0, rawQty: 0, qty, trend: 0, trendSeta: '→',
+                    isOverride: this._overrides[chave] !== undefined,
+                    ciLow: qty, ciHigh: qty, r2: null, metodo, _manual: true });
+            });
+        });
+        // Plano congelado: fixa os números na foto salva (mesmo recomputando a base)
+        if (this._congeladoSnap) this._forecast.forEach(f => { const k = `${f.mes}_${String(f.codigo).toUpperCase()}`; if (this._congeladoSnap[k] != null) { f.qty = this._congeladoSnap[k]; f.isOverride = true; } });
         this._renderSazonalidade(sIdx, nextMonths);
         this._populaSegFiltro();
         this.render();
@@ -5312,15 +5467,16 @@ const previsao = {
     },
 
     // Exclusão de SKU da previsão (persistente) — o operador tira da lista quem não quer planejar
-    _excluidosSet() { try { return new Set(JSON.parse(localStorage.getItem('prev-excluidos') || '[]').map(String)); } catch { return new Set(); } },
+    _excluidosSet() { return this._excl; },
     _excluirSku(cod) {
-        const s = this._excluidosSet(); s.add(String(cod));
-        localStorage.setItem('prev-excluidos', JSON.stringify([...s]));
+        this._excl.add(String(cod));
+        this._marcarDirty();
         mostrarToast(`${cod} excluído da previsão. Clique "restaurar" para desfazer.`, 'aviso');
         this.render();
     },
     _restaurarExcluidos() {
-        localStorage.removeItem('prev-excluidos');
+        this._excl = new Set();
+        this._marcarDirty();
         mostrarToast('SKUs excluídos restaurados.', 'ok');
         this.render();
     },
@@ -5334,8 +5490,8 @@ const previsao = {
     _excluirSelecionados() {
         const cods = [...document.querySelectorAll('.prev-sel:checked')].map(c => c.dataset.cod).filter(Boolean);
         if (!cods.length) return;
-        const s = this._excluidosSet(); cods.forEach(c => s.add(String(c)));
-        localStorage.setItem('prev-excluidos', JSON.stringify([...s]));
+        cods.forEach(c => this._excl.add(String(c)));
+        this._marcarDirty();
         mostrarToast(`${cods.length} SKU(s) excluído(s) da previsão. Clique "restaurar" para desfazer.`, 'aviso');
         this.render();
     },
