@@ -5495,12 +5495,12 @@ const previsao = {
     },
 
     getTotalMes(mes, segmento) {
-        return this._forecast.filter(r => r.mes===mes && (!segmento || r.segmento===segmento)).reduce((s,r)=>s+r.qty,0);
+        return this._forecast.filter(r => r.mes===mes && !this._excl.has(String(r.codigo)) && (!segmento || r.segmento===segmento)).reduce((s,r)=>s+r.qty,0);
     },
 
     getDemandaMapa(mes) {
         const mapa = {};
-        this._forecast.filter(r => r.mes===mes).forEach(r => { mapa[r.codigo]=(mapa[r.codigo]||0)+r.qty; });
+        this._forecast.filter(r => r.mes===mes && !this._excl.has(String(r.codigo))).forEach(r => { mapa[r.codigo]=(mapa[r.codigo]||0)+r.qty; });
         return mapa;
     },
 
@@ -6343,6 +6343,7 @@ const soepDash = {
         if (!previsao._forecast.length) { mostrarToast('Calcule a Previsão primeiro.','erro'); return; }
         const porMes = {};
         previsao._forecast.forEach(r => {
+            if (previsao._excluidosSet().has(String(r.codigo))) return;   // respeita exclusões do plano
             if (!porMes[r.mes]) porMes[r.mes] = [];
             porMes[r.mes].push({ codigo: r.codigo, qty: r.qty });
         });
@@ -6620,6 +6621,7 @@ const soepDash = {
             // Demanda prevista por segmento×mês
             const demSeg = {};
             previsao._forecast.forEach(r => {
+                if (previsao._excluidosSet().has(String(r.codigo))) return;   // respeita exclusões do plano
                 const seg = r.segmento || codSegMap[String(r.cod||'').toUpperCase()];
                 if (!seg) return;
                 if (!demSeg[seg]) demSeg[seg] = {};
@@ -6709,7 +6711,7 @@ const soepDash = {
             const bg = i%2?'var(--bg-input)':'transparent';
             const cells = months.map(m=>{
                 const prev = previsao.getTotalMes(m.mes, seg);
-                const codsSeg = new Set(previsao._forecast.filter(r=>r.segmento===seg).map(r=>r.codigo));
+                const codsSeg = new Set(previsao._forecast.filter(r=>r.segmento===seg && !previsao._excluidosSet().has(String(r.codigo))).map(r=>r.codigo));
                 const plan = Object.entries(planoProducao._plano)
                     .filter(([k])=>k.startsWith(m.mes+'_') && codsSeg.has(k.split('_').slice(1).join('_')))
                     .reduce((s,[,v])=>s+(v||0),0);
@@ -6794,7 +6796,7 @@ const soepDash = {
 
         const linhas = meses.map(m => {
             let receita = 0, volume = 0, custoReal = 0, recComCusto = 0;
-            previsao._forecast.filter(f => f.mes === m.mes).forEach(f => {
+            previsao._forecast.filter(f => f.mes === m.mes && !previsao._excluidosSet().has(String(f.codigo))).forEach(f => {
                 const cod = String(f.codigo).toUpperCase();
                 const q = planoProducao._plano[`${m.mes}_${cod}`] ?? f.qty ?? 0;
                 if (!q) return;
@@ -6913,7 +6915,7 @@ const soepDash = {
 
         // base (do plano/previsão)
         let receita = 0, volume = 0, custoReal = 0, recComCusto = 0;
-        meses.forEach(m => previsao._forecast.filter(f => f.mes === m.mes).forEach(f => {
+        meses.forEach(m => previsao._forecast.filter(f => f.mes === m.mes && !previsao._excluidosSet().has(String(f.codigo))).forEach(f => {
             const cod = String(f.codigo).toUpperCase();
             const q = planoProducao._plano[`${m.mes}_${cod}`] ?? f.qty ?? 0;
             if (!q) return;
@@ -7062,7 +7064,7 @@ const soepDash = {
 
         const passos = [
             { id: 'dados', nome: '1 · Coleta de dados', desc: 'Vendas, Estoque e OPs importados e atualizados.', auto: dados, dica: dados ? 'Dados presentes' : 'Faltam Vendas/Estoque/OP', view: 'vendas' },
-            { id: 'demanda', nome: '2 · Revisão de Demanda', desc: 'Previsão estatística + consenso comercial (unidades e R$). Documente as premissas dos overrides.', auto: demanda, dica: demanda ? `${previsao._forecast.filter(f => f.mes === c.mes).length} SKUs previstos p/ ${c.label}` : 'Rode a Previsão', view: 'previsao' },
+            { id: 'demanda', nome: '2 · Revisão de Demanda', desc: 'Previsão estatística + consenso comercial (unidades e R$). Documente as premissas dos overrides.', auto: demanda, dica: demanda ? `${previsao._forecast.filter(f => f.mes === c.mes && !previsao._excluidosSet().has(String(f.codigo))).length} SKUs previstos p/ ${c.label}` : 'Rode a Previsão', view: 'previsao' },
             { id: 'capacidade', nome: '3 · Revisão de Capacidade (Supply)', desc: 'A demanda-consenso cabe na fábrica? Onde não couber, quantifique o gap e as contramedidas.', auto: capViavel, dica: capOk ? (capViavel ? 'Plano viável na capacidade nominal' : `Gargalo estoura: ${gargalo ? gargalo.nome + ' ' + Math.round((gargalo.util || 0) * 100) + '%' : ''}`) : 'Rode o TOC (Gargalo)', view: 'toc' },
             { id: 'financeiro', nome: '4 · Reconciliação Financeira', desc: 'Plano em R$ (receita/margem) × meta/orçamento. Só o que exige autoridade sobe para a reunião.', auto: meta > 0, dica: meta > 0 ? 'Meta definida — veja o gap na aba Financeiro' : 'Defina a meta na aba Financeiro (R$)', tab: 'financeiro' },
             { id: 'consenso', nome: '5 · Reunião Executiva / Consenso', desc: 'Aprova UM conjunto de números — o plano-único do mês — e registra as decisões (dono/prazo).', auto: !!st.aprovado, dica: st.aprovado ? `Aprovado em ${new Date(st.aprovadoEm).toLocaleDateString('pt-BR')}` : 'Pendente de aprovação', consenso: true },
