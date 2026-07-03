@@ -1306,6 +1306,7 @@ function navigateTo(viewName) {
             if (saved.leadTime != null) { const e = document.getElementById('pol-lead');  if (e) e.value = saved.leadTime; }
             if (saved.zBase   != null) { const e = document.getElementById('pol-nivel'); if (e) e.value = saved.zBase; }
             if (saved.nMeses  != null) { const e = document.getElementById('pol-hist');  if (e) e.value = saved.nMeses; }
+            if (saved.usarPrev != null) { const e = document.getElementById('pol-usar-prev'); if (e) e.checked = !!saved.usarPrev; }
         } catch {}
     } else if (viewName === 'plano-prod') {
         document.querySelector('[data-view="plano-prod"]')?.classList.add('sub-active');
@@ -6019,10 +6020,36 @@ const politicaEstoque = {
         const zBase    = parseFloat(document.getElementById('pol-nivel')?.value) || 1.28;
         const nMeses   = parseInt(document.getElementById('pol-hist')?.value) || 12;
         const useAbc   = document.getElementById('pol-abc-auto')?.checked;
-        localStorage.setItem('pol-params', JSON.stringify({ leadTime, zBase, nMeses }));
+        const usarPrev = document.getElementById('pol-usar-prev')?.checked;
+        localStorage.setItem('pol-params', JSON.stringify({ leadTime, zBase, nMeses, usarPrev }));
 
         const months = vendas.monthCols.slice(-nMeses);
         if (!months.length) { mostrarToast('Sem dados de vendas para calcular.', 'erro'); return; }
+
+        // Demanda prevista (opcional): média mensal do plano ativo da Previsão, no lugar do histórico.
+        // O desvio-padrão continua vindo do histórico (mais estável). SKU sem previsão cai no histórico.
+        let demPrevMap = null, prevInfo = '';
+        if (usarPrev) {
+            if (!previsao._forecast.length) previsao.calcular();  // garante o forecast do plano/Base carregado
+            const excl = previsao._excl || new Set();
+            const perMes = {};                                     // cod -> { mes: soma }  (soma linhas do mesmo cod no mês)
+            previsao._forecast.forEach(f => {
+                const cod = String(f.codigo || '').trim().toUpperCase();
+                if (!cod || excl.has(cod)) return;
+                (perMes[cod] || (perMes[cod] = {}));
+                perMes[cod][f.mes] = (perMes[cod][f.mes] || 0) + (Number(f.qty) || 0);
+            });
+            demPrevMap = {};
+            Object.entries(perMes).forEach(([cod, mm]) => {        // média dos totais mensais no horizonte
+                const vals = Object.values(mm);
+                demPrevMap[cod] = vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0;
+            });
+            const pAtivo = previsao._planos.find(p => p.id === previsao._planoAtivo);
+            prevInfo = previsao._forecast.length
+                ? `▸ demanda da Previsão: ${pAtivo ? '“' + pAtivo.nome + '”' + (pAtivo.congelado ? ' 🔒' : '') : 'Base (importação)'} · ${Object.keys(demPrevMap).length} SKUs`
+                : '⚠ Previsão vazia — calcule na tela de Previsão; usando histórico';
+        }
+        const infoEl = document.getElementById('pol-prev-info'); if (infoEl) infoEl.textContent = prevInfo;
 
         // Preço unitário por SKU a partir do estoque (valor total / quantidade)
         const precoMap = {};
@@ -6076,11 +6103,14 @@ const politicaEstoque = {
             const n      = qtds.length;
             const ativos = qtds.filter(v => v > 0).length;
             if (!ativos) return null;
-            const demMedia = qtds.reduce((s, v) => s + v, 0) / n;
+            const demHist  = qtds.reduce((s, v) => s + v, 0) / n;
+            // Demanda média: prevista (plano ativo) se marcado e houver previsão p/ o SKU, senão histórica
+            const demMedia = (demPrevMap && demPrevMap[cod] != null) ? demPrevMap[cod] : demHist;
             if (demMedia < 1) return null;
+            // Desvio SEMPRE do histórico (variabilidade real de venda) — base honesta p/ o estoque de segurança
             const desvPad = n > 1
-                ? Math.sqrt(qtds.reduce((s, v) => s + (v - demMedia) ** 2, 0) / (n - 1))
-                : demMedia * 0.3;
+                ? Math.sqrt(qtds.reduce((s, v) => s + (v - demHist) ** 2, 0) / (n - 1))
+                : demHist * 0.3;
 
             const abcClass     = abcMap[cod] || null;
             const z            = useAbc && abcClass ? zByClass[abcClass] : zBase;
@@ -6107,11 +6137,12 @@ const politicaEstoque = {
                      valorUn, revenueRisco, capitalExcesso };
         }).filter(Boolean);
 
+        this._demFonte = (usarPrev && demPrevMap) ? 'previsao' : 'historico';
         const ORDER = { RUPTURA: 0, RISCO: 1, EXCESSO: 2, OK: 3 };
         this._rows.sort((a, b) => (ORDER[a.status] - ORDER[b.status]) || (b.qtyProduzir - a.qtyProduzir));
         this._renderKPIs();
         this._renderTabela();
-        mostrarToast(`✓ ${this._rows.length} SKUs analisados`);
+        mostrarToast(`✓ ${this._rows.length} SKUs analisados${(usarPrev && demPrevMap) ? ' · demanda da Previsão' : ''}`);
     },
 
     _renderKPIs() {
@@ -6174,7 +6205,7 @@ const politicaEstoque = {
                 ${temAbc ? `<th style="padding:8px 8px;text-align:center;" title="Classificação ABC por volume de vendas">ABC</th>` : ''}
                 <th style="padding:8px 12px;text-align:left;">CÓDIGO</th>
                 <th style="padding:8px 12px;text-align:left;">DESCRIÇÃO</th>
-                <th style="padding:8px 10px;text-align:right;" title="Média mensal de vendas">DEM MÉDIA</th>
+                <th style="padding:8px 10px;text-align:right;" title="${this._demFonte === 'previsao' ? 'Média mensal PREVISTA (plano ativo)' : 'Média mensal de vendas (histórico)'}">DEM MÉDIA${this._demFonte === 'previsao' ? ' <span style="color:var(--indigo-primary);" title="fonte: Previsão">◆</span>' : ''}</th>
                 <th style="padding:8px 10px;text-align:right;" title="Desvio padrão mensal">σ</th>
                 <th style="padding:8px 10px;text-align:right;">EST ATUAL</th>
                 <th style="padding:8px 10px;text-align:right;" title="Cobertura atual em meses">COB ATUAL</th>

@@ -2276,6 +2276,13 @@
                 Classificação ABC automática — A recebe nível 90% (z=1.65), B=80% (z=1.28), C=70% (z=1.04) — ignora o nível global acima
             </label>
         </div>
+        <div style="margin-top:8px;">
+            <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:.8rem;color:var(--text-dim);">
+                <input type="checkbox" id="pol-usar-prev" style="accent-color:var(--indigo-primary);width:15px;height:15px;">
+                Usar demanda da <b style="color:var(--text-primary);font-weight:600;">Previsão</b> (plano ativo) — média mensal prevista no lugar do histórico; o desvio (segurança) continua do histórico
+            </label>
+            <span id="pol-prev-info" style="font-size:.74rem;color:var(--indigo-primary);margin-left:8px;"></span>
+        </div>
     </div>
     <div id="pol-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:20px;"></div>
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;flex-wrap:wrap;">
