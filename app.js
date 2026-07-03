@@ -4740,44 +4740,33 @@ const toc = {
         return [...new Set(String(raw).split(/[,;/|]+/).map(t => this._normModelo(t)).filter(Boolean))];
     },
 
-    async _renderStoll(demanda, bancoMap, dias, cap) {
-        const card = document.getElementById('toc-stoll-card');
-        const barras = document.getElementById('toc-stoll-barras');
-        if (!card || !barras) return;
-
+    // Cálculo puro da tecelagem por modelo Stoll (reusado pelo TOC e pelo Plano de Produção).
+    // Capacidade por modelo = teares cadastrados × h/dia × OEE; carga = tempo × qty do 1º modelo apto (coluna Stoll).
+    async calcularStoll(demanda, bancoMap, dias, cap) {
         const maquinas = await this._loadMaquinasTecelagem();
-        if (!maquinas.length) { card.style.display = 'none'; return; }
-
+        if (!maquinas.length) return [];
         const tecProc  = this._PROCS.find(p => p.id === 'tecelagem');
         const horasDia = (cap?.tecelagem?.horasDia) || 8;
-
-        // Capacidade por modelo: soma máquina a máquina com OEE individual
         const capModelo = {}; // modelo → { mins, n }
         maquinas.forEach(m => {
-            const modelo = this._normModelo(m.modelo) || '(sem modelo)';   // normaliza p/ casar com a coluna Stoll e o Preactor
-            const oeeN = m.oee == null ? 100 : Number(m.oee);
-            const oee = Math.min(oeeN, 100) / 100;
+            const modelo = this._normModelo(m.modelo) || '(sem modelo)';
+            const oee = Math.min(m.oee == null ? 100 : Number(m.oee), 100) / 100;
             if (!capModelo[modelo]) capModelo[modelo] = { mins: 0, n: 0 };
             capModelo[modelo].mins += horasDia * 60 * dias * oee;
             capModelo[modelo].n++;
         });
-
-        // Demanda por modelo (modelo apto do código, coluna Stoll do banco)
         const cargaModelo = {}; // modelo → { mins, skus }
-        let semTempoOuBanco = 0;
         Object.entries(demanda).forEach(([cod, qty]) => {
-            const dados = bancoMap[cod];
-            if (!dados) { semTempoOuBanco++; return; }
+            const dados = bancoMap[String(cod).toUpperCase()];
+            if (!dados) return;
             const tempoUn = this._getTempoMinutos(dados, tecProc.cols);
             if (!tempoUn) return; // código sem tecelagem
-            // Visão agregada do TOC: atribui ao 1º modelo apto (normalizado); o mix fino por modelo é o Preactor
             const modelo = this._getModelosStoll(dados)[0] || '(sem modelo)';
             if (!cargaModelo[modelo]) cargaModelo[modelo] = { mins: 0, skus: 0 };
             cargaModelo[modelo].mins += tempoUn * qty;
             cargaModelo[modelo].skus++;
         });
-
-        const modelos = [...new Set([...Object.keys(capModelo), ...Object.keys(cargaModelo)])]
+        return [...new Set([...Object.keys(capModelo), ...Object.keys(cargaModelo)])]
             .map(modelo => {
                 const c = capModelo[modelo] || { mins: 0, n: 0 };
                 const d = cargaModelo[modelo] || { mins: 0, skus: 0 };
@@ -4786,8 +4775,16 @@ const toc = {
             })
             .filter(m => m.cargaMin > 0 || m.n > 0)
             .sort((a, b) => (b.util === Infinity ? 1e9 : b.util) - (a.util === Infinity ? 1e9 : a.util));
+    },
 
+    async _renderStoll(demanda, bancoMap, dias, cap) {
+        const card = document.getElementById('toc-stoll-card');
+        const barras = document.getElementById('toc-stoll-barras');
+        if (!card || !barras) return;
+        const maquinas = await this._loadMaquinasTecelagem();
+        const modelos  = await this.calcularStoll(demanda, bancoMap, dias, cap);
         if (!modelos.length) { card.style.display = 'none'; return; }
+        const horasDia = (cap?.tecelagem?.horasDia) || 8;
         card.style.display = '';
         document.getElementById('toc-stoll-sub').textContent =
             `${maquinas.length} máquinas cadastradas · ${horasDia}h/dia × ${dias} dias`;
@@ -6074,13 +6071,39 @@ const planoProducao = {
         barras.innerHTML = res.map(p=>{
             if (!p.cargaMin) return `<div style="display:flex;align-items:center;gap:12px;padding:5px 0;"><div style="width:150px;font-size:.78rem;color:var(--text-dim);">${p.nome}</div><div style="flex:1;height:7px;background:var(--bg-input);border-radius:4px;"></div><div style="width:60px;text-align:right;font-size:.73rem;color:var(--text-dim);">sem dados</div></div>`;
             const pct=Math.min((p.util||0)*100,300), cor=p.util>=1?'#f06292':p.util>=.8?'#ffca28':'#26a69a';
-            return `<div style="display:flex;align-items:center;gap:12px;padding:5px 0;">
+            const bar = `<div style="display:flex;align-items:center;gap:12px;padding:5px 0;">
                 <div style="width:150px;font-size:.78rem;font-weight:600;">${p.nome}</div>
                 <div style="flex:1;height:7px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="width:${Math.min(pct/1.5,100)}%;height:100%;background:${cor};border-radius:4px;"></div></div>
                 <div style="width:60px;text-align:right;font-size:.78rem;font-weight:700;color:${cor};">${pct.toFixed(0)}%</div>
             </div>`;
+            // âncora para a quebra por tear Stoll (530/330/303) logo abaixo da Tecelagem
+            return bar + (p.id==='tecelagem' ? `<div id="plano-cap-stoll" style="margin:0 0 6px 18px;"></div>` : '');
         }).join('');
         wrap.style.display='';
+
+        // Detalha a Tecelagem por modelo de tear Stoll (usa o cadastro de teares — mesma lógica do TOC)
+        const tec = res.find(p=>p.id==='tecelagem' && p.cargaMin);
+        if (tec) {
+            const cap = toc._getCap();
+            const dias = parseFloat(document.getElementById('toc-dias')?.value) || 22;
+            const bancoMap = {};
+            banco.rawData.forEach(r => { const cod = String(r.dados?.['Código'] ?? '').trim().toUpperCase(); if (cod) bancoMap[cod] = r.dados; });
+            toc.calcularStoll(demMapa, bancoMap, dias, cap).then(mods => {
+                const el = document.getElementById('plano-cap-stoll'); if (!el) return;
+                if (!mods.length) { el.innerHTML=''; return; }
+                el.innerHTML = `<div style="font-size:.63rem;color:var(--text-dim);letter-spacing:.05em;margin:1px 0 3px;">↳ TECELAGEM POR TEAR STOLL</div>` + mods.map(m=>{
+                    const inf = m.util===Infinity;
+                    const pct = inf ? 100 : Math.min((m.util||0)*100,300);
+                    const cor = (inf||m.util>=1)?'#f06292':m.util>=.8?'#ffca28':'#26a69a';
+                    const dir = inf ? `⚠ ${(m.cargaMin/60).toFixed(0)}h sem tear` : `${pct.toFixed(0)}%`;
+                    return `<div style="display:flex;align-items:center;gap:12px;padding:3px 0;">
+                        <div style="width:150px;font-size:.72rem;color:var(--text-primary);">Stoll ${escHTML(m.modelo)}<span style="font-size:.62rem;color:var(--text-dim);"> · ${m.n} máq</span></div>
+                        <div style="flex:1;height:6px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="width:${Math.min(pct/1.5,100)}%;height:100%;background:${cor};border-radius:4px;"></div></div>
+                        <div style="width:60px;text-align:right;font-size:.72rem;font-weight:700;color:${cor};">${dir}</div>
+                    </div>`;
+                }).join('');
+            }).catch(()=>{});
+        }
     },
 };
 
