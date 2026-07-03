@@ -5221,6 +5221,14 @@ const previsao = {
         if (wrap) wrap.style.display = on ? '' : 'none';
         if (on) this._renderBadge('pol-plano-badge', 'politica');
     },
+    // Ao salvar um plano, já deixa a Política usando esse plano (liga "Usar demanda da Previsão" + persiste)
+    _ativarNaPolitica() {
+        const cb = document.getElementById('pol-usar-prev');
+        if (cb) cb.checked = true;
+        try { const p = JSON.parse(localStorage.getItem('pol-params') || '{}'); p.usarPrev = true; localStorage.setItem('pol-params', JSON.stringify(p)); } catch {}
+        this._togglePolBadge();
+        this._refreshDownstream();   // se a Política já estiver aberta/calculada, recalcula com este plano
+    },
     async _selecionarPlano(id) {
         if (!id) { this._planoAtivo = null; this._congeladoSnap = null; this._setEdicoes({}); this._dirty = false; this._draftSave(); this.calcular(); this._renderBarraPlanos(); return; }
         const p = await api.get('/api/previsao-planos/' + id).catch(() => null);
@@ -5250,7 +5258,8 @@ const previsao = {
         if (!r?.ok) { mostrarToast('Erro ao salvar o plano.', 'erro'); return; }
         this._planoAtivo = r.plano.id; this._dirty = false; this._draftSave();
         await this._carregarPlanos();
-        mostrarToast(`Plano "${r.plano.nome}" salvo.`, 'ok');
+        this._ativarNaPolitica();
+        mostrarToast(`Plano "${r.plano.nome}" salvo · ativo na Política.`, 'ok');
     },
     _novoPlano() {
         const nome = (prompt('Nome do novo plano (parte do estado atual):') || '').trim(); if (!nome) return;
@@ -5262,7 +5271,8 @@ const previsao = {
         if (!r?.ok) { mostrarToast('Erro ao criar o plano.', 'erro'); return; }
         this._planoAtivo = r.plano.id; this._dirty = false; this._draftSave();
         await this._carregarPlanos();
-        mostrarToast(`Plano "${nome}" criado.`, 'ok');
+        this._ativarNaPolitica();
+        mostrarToast(`Plano "${nome}" criado · ativo na Política.`, 'ok');
     },
     async _renomearPlano() {
         if (!this._planoAtivo) return;
