@@ -61,6 +61,21 @@
   .loop-note { width: 100%; margin-top: 4px; border: 1.5px dashed #26c6da; background: rgba(38,198,218,.06); border-radius: 10px; padding: 11px 15px; font-size: 9pt; color: #0e7490; }
   .loop-note strong { color: #0e7490; }
 
+  /* ── SWIMLANES (raias por ator) ── */
+  .swim-wrap { overflow-x: auto; border: 1px solid #e6e6f2; border-radius: 12px; background: #fafaff; padding: 14px; }
+  .swim { display: grid; grid-template-columns: 152px repeat(6, minmax(160px, 1fr)); gap: 8px; min-width: 1060px; align-items: stretch; }
+  .swim .ph { font-size: 8pt; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; text-align: center; padding: 9px 6px; border-radius: 7px; color: #fff; }
+  .swim .lane-lbl { display: flex; flex-direction: column; justify-content: center; padding: 10px 12px; border-radius: 8px; background: #eef0ff; border: 1px solid #dcdcf2; }
+  .swim .lane-lbl b { font-size: 9pt; color: #2d2d4e; } .swim .lane-lbl small { font-size: 7.4pt; color: #8b8bae; margin-top: 2px; }
+  .swim .cell { display: flex; flex-direction: column; gap: 8px; }
+  .swim .act { background: #fff; border: 1.6px solid #6366f1; border-radius: 9px; padding: 9px 10px 8px; position: relative; box-shadow: 0 1px 2px rgba(99,102,241,.07); }
+  .swim .act .stp { position: absolute; top: -9px; left: -9px; width: 21px; height: 21px; border-radius: 50%; background: #6366f1; color: #fff; font-size: 8pt; font-weight: 800; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+  .swim .act .an { font-size: 8.8pt; font-weight: 700; color: #1a1a2e; }
+  .swim .act .ad { font-size: 7.4pt; color: #6b6b8a; margin-top: 2px; line-height: 1.35; }
+  .swim .act.mes  { border-color: #f06292; } .swim .act.mes .stp  { background: #f06292; }
+  .swim .act.exec { border-color: #26a69a; } .swim .act.exec .stp { background: #26a69a; }
+  .swim .act.gw   { border-color: #f59e0b; background: #fff7ed; } .swim .act.gw .stp { background: #f59e0b; }
+
   table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 9.4pt; }
   th { background: #f4f4fc; color: #2d2d4e; font-weight: 700; text-align: left; padding: 8px 11px; border-bottom: 2px solid #e0e0f0; font-size: 8.2pt; letter-spacing: .3px; text-transform: uppercase; }
   td { padding: 8px 11px; border-bottom: 1px solid #f0f0f8; color: #3a3a5c; vertical-align: top; }
@@ -91,106 +106,87 @@
 <!-- 1. LEGENDA -->
 <div class="page">
   <div class="section-header"><div class="section-num">1</div><h2>Como ler</h2><span class="section-badge">Legenda BPMN</span></div>
-  <p>O fluxo vai de cima para baixo em <strong>6 fases</strong>. Dentro de cada fase, as atividades correm da esquerda para a direita. No fim, uma seta tracejada volta ao planejamento — é o que torna o sistema um <strong>ciclo</strong>, não uma linha reta.</p>
+  <p>O diagrama tem <strong>raias (swimlanes)</strong> — cada linha é um <strong>ator</strong> (quem executa) e cada coluna é uma <strong>fase</strong> (quando). O fluxo segue os <strong>números 1 → 16</strong>, cruzando as raias conforme o trabalho passa de mão em mão. No fim, um <strong>loop</strong> volta ao planejamento — é o que torna o sistema um ciclo, não uma linha reta.</p>
   <div class="bpmn-legend">
-    <span class="lg"><span class="ev"></span> Evento de início</span>
-    <span class="lg"><span class="ev end"></span> Evento de fim</span>
-    <span class="lg"><span class="tk"></span> Atividade (tarefa)</span>
+    <span class="lg"><span class="ev"></span> Início</span>
+    <span class="lg"><span class="ev end"></span> Fim</span>
+    <span class="lg"><span class="tk"></span> Atividade</span>
     <span class="lg"><span class="gw"></span> Decisão (gateway)</span>
-    <span class="lg">→ ▼ Sequência do fluxo</span>
-    <span class="lg" style="color:#0e7490;">- - - ↺ Retorno (loop de aprendizado)</span>
+    <span class="lg">① Ordem do fluxo (1→16)</span>
+    <span class="lg" style="color:#0e7490;">- - - ↺ Loop de aprendizado</span>
   </div>
 </div>
 
 <!-- 2. O DIAGRAMA -->
 <div class="page">
-  <div class="section-header"><div class="section-num">2</div><h2>O fluxo</h2><span class="section-badge">Diagrama</span></div>
+  <div class="section-header"><div class="section-num">2</div><h2>O fluxo</h2><span class="section-badge">Raias (swimlanes)</span></div>
 
-  <div class="flow">
-    <div class="ev-circle ev-start">▶</div>
-    <div class="connector"></div>
+  <div style="display:flex;justify-content:center;margin-bottom:12px;"><div class="ev-circle ev-start" title="Início: demanda / pedido">▶</div></div>
 
-    <!-- FASE 1 -->
-    <div class="lane">
-      <div class="lane-head"><span class="lane-badge" style="background:#8b5cf6;">FASE 1 · ENTRADA</span><span class="lane-sys">SIGS — Importação</span></div>
-      <div class="row">
-        <div class="task"><div class="t-name">Importar Vendas</div><div class="t-desc">Histórico de vendas por SKU/mês (base da previsão e do preço).</div></div>
-        <div class="arrow-r">→</div>
-        <div class="task"><div class="t-name">Importar Estoque</div><div class="t-desc">Posição atual + valor (preço/custo de referência).</div></div>
-        <div class="arrow-r">→</div>
-        <div class="task"><div class="t-name">Importar Carteira / OP</div><div class="t-desc">Pedidos e ordens do ERP (o que já está comprometido).</div></div>
-        <div class="arrow-r">→</div>
-        <div class="task"><div class="t-name">Banco de Dados</div><div class="t-desc">Cadastro: tempos por processo, modelo Stoll, família.</div></div>
+  <div class="swim-wrap">
+    <div class="swim">
+      <!-- cabeçalho de fases -->
+      <div></div>
+      <div class="ph" style="background:#8b5cf6;">Entrada</div>
+      <div class="ph" style="background:#6366f1;">Planejar (S&amp;OP)</div>
+      <div class="ph" style="background:#f59e0b;">Consenso</div>
+      <div class="ph" style="background:#0ea5e9;">Programar (APS)</div>
+      <div class="ph" style="background:#26a69a;">Executar</div>
+      <div class="ph" style="background:#ef7d3d;">Medir</div>
+
+      <!-- RAIA 1 — Planejamento -->
+      <div class="lane-lbl"><b>Planejamento</b><small>PCP · SIGS</small></div>
+      <div class="cell"><div class="act"><span class="stp">1</span><div class="an">Importar dados</div><div class="ad">Vendas · Estoque · Carteira · Banco</div></div></div>
+      <div class="cell">
+        <div class="act"><span class="stp">2</span><div class="an">Previsão</div><div class="ad">demanda por SKU</div></div>
+        <div class="act"><span class="stp">3</span><div class="an">Política de Estoques</div><div class="ad">segurança / reposição</div></div>
+        <div class="act"><span class="stp">4</span><div class="an">Plano de Produção</div><div class="ad">quanto produzir</div></div>
+        <div class="act"><span class="stp">5</span><div class="an">Reconciliação R$</div><div class="ad">receita/margem × meta</div></div>
       </div>
-    </div>
-    <div class="connector"></div>
-
-    <!-- FASE 2 -->
-    <div class="lane">
-      <div class="lane-head"><span class="lane-badge" style="background:#6366f1;">FASE 2 · PLANEJAR (S&OP)</span><span class="lane-sys">SIGS — Planejamento tático</span></div>
-      <div class="row">
-        <div class="task"><div class="t-name">Previsão de Demanda</div><div class="t-desc">Estatística (sazonalidade/Holt-Winters) + ajuste comercial.</div></div>
-        <div class="arrow-r">→</div>
-        <div class="task"><div class="t-name">Política de Estoques</div><div class="t-desc">Estoque de segurança e ponto de reposição (ABC × nível de serviço).</div></div>
-        <div class="arrow-r">→</div>
-        <div class="task"><div class="t-name">Plano de Produção</div><div class="t-desc">Quanto produzir por SKU/mês = demanda + mín − estoque − OP.</div></div>
-        <div class="arrow-r">→</div>
-        <div class="task"><div class="t-name">Reconciliação Financeira</div><div class="t-desc">Plano em R$ (receita/margem) × meta/orçamento.</div></div>
+      <div></div><div></div><div></div>
+      <div class="cell">
+        <div class="act"><span class="stp">14</span><div class="an">Realizado</div><div class="ad">volta ao plano</div></div>
+        <div class="act"><span class="stp">15</span><div class="an">OEE · VSM · CEP</div><div class="ad">indicadores</div></div>
+        <div class="act"><span class="stp">16</span><div class="an">Aderência &amp; acurácia</div><div class="ad">bati o plano? ↺</div></div>
       </div>
-    </div>
-    <div class="connector"></div>
 
-    <!-- GATEWAY consenso -->
-    <div class="gw-wrap">
-      <div class="gateway"><span>?</span></div>
-      <div class="gw-label">Reunião de consenso — plano aprovado?</div>
-    </div>
-    <div class="connector"></div>
+      <!-- RAIA 2 — Gestão -->
+      <div class="lane-lbl"><b>Gestão</b><small>Executivo</small></div>
+      <div></div><div></div>
+      <div class="cell"><div class="act gw"><span class="stp">6</span><div class="an">◆ Consenso</div><div class="ad">aprova o plano-único do mês</div></div></div>
+      <div></div><div></div><div></div>
 
-    <!-- FASE 3 -->
-    <div class="lane">
-      <div class="lane-head"><span class="lane-badge" style="background:#0ea5e9;">FASE 3 · RESTRINGIR & SEQUENCIAR</span><span class="lane-sys">SIGS — TOC + Preactor (APS)</span></div>
-      <div class="row">
-        <div class="task"><div class="t-name">TOC — Gargalo</div><div class="t-desc">Onde a capacidade aperta (inclusive por modelo de tear Stoll).</div></div>
-        <div class="arrow-r">→</div>
-        <div class="task"><div class="t-name">Preactor — Sequenciar</div><div class="t-desc">Aloca por tear (ATCS: prazo+valor+setup) + janela congelada.</div></div>
-        <div class="arrow-r">→</div>
-        <div class="task"><div class="t-name">CTP — Promessa</div><div class="t-desc">Data de entrega factível antes de aceitar o pedido.</div></div>
+      <!-- RAIA 3 — Programação -->
+      <div class="lane-lbl"><b>Programação</b><small>APS · SIGS</small></div>
+      <div></div><div></div><div></div>
+      <div class="cell">
+        <div class="act"><span class="stp">7</span><div class="an">TOC — Gargalo</div><div class="ad">por modelo de tear</div></div>
+        <div class="act"><span class="stp">8</span><div class="an">Preactor — Sequenciar</div><div class="ad">ATCS + time fence</div></div>
+        <div class="act"><span class="stp">9</span><div class="an">CTP — Promessa</div><div class="ad">data factível</div></div>
       </div>
-    </div>
-    <div class="connector"></div>
+      <div></div><div></div>
 
-    <!-- FASE 4 -->
-    <div class="lane" style="background:#f7fffd;border-color:#bfe9e2;">
-      <div class="lane-head"><span class="lane-badge" style="background:#26a69a;">FASE 4 · EXECUTAR</span><span class="lane-sys">MES Malha Forte — Chão (PWA)</span></div>
-      <div class="row">
-        <div class="task exec"><div class="t-name">Abrir sessão</div><div class="t-desc">OP + máquina + operador + turno (raiz do apontamento).</div></div>
-        <div class="arrow-r">→</div>
-        <div class="task exec"><div class="t-name">Apontar produção</div><div class="t-desc">Quantidade boa / refugo / retrabalho (offline-first).</div></div>
-        <div class="arrow-r">→</div>
-        <div class="task mes"><div class="t-name">NC · Parada · Fio</div><div class="t-desc">Não-conformidade (→RNC), parada (Andon), consumo de fio (rastreio).</div></div>
-        <div class="arrow-r">→</div>
-        <div class="task exec"><div class="t-name">Fechar sessão</div><div class="t-desc">Registra fim → alimenta lead time e realizado.</div></div>
+      <!-- RAIA 4 — Chão de fábrica -->
+      <div class="lane-lbl"><b>Chão de Fábrica</b><small>Operador · MES</small></div>
+      <div></div><div></div><div></div><div></div>
+      <div class="cell">
+        <div class="act exec"><span class="stp">10</span><div class="an">Abrir sessão</div><div class="ad">OP+máq+operador+turno</div></div>
+        <div class="act exec"><span class="stp">11</span><div class="an">Apontar produção</div><div class="ad">boa / refugo / retrabalho</div></div>
+        <div class="act exec"><span class="stp">13</span><div class="an">Fechar sessão</div><div class="ad">grava fim → lead time</div></div>
       </div>
-    </div>
-    <div class="connector"></div>
+      <div></div>
 
-    <!-- FASE 5 -->
-    <div class="lane">
-      <div class="lane-head"><span class="lane-badge" style="background:#f59e0b;">FASE 5 · MEDIR & APRENDER</span><span class="lane-sys">MES → SIGS</span></div>
-      <div class="row">
-        <div class="task"><div class="t-name">Realizado</div><div class="t-desc">O que foi de fato produzido volta ao Plano.</div></div>
-        <div class="arrow-r">→</div>
-        <div class="task"><div class="t-name">OEE · VSM · CEP · CNQ</div><div class="t-desc">Eficiência, fluxo de valor, controle estatístico, custo da não-qualidade.</div></div>
-        <div class="arrow-r">→</div>
-        <div class="task"><div class="t-name">Aderência & Acurácia</div><div class="t-desc">Bati o plano? A previsão acertou? (fecha o ciclo)</div></div>
-      </div>
+      <!-- RAIA 5 — Qualidade & Manutenção -->
+      <div class="lane-lbl"><b>Qualidade &amp; Manut.</b><small>MES</small></div>
+      <div></div><div></div><div></div><div></div>
+      <div class="cell"><div class="act mes"><span class="stp">12</span><div class="an">NC · Parada · Fio</div><div class="ad">RNC · Andon · rastreio</div></div></div>
+      <div></div>
     </div>
-    <div class="connector"></div>
-    <div class="ev-circle ev-end">■</div>
-
-    <div class="loop-note">↺ <strong>Loop de aprendizado:</strong> o <strong>realizado</strong>, a <strong>aderência</strong> e a <strong>acurácia da previsão</strong> voltam para a <strong>Fase 2 (Planejar)</strong> no ciclo seguinte — o plano do próximo mês nasce corrigido pelo que aconteceu de verdade. É isso que separa um S&OP de um simples cálculo de plano.</div>
   </div>
+
+  <div style="display:flex;justify-content:center;margin-top:12px;"><div class="ev-circle ev-end" title="Fim do ciclo do mês">■</div></div>
+
+  <div class="loop-note">↺ <strong>Loop de aprendizado:</strong> os passos <strong>14–16</strong> (realizado, indicadores, aderência) na raia do Planejamento voltam para o passo <strong>6 / 2</strong> no ciclo seguinte — o plano do próximo mês nasce corrigido pelo que aconteceu de verdade. Siga os números <strong>1 → 16</strong> para ver o trabalho cruzando as raias.</div>
 </div>
 
 <!-- 3. CADA OPERAÇÃO -->
