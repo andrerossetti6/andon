@@ -2162,7 +2162,7 @@
     </header>
     <div class="summary-card" style="margin-bottom:20px;">
         <div class="s-label" style="margin-bottom:14px;">CONFIGURAÇÃO</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr auto;gap:14px;align-items:end;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr 1fr 1fr auto;gap:14px;align-items:end;">
             <div>
                 <div style="font-size:.7rem;color:var(--text-dim);margin-bottom:5px;letter-spacing:.07em;">BASE HISTÓRICA</div>
                 <select id="prev-base-meses" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.83rem;">
@@ -2177,6 +2177,8 @@
                     <option value="1">1 mês</option>
                     <option value="3" selected>3 meses</option>
                     <option value="6">6 meses</option>
+                    <option value="9">9 meses</option>
+                    <option value="12">12 meses</option>
                 </select>
             </div>
             <div>
@@ -2191,12 +2193,17 @@
                 <div style="font-size:.7rem;color:var(--text-dim);margin-bottom:5px;letter-spacing:.07em;">AGRUPAR POR</div>
                 <select id="prev-grupo" onchange="previsao.render()" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.83rem;">
                     <option value="familia">Família (Segmento)</option>
+                    <option value="modelo">Modelo</option>
                     <option value="sku" selected>SKU (Código)</option>
                 </select>
             </div>
             <div>
                 <div style="font-size:.7rem;color:var(--text-dim);margin-bottom:5px;letter-spacing:.07em;">SEGMENTO</div>
                 <select id="prev-seg-sel" onchange="previsao.render()" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.83rem;"><option value="">Todos</option></select>
+            </div>
+            <div>
+                <div style="font-size:.7rem;color:var(--text-dim);margin-bottom:5px;letter-spacing:.07em;">MODELO</div>
+                <select id="prev-modelo-sel" onchange="previsao.render()" style="width:100%;padding:8px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.83rem;"><option value="">Todos</option></select>
             </div>
             <button onclick="previsao.calcular()" style="padding:9px 22px;border-radius:8px;border:none;background:var(--indigo-btn);color:#fff;font-size:.83rem;font-weight:700;cursor:pointer;white-space:nowrap;">CALCULAR</button>
         </div>

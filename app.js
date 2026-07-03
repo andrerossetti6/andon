@@ -1297,6 +1297,7 @@ function navigateTo(viewName) {
         setTimeout(() => abcEstoque.render(), 50);
     } else if (viewName === 'previsao') {
         document.querySelector('[data-view="previsao"]')?.classList.add('sub-active');
+        previsao._populaSegFiltro();   // segmentos/modelos selecionáveis já na abertura (mesmo sem calcular)
         const acWrap = document.getElementById('prev-acuracia-wrap');
         if (acWrap) acWrap.style.display = soepDash._snapshots.length ? '' : 'none';
     } else if (viewName === 'politica') {
@@ -5146,8 +5147,8 @@ const previsao = {
     },
 
     // ── Parâmetros e edições do plano ──
-    _getParams() { return { historico: document.getElementById('prev-base-meses')?.value, horizonte: document.getElementById('prev-horizonte')?.value, metodo: document.getElementById('prev-metodo')?.value, agrupamento: document.getElementById('prev-grupo')?.value, segmento: document.getElementById('prev-seg-sel')?.value || '', usarClientes: !!document.getElementById('prev-usar-cliente')?.checked }; },
-    _setParams(p) { p = p || {}; const set = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; }; set('prev-base-meses', p.historico); set('prev-horizonte', p.horizonte); set('prev-metodo', p.metodo); set('prev-grupo', p.agrupamento); const uc = document.getElementById('prev-usar-cliente'); if (uc) uc.checked = !!p.usarClientes; this._segPend = p.segmento || ''; },
+    _getParams() { return { historico: document.getElementById('prev-base-meses')?.value, horizonte: document.getElementById('prev-horizonte')?.value, metodo: document.getElementById('prev-metodo')?.value, agrupamento: document.getElementById('prev-grupo')?.value, segmento: document.getElementById('prev-seg-sel')?.value || '', modelo: document.getElementById('prev-modelo-sel')?.value || '', usarClientes: !!document.getElementById('prev-usar-cliente')?.checked }; },
+    _setParams(p) { p = p || {}; const set = (id, v) => { const el = document.getElementById(id); if (el && v != null && v !== '') el.value = v; }; set('prev-base-meses', p.historico); set('prev-horizonte', p.horizonte); set('prev-metodo', p.metodo); set('prev-grupo', p.agrupamento); const uc = document.getElementById('prev-usar-cliente'); if (uc) uc.checked = !!p.usarClientes; this._segPend = p.segmento || ''; this._modPend = p.modelo || ''; },
     _getEdicoes() { return { overrides: this._overrides, excluidos: [...this._excl], adicionados: this._adicionados }; },
     _setEdicoes(e) { e = e || {}; this._overrides = e.overrides || {}; this._excl = new Set((e.excluidos || []).map(String)); this._adicionados = e.adicionados || []; },
     _marcarDirty() { this._dirty = true; this._draftSave(); this._renderBarraPlanos(); },
@@ -5230,7 +5231,10 @@ const previsao = {
         this._congeladoSnap = (p.congelado && p.snapshot && Object.keys(p.snapshot).length) ? p.snapshot : null;
         this._dirty = false; this._draftSave();
         this.calcular();
-        const seg = document.getElementById('prev-seg-sel'); if (seg && this._segPend != null) { seg.value = this._segPend; this.render(); }
+        const seg = document.getElementById('prev-seg-sel'); const mod = document.getElementById('prev-modelo-sel');
+        if (seg && this._segPend != null) seg.value = this._segPend;
+        if (mod && this._modPend != null) mod.value = this._modPend;
+        if (seg || mod) this.render();
         this._renderBarraPlanos();
         mostrarToast(`Plano "${p.nome}" carregado.`, 'ok');
     },
@@ -5543,11 +5547,16 @@ const previsao = {
     },
 
     _populaSegFiltro() {
-        const sel = document.getElementById('prev-seg-sel');
-        if (!sel) return;
-        const cur  = sel.value;
-        const segs = [...new Set(this._forecast.map(r=>r.segmento).filter(Boolean))].sort();
-        sel.innerHTML = '<option value="">Todos</option>' + segs.map(s=>`<option value="${escHTML(s)}"${s===cur?' selected':''}>${escHTML(s)}</option>`).join('');
+        // Segmento e Modelo selecionáveis — de vendas (já disponível) ou do forecast calculado
+        const fonte = this._forecast.length ? this._forecast : (vendas.rawData || []);
+        const fill = (id, campo) => {
+            const sel = document.getElementById(id); if (!sel) return;
+            const cur  = sel.value;
+            const vals = [...new Set(fonte.map(r => String(r[campo]||'').trim()).filter(Boolean))].sort();
+            sel.innerHTML = '<option value="">Todos</option>' + vals.map(v => `<option value="${escHTML(v)}"${v===cur?' selected':''}>${escHTML(v)}</option>`).join('');
+        };
+        fill('prev-seg-sel', 'segmento');
+        fill('prev-modelo-sel', 'modelo');
     },
 
     _renderSazonalidade(sIdx, nextMonths) {
@@ -5573,6 +5582,7 @@ const previsao = {
     render() {
         const grupo  = document.getElementById('prev-grupo')?.value   || 'familia';
         const segSel = document.getElementById('prev-seg-sel')?.value  || '';
+        const modSel = document.getElementById('prev-modelo-sel')?.value || '';
         const metodo = document.getElementById('prev-metodo')?.value   || 'media';
         const res    = document.getElementById('prev-resultado');
         const thead  = document.getElementById('prev-thead');
@@ -5583,7 +5593,7 @@ const previsao = {
         res.style.display='';
 
         const excl = this._excluidosSet();
-        const filtered = this._forecast.filter(r => (!segSel || r.segmento===segSel) && !excl.has(String(r.codigo)));
+        const filtered = this._forecast.filter(r => (!segSel || r.segmento===segSel) && (!modSel || r.modelo===modSel) && !excl.has(String(r.codigo)));
 
         if (grupo==='familia') {
             label.textContent = 'PREVISÃO POR FAMÍLIA (SEGMENTO)';
@@ -5603,6 +5613,24 @@ const previsao = {
                 </tr>`;
             }).join('');
             count.textContent = `${segs.length} segmentos`;
+        } else if (grupo==='modelo') {
+            label.textContent = 'PREVISÃO POR MODELO';
+            const modMap = {};
+            filtered.forEach(r => { const mm=r.modelo||'—'; if(!modMap[mm]) modMap[mm]={}; modMap[mm][r.mes]=(modMap[mm][r.mes]||0)+r.qty; });
+            thead.innerHTML = `<th style="padding:8px 12px;text-align:left;color:var(--text-dim);font-size:.7rem;">MODELO</th>`+
+                this._nextMonths.map(m=>`<th style="padding:8px 12px;text-align:right;color:var(--text-dim);font-size:.7rem;">${m.label.toUpperCase()}</th>`).join('')+
+                `<th style="padding:8px 12px;text-align:right;color:var(--text-dim);font-size:.7rem;">TOTAL</th>`;
+            const mods = Object.keys(modMap).sort();
+            tbody.innerHTML = mods.map((mm,i)=>{
+                const qtds  = this._nextMonths.map(m=>modMap[mm][m.mes]||0);
+                const total = qtds.reduce((s,v)=>s+v,0);
+                return `<tr style="background:${i%2?'var(--bg-input)':'transparent'};">
+                    <td style="padding:8px 12px;font-weight:600;color:var(--indigo-primary);">${escHTML(mm)}</td>
+                    ${qtds.map(q=>`<td style="padding:8px 12px;text-align:right;">${q.toLocaleString('pt-BR')}</td>`).join('')}
+                    <td style="padding:8px 12px;text-align:right;font-weight:700;">${total.toLocaleString('pt-BR')}</td>
+                </tr>`;
+            }).join('');
+            count.textContent = `${mods.length} modelos`;
         } else {
             const hasHW  = metodo === 'hw';
             const hasReg = metodo === 'regressao';
