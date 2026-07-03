@@ -5324,6 +5324,21 @@ const previsao = {
         mostrarToast('SKUs excluídos restaurados.', 'ok');
         this.render();
     },
+    // Seleção em lote na tabela por SKU (checkbox por linha + "selecionar todos")
+    _selAll(ch) { document.querySelectorAll('.prev-sel').forEach(c => c.checked = ch); this._updSelCount(); },
+    _updSelCount() {
+        const n = document.querySelectorAll('.prev-sel:checked').length;
+        const bar = document.getElementById('prev-sel-bar');
+        if (bar) bar.innerHTML = n ? `<button onclick="previsao._excluirSelecionados()" style="background:rgba(240,98,146,.12);border:1px solid #f06292;border-radius:6px;color:#f06292;cursor:pointer;font-size:.72rem;padding:3px 11px;font-weight:700;">🗑 Excluir selecionados (${n})</button>` : '';
+    },
+    _excluirSelecionados() {
+        const cods = [...document.querySelectorAll('.prev-sel:checked')].map(c => c.dataset.cod).filter(Boolean);
+        if (!cods.length) return;
+        const s = this._excluidosSet(); cods.forEach(c => s.add(String(c)));
+        localStorage.setItem('prev-excluidos', JSON.stringify([...s]));
+        mostrarToast(`${cods.length} SKU(s) excluído(s) da previsão. Clique "restaurar" para desfazer.`, 'aviso');
+        this.render();
+    },
 
     _populaSegFiltro() {
         const sel = document.getElementById('prev-seg-sel');
@@ -5393,7 +5408,7 @@ const previsao = {
                 (hasHW  ? ' — Holt-Winters (IC 80%)' : hasReg ? ' — Regressão Linear (R²)' : '');
             const skuMap = {};
             filtered.forEach(r => { if(!skuMap[r.codigo]) skuMap[r.codigo]={...r,meses:{}}; skuMap[r.codigo].meses[r.mes]=r; });
-            thead.innerHTML = `<th style="padding:8px 10px;text-align:center;color:var(--text-dim);font-size:.7rem;position:sticky;left:0;background:var(--bg-obsidian);">AÇÕES</th>
+            thead.innerHTML = `<th style="padding:8px 10px;text-align:center;color:var(--text-dim);font-size:.7rem;position:sticky;left:0;background:var(--bg-obsidian);white-space:nowrap;"><label style="display:inline-flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" id="prev-selall" onchange="previsao._selAll(this.checked)" title="Selecionar todos os visíveis" style="cursor:pointer;">AÇÕES</label></th>
                 <th style="padding:8px 10px;text-align:left;color:var(--text-dim);font-size:.7rem;">CÓDIGO</th>
                 <th style="padding:8px 10px;text-align:left;color:var(--text-dim);font-size:.7rem;">DESCRIÇÃO</th>
                 <th style="padding:8px 10px;text-align:left;color:var(--text-dim);font-size:.7rem;">SEGMENTO</th>`+
@@ -5425,7 +5440,8 @@ const previsao = {
                 const bgRow = i%2 ? 'var(--bg-input)' : 'var(--bg-obsidian)';
                 return `<tr style="background:${i%2?'var(--bg-input)':'transparent'};">
                     <td style="padding:5px 10px;text-align:center;white-space:nowrap;position:sticky;left:0;background:${bgRow};">
-                        <button onclick="previsao._excluirSku('${escJS(sku.codigo)}')" title="Excluir este SKU da previsão" style="background:transparent;border:1px solid rgba(240,98,146,.4);border-radius:5px;color:#f06292;cursor:pointer;font-size:.82rem;padding:2px 8px;">🗑 excluir</button>
+                        <input type="checkbox" class="prev-sel" data-cod="${escHTML(sku.codigo)}" onchange="previsao._updSelCount()" title="Selecionar para excluir em lote" style="cursor:pointer;vertical-align:middle;margin-right:7px;">
+                        <button onclick="previsao._excluirSku('${escJS(sku.codigo)}')" title="Excluir este SKU da previsão" style="background:transparent;border:1px solid rgba(240,98,146,.4);border-radius:5px;color:#f06292;cursor:pointer;font-size:.82rem;padding:2px 7px;vertical-align:middle;">🗑</button>
                     </td>
                     <td style="padding:5px 10px;font-weight:600;font-size:.78rem;">${escHTML(sku.codigo)}</td>
                     <td style="padding:5px 10px;font-size:.78rem;">${escHTML((sku.descricao||'').slice(0,28))}</td>
@@ -5435,7 +5451,8 @@ const previsao = {
                 </tr>`;
             }).join('');
             const totalSku = Object.keys(skuMap).length;
-            count.innerHTML = (skus.length < totalSku ? `${skus.length} / ${totalSku} SKUs (use filtro)` : `${skus.length} SKUs`)
+            count.innerHTML = `<span id="prev-sel-bar" style="margin-right:10px;"></span>`
+                + (skus.length < totalSku ? `${skus.length} / ${totalSku} SKUs (use filtro)` : `${skus.length} SKUs`)
                 + (excl.size ? ` · <span style="color:#f06292;">${excl.size} excluído${excl.size > 1 ? 's' : ''}</span> <button onclick="previsao._restaurarExcluidos()" style="background:transparent;border:1px solid var(--border-color);border-radius:5px;color:var(--indigo-primary);cursor:pointer;font-size:.7rem;padding:2px 8px;margin-left:4px;">restaurar</button>` : '');
         }
     },
