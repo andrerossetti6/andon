@@ -6055,7 +6055,7 @@ const planoProducao = {
         if (count) count.textContent = `${rows.length} SKUs`;
     },
 
-    _renderCapacidade() {
+    async _renderCapacidade() {
         const wrap   = document.getElementById('plano-cap-wrap');
         const barras = document.getElementById('plano-cap-barras');
         const mesLbl = document.getElementById('plano-cap-mes');
@@ -6068,42 +6068,49 @@ const planoProducao = {
         const res = toc.calcularComDemanda(demMapa);
         const mesInfo = previsao._nextMonths.find(m=>m.mes===this._mesSel);
         if (mesLbl) mesLbl.textContent = mesInfo?.label?.toUpperCase()||'';
+
+        // Quebra por tear Stoll (cadastro real de teares). O agregado de Tecelagem passa a vir DAÍ
+        // (média ponderada dos teares), para bater com a quebra em vez de usar o OEE agregado da config.
+        const cap = toc._getCap();
+        const dias = parseFloat(document.getElementById('toc-dias')?.value) || 22;
+        const bancoMap = {};
+        banco.rawData.forEach(r => { const cod = String(r.dados?.['Código'] ?? '').trim().toUpperCase(); if (cod) bancoMap[cod] = r.dados; });
+        let mods = [];
+        try { mods = await toc.calcularStoll(demMapa, bancoMap, dias, cap); } catch {}
+        const temStoll  = mods.length > 0;
+        const capTear   = mods.reduce((s,m)=> s + (isFinite(m.capMin)?m.capMin:0), 0);
+        const cargaTear = mods.reduce((s,m)=> s + m.cargaMin, 0);
+        const utilTear  = capTear > 0 ? cargaTear / capTear : null;
+
+        const subStoll = temStoll ? (`<div style="margin:0 0 6px 18px;">` +
+            `<div style="font-size:.63rem;color:var(--text-dim);letter-spacing:.05em;margin:1px 0 3px;">↳ TECELAGEM POR TEAR STOLL</div>` +
+            mods.map(m=>{
+                const inf = m.util===Infinity;
+                const pct = inf ? 100 : Math.min((m.util||0)*100,300);
+                const cor = (inf||m.util>=1)?'#f06292':m.util>=.8?'#ffca28':'#26a69a';
+                const dir = inf ? `⚠ ${(m.cargaMin/60).toFixed(0)}h sem tear` : `${pct.toFixed(0)}%`;
+                return `<div style="display:flex;align-items:center;gap:12px;padding:3px 0;">
+                    <div style="width:150px;font-size:.72rem;color:var(--text-primary);">Stoll ${escHTML(m.modelo)}<span style="font-size:.62rem;color:var(--text-dim);"> · ${m.n} máq</span></div>
+                    <div style="flex:1;height:6px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="width:${Math.min(pct/1.5,100)}%;height:100%;background:${cor};border-radius:4px;"></div></div>
+                    <div style="width:60px;text-align:right;font-size:.72rem;font-weight:700;color:${cor};">${dir}</div>
+                </div>`;
+            }).join('') + `</div>`) : '';
+
         barras.innerHTML = res.map(p=>{
-            if (!p.cargaMin) return `<div style="display:flex;align-items:center;gap:12px;padding:5px 0;"><div style="width:150px;font-size:.78rem;color:var(--text-dim);">${p.nome}</div><div style="flex:1;height:7px;background:var(--bg-input);border-radius:4px;"></div><div style="width:60px;text-align:right;font-size:.73rem;color:var(--text-dim);">sem dados</div></div>`;
-            const pct=Math.min((p.util||0)*100,300), cor=p.util>=1?'#f06292':p.util>=.8?'#ffca28':'#26a69a';
+            // Tecelagem: usa a utilização REAL dos teares cadastrados (coerente com a quebra), não o OEE agregado da config
+            let util = p.util, cargaMin = p.cargaMin;
+            if (p.id==='tecelagem' && temStoll && utilTear!=null) { util = utilTear; cargaMin = cargaTear; }
+            const stollAbaixo = (p.id==='tecelagem') ? subStoll : '';
+            if (!cargaMin) return `<div style="display:flex;align-items:center;gap:12px;padding:5px 0;"><div style="width:150px;font-size:.78rem;color:var(--text-dim);">${p.nome}</div><div style="flex:1;height:7px;background:var(--bg-input);border-radius:4px;"></div><div style="width:60px;text-align:right;font-size:.73rem;color:var(--text-dim);">sem dados</div></div>` + stollAbaixo;
+            const pct=Math.min((util||0)*100,300), cor=util>=1?'#f06292':util>=.8?'#ffca28':'#26a69a';
             const bar = `<div style="display:flex;align-items:center;gap:12px;padding:5px 0;">
                 <div style="width:150px;font-size:.78rem;font-weight:600;">${p.nome}</div>
                 <div style="flex:1;height:7px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="width:${Math.min(pct/1.5,100)}%;height:100%;background:${cor};border-radius:4px;"></div></div>
                 <div style="width:60px;text-align:right;font-size:.78rem;font-weight:700;color:${cor};">${pct.toFixed(0)}%</div>
             </div>`;
-            // âncora para a quebra por tear Stoll (530/330/303) logo abaixo da Tecelagem
-            return bar + (p.id==='tecelagem' ? `<div id="plano-cap-stoll" style="margin:0 0 6px 18px;"></div>` : '');
+            return bar + stollAbaixo;
         }).join('');
         wrap.style.display='';
-
-        // Detalha a Tecelagem por modelo de tear Stoll (usa o cadastro de teares — mesma lógica do TOC)
-        const tec = res.find(p=>p.id==='tecelagem' && p.cargaMin);
-        if (tec) {
-            const cap = toc._getCap();
-            const dias = parseFloat(document.getElementById('toc-dias')?.value) || 22;
-            const bancoMap = {};
-            banco.rawData.forEach(r => { const cod = String(r.dados?.['Código'] ?? '').trim().toUpperCase(); if (cod) bancoMap[cod] = r.dados; });
-            toc.calcularStoll(demMapa, bancoMap, dias, cap).then(mods => {
-                const el = document.getElementById('plano-cap-stoll'); if (!el) return;
-                if (!mods.length) { el.innerHTML=''; return; }
-                el.innerHTML = `<div style="font-size:.63rem;color:var(--text-dim);letter-spacing:.05em;margin:1px 0 3px;">↳ TECELAGEM POR TEAR STOLL</div>` + mods.map(m=>{
-                    const inf = m.util===Infinity;
-                    const pct = inf ? 100 : Math.min((m.util||0)*100,300);
-                    const cor = (inf||m.util>=1)?'#f06292':m.util>=.8?'#ffca28':'#26a69a';
-                    const dir = inf ? `⚠ ${(m.cargaMin/60).toFixed(0)}h sem tear` : `${pct.toFixed(0)}%`;
-                    return `<div style="display:flex;align-items:center;gap:12px;padding:3px 0;">
-                        <div style="width:150px;font-size:.72rem;color:var(--text-primary);">Stoll ${escHTML(m.modelo)}<span style="font-size:.62rem;color:var(--text-dim);"> · ${m.n} máq</span></div>
-                        <div style="flex:1;height:6px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="width:${Math.min(pct/1.5,100)}%;height:100%;background:${cor};border-radius:4px;"></div></div>
-                        <div style="width:60px;text-align:right;font-size:.72rem;font-weight:700;color:${cor};">${dir}</div>
-                    </div>`;
-                }).join('');
-            }).catch(()=>{});
-        }
     },
 };
 
