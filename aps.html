@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>APS | Gestão Stoll</title>
+    <meta name="description" content="APS — Planejamento Avançado & Sequenciamento · Gestão Stoll">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <meta name="theme-color" content="#0D1117">
+</head>
+<body class="sin1-layout">
+
+    <!-- ── Login (mesmo markup/tema do SIGS e MES) ── -->
+    <div id="view-login" class="login-screen" style="display:none;">
+        <div class="login-card">
+            <div class="login-logo">
+                <div class="logo-icon"></div>
+                <div>
+                    <span class="brand">SIN<sub>1</sub></span>
+                    <span class="subtext">Gestão Stoll</span>
+                </div>
+            </div>
+            <h2 class="login-title">Entrar na plataforma</h2>
+            <div id="login-status" style="color:#8b949e;font-size:0.85rem;margin-bottom:12px;text-align:center;">Conectando ao servidor...</div>
+            <div id="login-erro" class="login-erro" style="display:none;"></div>
+            <div id="login-form-wrap" style="display:none;">
+            <form id="login-form" autocomplete="on">
+                <div class="input-group">
+                    <label>Email</label>
+                    <input type="email" id="login-email" placeholder="seu@email.com.br" required autocomplete="email">
+                </div>
+                <div class="input-group">
+                    <label>Senha</label>
+                    <input type="password" id="login-senha" placeholder="••••••••" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn primary login-btn" id="login-submit">Entrar</button>
+            </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Sidebar do APS ── -->
+    <aside class="sidebar" id="app-sidebar" style="display:none;">
+        <div class="sidebar-top">
+            <div class="logo">
+                <div class="logo-icon"></div>
+                <div class="logo-text">
+                    <span class="brand">APS</span>
+                    <span class="subtext">Planejamento & Sequenciamento</span>
+                </div>
+            </div>
+
+            <nav class="nav-section" id="nav-section-plan">
+                <h3 class="nav-section-header" data-key="aps-plan" onclick="toggleNavSection(this)">
+                    PLANEJAMENTO <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-painel"    class="active" data-apstab="painel"    onclick="aps.tab('painel')"><div class="item-content">Painel</div></li>
+                    <li id="nav-carteira"  data-apstab="carteira"  onclick="aps.tab('carteira')"><div class="item-content">Carteira de Ordens</div></li>
+                    <li id="nav-capac"     data-apstab="capac"     onclick="aps.tab('capac')"><div class="item-content">Capacidade × Carga</div></li>
+                    <li id="nav-seq"       data-apstab="seq"       onclick="aps.tab('seq')"><div class="item-content">Sequenciamento</div></li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section" id="nav-section-rec">
+                <h3 class="nav-section-header" data-key="aps-rec" onclick="toggleNavSection(this)">
+                    RECURSOS <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-maquinas" data-apstab="maquinas" onclick="aps.tab('maquinas')"><div class="item-content">Máquinas & Teares</div></li>
+                    <li id="nav-config"   data-apstab="config"   onclick="aps.tab('config')"><div class="item-content">Capacidade (config)</div></li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section" id="nav-section-links">
+                <h3 class="nav-section-header" data-key="aps-links" onclick="toggleNavSection(this)">
+                    OUTROS SISTEMAS <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li onclick="location.href='/index.html'"><div class="item-content">↗ SIGS / Gestão Stoll</div></li>
+                    <li onclick="location.href='/mes.html'"><div class="item-content">↗ MES Malha Forte</div></li>
+                </ul>
+            </nav>
+        </div>
+
+        <div class="sidebar-bottom">
+            <div class="user-profile">
+                <div class="avatar">AP</div>
+                <div class="user-info">
+                    <span class="name" id="aps-user-nome">—</span>
+                    <span class="role">Planejador</span>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ── Conteúdo APS ── -->
+    <main class="content" id="view-aps" style="display:none;flex-direction:column;gap:18px;padding:28px 32px;overflow-y:auto;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">APS — <span>Planejamento Avançado</span></h1>
+                <p class="page-subtitle">Advanced Planning &amp; Scheduling · Carteira · Capacidade · Sequenciamento</p>
+            </div>
+            <div class="page-header-actions" style="display:flex;align-items:center;gap:12px;">
+                <button class="btn secondary" onclick="aps.recarregar()" style="font-size:.78rem;">↻ Atualizar</button>
+                <span id="aps-user" style="font-size:.78rem;color:var(--text-dim);"></span>
+                <button class="btn secondary" onclick="aps.sair()" style="font-size:.78rem;">Sair</button>
+            </div>
+        </header>
+
+        <div id="aps-pan-painel"   style="display:none;"></div>
+        <div id="aps-pan-carteira" style="display:none;"></div>
+        <div id="aps-pan-capac"    style="display:none;"></div>
+        <div id="aps-pan-seq"      style="display:none;"></div>
+        <div id="aps-pan-maquinas" style="display:none;"></div>
+        <div id="aps-pan-config"   style="display:none;"></div>
+    </main>
+
+    <style>
+        .aps-input{width:100%;padding:9px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.84rem;box-sizing:border-box;}
+        .aps-label{font-size:.7rem;color:var(--text-dim);display:block;margin-bottom:4px;letter-spacing:.05em;}
+        .aps-th{padding:9px 12px;text-align:left;color:var(--text-dim);font-size:.68rem;letter-spacing:.06em;border-bottom:2px solid var(--border-color);}
+        .aps-td{padding:8px 12px;font-size:.82rem;border-bottom:1px solid rgba(255,255,255,.04);}
+    </style>
+
+    <script src="aps.js"></script>
+</body>
+</html>
