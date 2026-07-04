@@ -1252,6 +1252,10 @@ function navigateTo(viewName) {
     } else if (viewName === 'toc') {
         toc._popularAnos();
         toc._renderCapacidade();
+        // auto-calcula o gargalo na 1ª visita se a fonte de demanda escolhida tem dados
+        if (!toc._resultProcs?.length && !toc._autoFeito && banco.rawData.length && toc._demandaPronta()) {
+            toc._autoFeito = true; setTimeout(() => { try { toc.calcular(); } catch {} }, 60);
+        }
         // Se veio do OP Dashboard com fila, mostra imediatamente
         if (toc._filaGargalo.length) {
             const gargalo = toc._resultProcs?.filter(p=>!p.semDados).sort((a,b)=>(b.util||0)-(a.util||0))[0] || null;
@@ -1310,6 +1314,10 @@ function navigateTo(viewName) {
             if (saved.usarPrev != null) { const e = document.getElementById('pol-usar-prev'); if (e) e.checked = !!saved.usarPrev; }
         } catch {}
         previsao._togglePolBadge();   // mostra o selo do plano se "usar Previsão" estiver ligado
+        // auto-calcula na 1ª visita se os dados estão prontos (tira o clique manual de CALCULAR)
+        if (!politicaEstoque._rows.length && !politicaEstoque._autoFeito && vendas.rawData.length && estoque.rawData.length) {
+            politicaEstoque._autoFeito = true; setTimeout(() => { try { politicaEstoque.calcular(); } catch {} }, 60);
+        }
     } else if (viewName === 'plano-prod') {
         document.querySelector('[data-view="plano-prod"]')?.classList.add('sub-active');
         previsao._renderBadge('plano-prod-badge', 'plano-prod');
@@ -1321,6 +1329,10 @@ function navigateTo(viewName) {
         preactor._popularMeses();
         if (!banco.rawData.length) banco.carregarHistorico().catch(() => {});
         if (!op.rawData.length)    op.carregarHistorico().catch(() => {});
+        // auto-sequencia na 1ª visita se há Banco + (Plano ou OP)
+        if (!preactor._autoFeito && banco.rawData.length && (op.rawData.length || Object.keys(planoProducao._plano || {}).length)) {
+            preactor._autoFeito = true; setTimeout(() => { try { preactor.calcular(); } catch {} }, 120);
+        }
     } else if (viewName === 'mes') {
         document.getElementById('nav-mes')?.classList.add('active');
         mes.init();
@@ -4578,6 +4590,14 @@ const toc = {
         return total;
     },
 
+    // A fonte de demanda escolhida tem dados? (sem alert — usado no auto-cálculo ao abrir a tela)
+    _demandaPronta() {
+        const fonte = document.getElementById('toc-fonte-sel')?.value || 'vxe';
+        if (fonte === 'plano')    return Object.keys(planoProducao._plano || {}).length > 0;
+        if (fonte === 'previsao') return previsao._forecast.length > 0;
+        if (fonte === 'op')       return op.rawData.length > 0;
+        return vendas.rawData.length > 0;   // vxe (padrão)
+    },
     _getDemanda() {
         const fonte = document.getElementById('toc-fonte-sel')?.value || 'vxe';
         const anoSel = document.getElementById('toc-ano-sel')?.value || 'all';
@@ -6212,7 +6232,16 @@ const planoProducao = {
                 <div style="flex:1;height:7px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="width:${Math.min(pct/1.5,100)}%;height:100%;background:${cor};border-radius:4px;"></div></div>
                 <div style="width:60px;text-align:right;font-size:.78rem;font-weight:700;color:${cor};">${pct.toFixed(0)}%</div>
             </div>`;
-            return bar + stollAbaixo;
+            // Contramedida quando o processo estoura: quanto falta e como fechar o gap (dados existentes)
+            let contra = '';
+            if (util > 1) {
+                const capMinP = cargaMin / util;
+                const gapH    = Math.round((cargaMin - capMinP) / 60);
+                const maqA    = Number(cap?.[p.id]?.maquinas) || 1;
+                const extraR  = Math.max(1, Math.ceil(maqA * util) - maqA);
+                contra = `<div style="margin:0 0 7px 150px;font-size:.66rem;color:#f06292;">⚠ falta capacidade: ~${gapH.toLocaleString('pt-BR')} h/mês — some ≈ <strong>+${extraR} recurso(s)</strong> (máq/operador), programe hora extra, ou terceirize o excedente</div>`;
+            }
+            return bar + contra + stollAbaixo;
         }).join('');
         wrap.style.display='';
     },

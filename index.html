@@ -269,25 +269,25 @@
 
         <!-- KPIs Estratégicos -->
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;">
-            <div class="summary-card" id="home-card-risco" style="border-top:3px solid rgba(255,255,255,.08);">
+            <div class="summary-card" id="home-card-risco" onclick="navigateTo('politica')" style="border-top:3px solid rgba(255,255,255,.08);cursor:pointer;" title="Abrir Política de Estoques">
                 <span class="s-label">R$ EM RISCO (EST.)</span>
                 <span class="s-value" id="home-risco" style="color:#8b949e;font-size:1.3rem;">—</span>
-                <span class="s-sub" id="home-risco-sub">calcule Política de Estoques</span>
+                <span class="s-sub" id="home-risco-sub">calcule Política de Estoques →</span>
             </div>
-            <div class="summary-card" id="home-card-oee" style="border-top:3px solid rgba(255,255,255,.08);">
+            <div class="summary-card" id="home-card-oee" onclick="navigateTo('cockpit')" style="border-top:3px solid rgba(255,255,255,.08);cursor:pointer;" title="Abrir Cockpit Executivo (OEE)">
                 <span class="s-label">OEE REAL (7 DIAS)</span>
                 <span class="s-value" id="home-oee" style="color:#8b949e;font-size:1.5rem;">—</span>
                 <span class="s-sub" id="home-oee-sub">disponibilidade × qualidade</span>
             </div>
-            <div class="summary-card" id="home-card-wip" style="border-top:3px solid rgba(255,255,255,.08);">
+            <div class="summary-card" id="home-card-wip" onclick="navigateTo('op-dash')" style="border-top:3px solid rgba(255,255,255,.08);cursor:pointer;" title="Abrir painel de OPs">
                 <span class="s-label">WIP ATIVO</span>
                 <span class="s-value" id="home-wip" style="color:#8b949e;font-size:1.5rem;">—</span>
                 <span class="s-sub" id="home-wip-sub">apontamentos no momento</span>
             </div>
-            <div class="summary-card" id="home-card-gargalo" style="border-top:3px solid rgba(255,255,255,.08);">
+            <div class="summary-card" id="home-card-gargalo" onclick="navigateTo('toc')" style="border-top:3px solid rgba(255,255,255,.08);cursor:pointer;" title="Abrir Gargalo (TOC)">
                 <span class="s-label">GARGALO — UTILIZAÇÃO</span>
                 <span class="s-value" id="home-gargalo" style="color:#8b949e;font-size:1.5rem;">—</span>
-                <span class="s-sub" id="home-gargalo-sub">execute análise TOC</span>
+                <span class="s-sub" id="home-gargalo-sub">execute análise TOC →</span>
             </div>
         </div>
 
