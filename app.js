@@ -5110,7 +5110,7 @@ toc.calcularComDemanda = function(demandaMap, diasUteis) {
         const cod = String(r.dados?.['Código'] ?? '').trim().toUpperCase();
         if (cod) bancoMap[cod] = r.dados;
     });
-    return this._PROCS.map(p => {
+    const out = this._PROCS.map(p => {
         const capP   = cap[p.id] || { maquinas: 1, horasDia: 8, oee: 100 };
         const capMin = capP.maquinas * capP.horasDia * 60 * dias * (Math.min(capP.oee || 100, 100) / 100);
         let cargaMin = 0;
@@ -5122,6 +5122,17 @@ toc.calcularComDemanda = function(demandaMap, diasUteis) {
         const util = capMin > 0 ? cargaMin / capMin : null;
         return { ...p, cargaMin, cargaH: cargaMin / 60, capMin, capH: capMin / 60, util };
     });
+    // Tecelagem: capacidade real dos teares cadastrados (OEE por tear) quando o cache já carregou —
+    // TODOS os consumidores (heatmap, horizonte, cenários, ciclo, plano) ficam na mesma base do TOC.
+    const teares = Array.isArray(this._maquinasTec) ? this._maquinasTec : null;
+    if (!teares) this._loadMaquinasTecelagem?.().catch(() => {});   // aquece o cache p/ a próxima chamada
+    if (teares && teares.length) {
+        const horasDia = (cap?.tecelagem?.horasDia) || 8;
+        const capTear  = teares.reduce((s, m) => s + horasDia * 60 * dias * (Math.min(m.oee == null ? 100 : Number(m.oee), 100) / 100), 0);
+        const tec = out.find(p => p.id === 'tecelagem');
+        if (tec && capTear > 0) { tec.capMin = capTear; tec.capH = capTear / 60; tec.util = tec.cargaMin / capTear; }
+    }
+    return out;
 };
 
 // ====== S&OP — PREVISÃO DE DEMANDA ======
@@ -5144,12 +5155,13 @@ const previsao = {
     _loadOverrides() { /* legado — o estado agora vem do rascunho/plano (_draftLoad) */ },
     _saveOverrides()  { this._marcarDirty(); },
 
-    // Rascunho: sobrevive ao reload sem obrigar a salvar no banco
-    _draftSave() { try { localStorage.setItem('prev-draft', JSON.stringify({ planoAtivo: this._planoAtivo, dirty: this._dirty, overrides: this._overrides, excluidos: [...this._excl], adicionados: this._adicionados })); } catch {} },
+    // Rascunho: sobrevive ao reload sem obrigar a salvar no banco (inclui os PARÂMETROS —
+    // antes horizonte/método mudados voltavam ao padrão no reload sem aviso)
+    _draftSave() { try { localStorage.setItem('prev-draft', JSON.stringify({ planoAtivo: this._planoAtivo, dirty: this._dirty, params: this._getParams(), overrides: this._overrides, excluidos: [...this._excl], adicionados: this._adicionados })); } catch {} },
     _draftLoad() {
         try {
             const raw = localStorage.getItem('prev-draft');
-            if (raw) { const d = JSON.parse(raw); this._overrides = d.overrides || {}; this._excl = new Set((d.excluidos || []).map(String)); this._adicionados = d.adicionados || []; this._planoAtivo = d.planoAtivo || null; this._dirty = !!d.dirty; return; }
+            if (raw) { const d = JSON.parse(raw); this._overrides = d.overrides || {}; this._excl = new Set((d.excluidos || []).map(String)); this._adicionados = d.adicionados || []; this._planoAtivo = d.planoAtivo || null; this._dirty = !!d.dirty; if (d.params) this._setParams(d.params); return; }
             // migração do formato antigo (localStorage solto)
             this._overrides = JSON.parse(localStorage.getItem('soep-prev-ov') || '{}');
             this._excl = new Set(JSON.parse(localStorage.getItem('prev-excluidos') || '[]').map(String));
@@ -5164,6 +5176,20 @@ const previsao = {
     _getEdicoes() { return { overrides: this._overrides, excluidos: [...this._excl], adicionados: this._adicionados }; },
     _setEdicoes(e) { e = e || {}; this._overrides = e.overrides || {}; this._excl = new Set((e.excluidos || []).map(String)); this._adicionados = e.adicionados || []; },
     _marcarDirty() { this._dirty = true; this._draftSave(); this._renderBarraPlanos(); },
+    // Parâmetro da configuração mudou: marca não-salvo; recalcula (método/base/horizonte mudam o
+    // MODELO, não só a visão — antes trocar método sem CALCULAR mostrava IC/R² de outro método)
+    _paramMudou(recalc) {
+        this._marcarDirty();
+        if (recalc && vendas.rawData.length && this._forecast.length) this.calcular();
+        else this.render();
+    },
+    // Plano congelado é imutável (o servidor também rejeita com 409) — avisa e bloqueia a edição
+    _bloqueadoCongelado() {
+        if (!this._congelado) return false;
+        mostrarToast('Plano congelado 🔒 — descongele para editar.', 'aviso');
+        this.render();   // restaura o valor exibido (desfaz a digitação)
+        return true;
+    },
 
     // ── CRUD de planos ──
     async _carregarPlanos() {
@@ -5242,8 +5268,10 @@ const previsao = {
         this._refreshDownstream();   // se a Política já estiver aberta/calculada, recalcula com este plano
     },
     async _selecionarPlano(id) {
+        const seq = this._loadSeq = (this._loadSeq || 0) + 1;   // token anti-corrida: só a seleção mais recente aplica
         if (!id) { this._planoAtivo = null; this._congeladoSnap = null; this._setEdicoes({}); this._dirty = false; this._draftSave(); this.calcular(); this._renderBarraPlanos(); return; }
         const p = await api.get('/api/previsao-planos/' + id).catch(() => null);
+        if (seq !== this._loadSeq) return;   // usuário já trocou de plano enquanto este carregava — descarta
         if (!p || !p.id) { mostrarToast('Não consegui carregar o plano.', 'erro'); this._renderBarraPlanos(); return; }
         this._planoAtivo = p.id;
         this._setParams(p.params);
@@ -5318,6 +5346,7 @@ const previsao = {
     },
     _snapshotAtual() { const s = {}; (this._forecast || []).forEach(f => { s[`${f.mes}_${String(f.codigo).toUpperCase()}`] = f.qty; }); return s; },
     _adicionarSku() {
+        if (this._bloqueadoCongelado()) return;
         if (!vendas.rawData.length) { alert('Importe dados de Vendas primeiro.'); return; }
         const codigo = (prompt('Código do SKU a adicionar à previsão:') || '').trim(); if (!codigo) return;
         const cu = codigo.toUpperCase();
@@ -5489,6 +5518,8 @@ const previsao = {
         });
 
         this._forecast = forecast;
+        // Plano congelado = FOTO: nada entra além do que foi congelado (nem mês novo, nem SKU novo)
+        this._congelado = !!(this._congeladoSnap && Object.keys(this._congeladoSnap).length);
         // SKUs adicionados à mão (parte do plano): entram na tabela mesmo sem histórico de vendas
         (this._adicionados || []).forEach(a => {
             const cod = String(a.codigo || '').trim().toUpperCase(); if (!cod) return;
@@ -5503,8 +5534,13 @@ const previsao = {
                     ciLow: qty, ciHigh: qty, r2: null, metodo, _manual: true });
             });
         });
-        // Plano congelado: fixa os números na foto salva (mesmo recomputando a base)
-        if (this._congeladoSnap) this._forecast.forEach(f => { const k = `${f.mes}_${String(f.codigo).toUpperCase()}`; if (this._congeladoSnap[k] != null) { f.qty = this._congeladoSnap[k]; f.isOverride = true; } });
+        // Plano congelado: fixa os números na foto salva e DESCARTA o que não estava nela
+        // (mês/SKU novo mostraria número vivo sob o selo 🔒 — review). Snapshot vazio ≠ congelado.
+        if (this._congelado) {
+            this._forecast = this._forecast.filter(f => this._congeladoSnap[`${f.mes}_${String(f.codigo).toUpperCase()}`] != null);
+            this._forecast.forEach(f => { f.qty = this._congeladoSnap[`${f.mes}_${String(f.codigo).toUpperCase()}`]; f.isOverride = true; });
+            if (!this._forecast.length) mostrarToast('A foto congelada não cobre o horizonte atual — descongele (🔓) para recalcular.', 'aviso');
+        }
         this._renderSazonalidade(sIdx, nextMonths);
         this._populaSegFiltro();
         this.render();
@@ -5531,6 +5567,7 @@ const previsao = {
     },
 
     _setOverride(chave, cod, mes, val) {
+        if (this._bloqueadoCongelado()) return;
         const qty = Math.max(0, parseInt(val)||0);
         this._overrides[chave] = qty;
         this._saveOverrides();
@@ -5541,12 +5578,14 @@ const previsao = {
     // Exclusão de SKU da previsão (persistente) — o operador tira da lista quem não quer planejar
     _excluidosSet() { return this._excl; },
     _excluirSku(cod) {
+        if (this._bloqueadoCongelado()) return;
         this._excl.add(String(cod));
         this._marcarDirty();
         mostrarToast(`${cod} excluído da previsão. Clique "restaurar" para desfazer.`, 'aviso');
         this.render();
     },
     _restaurarExcluidos() {
+        if (this._bloqueadoCongelado()) return;
         this._excl = new Set();
         this._marcarDirty();
         mostrarToast('SKUs excluídos restaurados.', 'ok');
@@ -5560,6 +5599,7 @@ const previsao = {
         if (bar) bar.innerHTML = n ? `<button onclick="previsao._excluirSelecionados()" style="background:rgba(240,98,146,.12);border:1px solid #f06292;border-radius:6px;color:#f06292;cursor:pointer;font-size:.72rem;padding:3px 11px;font-weight:700;">🗑 Excluir selecionados (${n})</button>` : '';
     },
     _excluirSelecionados() {
+        if (this._bloqueadoCongelado()) return;
         const cods = [...document.querySelectorAll('.prev-sel:checked')].map(c => c.dataset.cod).filter(Boolean);
         if (!cods.length) return;
         cods.forEach(c => this._excl.add(String(c)));
@@ -5929,7 +5969,8 @@ const planoProducao = {
                 const qty = this._plano[`${this._mesSel}_${r.codigo}`] ?? r.qty;
                 if (qty>0) demMapa[r.codigo]=(demMapa[r.codigo]||0)+qty;
             });
-            const resultCap = toc.calcularComDemanda(demMapa);
+            const diasMes = await toc._calcDiasUteisDoMes(this._mesSel).catch(() => 22);   // mesma base do heatmap/capacidade
+            const resultCap = toc.calcularComDemanda(demMapa, diasMes);
             const sobrecarga = resultCap.filter(p => p.cargaMin>0 && p.util>=1);
             if (sobrecarga.length) {
                 const lista = sobrecarga.map(p=>`• ${p.nome}: ${(p.util*100).toFixed(0)}% utilização`).join('\n');
@@ -6075,23 +6116,28 @@ const planoProducao = {
         const barras = document.getElementById('plano-cap-barras');
         const mesLbl = document.getElementById('plano-cap-mes');
         if (!wrap||!barras||!this._mesSel||!banco.rawData.length) { if(wrap) wrap.style.display='none'; return; }
+        const mesRender = this._mesSel;   // anti-corrida: se o usuário trocar de mês durante o await, descarta este render
         const demMapa = {};
         previsao._forecast.filter(r=>r.mes===this._mesSel && !previsao._excluidosSet().has(String(r.codigo))).forEach(r=>{
             const qty = this._plano[`${this._mesSel}_${r.codigo}`]??r.qty;
             if (qty>0) demMapa[r.codigo]=(demMapa[r.codigo]||0)+qty;
         });
-        const res = toc.calcularComDemanda(demMapa);
+        // Dias úteis REAIS do mês (calendário + feriados) — mesma base do heatmap S&OP,
+        // senão o mesmo mês mostra % de capacidade diferente em cada tela (review A1)
+        const dias = await toc._calcDiasUteisDoMes(this._mesSel).catch(() => 22);
+        if (this._mesSel !== mesRender) return;
+        const res = toc.calcularComDemanda(demMapa, dias);
         const mesInfo = previsao._nextMonths.find(m=>m.mes===this._mesSel);
         if (mesLbl) mesLbl.textContent = mesInfo?.label?.toUpperCase()||'';
 
         // Quebra por tear Stoll (cadastro real de teares). O agregado de Tecelagem passa a vir DAÍ
         // (média ponderada dos teares), para bater com a quebra em vez de usar o OEE agregado da config.
         const cap = toc._getCap();
-        const dias = parseFloat(document.getElementById('toc-dias')?.value) || 22;
         const bancoMap = {};
         banco.rawData.forEach(r => { const cod = String(r.dados?.['Código'] ?? '').trim().toUpperCase(); if (cod) bancoMap[cod] = r.dados; });
         let mods = [];
         try { mods = await toc.calcularStoll(demMapa, bancoMap, dias, cap); } catch {}
+        if (this._mesSel !== mesRender) return;   // mês mudou durante o cálculo — o render mais novo cuida
         const temStoll  = mods.length > 0;
         const capTear   = mods.reduce((s,m)=> s + (isFinite(m.capMin)?m.capMin:0), 0);
         const cargaTear = mods.reduce((s,m)=> s + m.cargaMin, 0);
@@ -6226,19 +6272,30 @@ const politicaEstoque = {
             if (cod) estMap[cod] = (estMap[cod] || 0) + (Number(r.quantidade) || 0);
         });
 
-        this._rows = Object.entries(vendMap).map(([cod, info]) => {
+        // Universo = histórico de vendas ∪ previsão (senão SKU só-com-previsão — ex.: ➕ SKU
+        // adicionado à mão no plano — nunca ganharia política de estoque)
+        const univ = new Set(Object.keys(vendMap));
+        if (demPrevMap) Object.keys(demPrevMap).forEach(c => univ.add(c));
+        // descrição/segmento p/ SKUs sem venda: busca no forecast
+        const fcInfo = {};
+        if (demPrevMap) previsao._forecast.forEach(f => { const c = String(f.codigo).toUpperCase(); if (!fcInfo[c]) fcInfo[c] = { descricao: f.descricao || '', segmento: f.segmento || '' }; });
+
+        this._rows = [...univ].map(cod => {
+            const info   = vendMap[cod] || { porMes: {}, ...(fcInfo[cod] || { descricao: '', segmento: '' }) };
             const qtds   = months.map(mc => info.porMes[mc.key] || 0);  // M3: uma entrada por mês (não por linha)
             const n      = qtds.length;
             const ativos = qtds.filter(v => v > 0).length;
-            if (!ativos) return null;
+            const temPrev = demPrevMap && demPrevMap[cod] != null;
+            if (!ativos && !temPrev) return null;   // sem venda E sem previsão → fora
             const demHist  = qtds.reduce((s, v) => s + v, 0) / n;
             // Demanda média: prevista (plano ativo) se marcado e houver previsão p/ o SKU, senão histórica
-            const demMedia = (demPrevMap && demPrevMap[cod] != null) ? demPrevMap[cod] : demHist;
+            const demMedia = temPrev ? demPrevMap[cod] : demHist;
             if (demMedia < 1) return null;
-            // Desvio SEMPRE do histórico (variabilidade real de venda) — base honesta p/ o estoque de segurança
-            const desvPad = n > 1
+            // Desvio SEMPRE do histórico (variabilidade real de venda) — base honesta p/ o estoque de segurança.
+            // SKU sem histórico (só previsão): fallback conservador de 30% da demanda prevista.
+            const desvPad = ativos > 0 && n > 1
                 ? Math.sqrt(qtds.reduce((s, v) => s + (v - demHist) ** 2, 0) / (n - 1))
-                : demHist * 0.3;
+                : demMedia * 0.3;
 
             const abcClass     = abcMap[cod] || null;
             const z            = useAbc && abcClass ? zByClass[abcClass] : zBase;
@@ -6424,19 +6481,25 @@ const soepDash = {
 
     async salvarSnapshotAtual() {
         if (!previsao._forecast.length) { mostrarToast('Calcule a Previsão primeiro.','erro'); return; }
+        // Baseline congelado: mês que JÁ tem snapshot não é sobrescrito — senão re-clicar substitui a
+        // previsão original pela atual e o MAPE (previsto-no-início × real) perde o sentido (review A2)
+        const mesesJa = new Set((this._snapshots || []).map(s => s.mes));
         const porMes = {};
         previsao._forecast.forEach(r => {
             if (previsao._excluidosSet().has(String(r.codigo))) return;   // respeita exclusões do plano
+            if (mesesJa.has(r.mes)) return;
             if (!porMes[r.mes]) porMes[r.mes] = [];
             porMes[r.mes].push({ codigo: r.codigo, qty: r.qty });
         });
+        const pulados = [...new Set(previsao._forecast.map(r => r.mes))].filter(m => mesesJa.has(m)).length;
+        if (!Object.keys(porMes).length) { mostrarToast(`Todos os ${pulados} meses do horizonte já têm snapshot (baseline preservado). Para refazer um mês, exclua o snapshot dele primeiro.`, 'aviso'); return; }
         let total = 0;
         for (const [mes, items] of Object.entries(porMes)) {
             const r = await api.post('/api/soep-snapshot/bulk', { mes, items });
             if (r?.ok) total += r.total||0;
         }
         await this.carregarSnapshots();
-        mostrarToast(`✓ Snapshot salvo — ${total} SKUs × ${Object.keys(porMes).length} meses`);
+        mostrarToast(`✓ Snapshot salvo — ${total} SKUs × ${Object.keys(porMes).length} meses` + (pulados ? ` (${pulados} já congelado${pulados>1?'s':''}, preservado${pulados>1?'s':''})` : ''));
         if (this._abaAtiva === 'prev-real') this._renderPrevReal();
     },
 
@@ -6492,8 +6555,6 @@ const soepDash = {
             vendas.monthCols.forEach(mc => {
                 const qty = r[mc.key]||0;
                 if (!qty) return;
-                const mesKey = mc.year ? `${mc.year}-${String(vendas._ABBR_TO_NUM?.[mc.abbr]||'00').padStart(2,'0')}` : null;
-                // fallback: use abbr+year label to build YYYY-MM
                 const ano = mc.year || '';
                 const num = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'].indexOf(mc.abbr) + 1;
                 if (!ano || !num) return;
@@ -6600,7 +6661,7 @@ const soepDash = {
         row.style.display = '';
     },
 
-    _renderHorizonte6m() {
+    async _renderHorizonte6m() {
         const el = document.getElementById('soep-horizonte-est');
         if (!el) return;
         if (!previsao._nextMonths.length) {
@@ -6609,12 +6670,15 @@ const soepDash = {
         }
         const months    = previsao._nextMonths;
         const estInicial = estoque.rawData.reduce((s, r) => s + (Number(r.quantidade) || 0), 0);
+        // dias úteis reais por mês (cacheado após a 1ª chamada) — mesma base do heatmap
+        const diasPorMes = await Promise.all(months.map(m => toc._calcDiasUteisDoMes(m.mes).catch(() => 22)));
+        const exclSet = previsao._excluidosSet();
 
         let estAcc = estInicial;
-        const cols = months.map(m => {
+        const cols = months.map((m, mi) => {
             const dem  = previsao.getTotalMes(m.mes);
             const plan = Object.entries(planoProducao._plano)
-                .filter(([k]) => k.startsWith(m.mes + '_'))
+                .filter(([k]) => k.startsWith(m.mes + '_') && !exclSet.has(k.slice(m.mes.length + 1)))   // exclusões do plano valem aqui também
                 .reduce((s, [, v]) => s + (v || 0), 0);
             estAcc = estAcc + plan - dem;
             const cob = dem > 0 ? estAcc / dem : null;
@@ -6625,7 +6689,7 @@ const soepDash = {
             else                                     { status = 'OK';      cor = '#26a69a'; }
 
             const demMap  = previsao.getDemandaMapa(m.mes);
-            const procs   = banco.rawData.length ? toc.calcularComDemanda(demMap) : [];
+            const procs   = banco.rawData.length ? toc.calcularComDemanda(demMap, diasPorMes[mi]) : [];
             const comDados = procs.filter(p => p.util != null && p.cargaMin > 0);
             const maxUtil  = comDados.length ? Math.max(...comDados.map(p => p.util || 0)) : 0;
             const garNome  = comDados.sort((a, b) => (b.util || 0) - (a.util || 0))[0]?.nome || '—';
@@ -6694,6 +6758,7 @@ const soepDash = {
                 const us  = k.indexOf('_');
                 const mes = us >= 0 ? k.slice(0, us) : k;
                 const cod = us >= 0 ? k.slice(us + 1).toUpperCase() : '';
+                if (exclSet.has(cod)) return;   // exclusões do plano de previsão valem aqui também
                 const seg = codSegMap[cod];
                 if (seg) {
                     if (!planSeg[seg]) planSeg[seg] = {};
@@ -6705,7 +6770,7 @@ const soepDash = {
             const demSeg = {};
             previsao._forecast.forEach(r => {
                 if (previsao._excluidosSet().has(String(r.codigo))) return;   // respeita exclusões do plano
-                const seg = r.segmento || codSegMap[String(r.cod||'').toUpperCase()];
+                const seg = r.segmento || codSegMap[String(r.codigo||'').toUpperCase()];   // era r.cod (campo inexistente) — o fallback nunca funcionava
                 if (!seg) return;
                 if (!demSeg[seg]) demSeg[seg] = {};
                 demSeg[seg][r.mes] = (demSeg[seg][r.mes]||0) + (r.qty||0);
@@ -6780,7 +6845,7 @@ const soepDash = {
         const table = document.getElementById('soep-horizonte-table');
         if (!table||!previsao._nextMonths.length) return;
         const months = previsao._nextMonths;
-        const segs   = [...new Set(previsao._forecast.map(r=>r.segmento).filter(Boolean))].sort();
+        const segs   = [...new Set(previsao._forecast.filter(r=>!previsao._excluidosSet().has(String(r.codigo))).map(r=>r.segmento).filter(Boolean))].sort();
         const header = `<thead>
             <tr style="color:var(--text-dim);font-size:.68rem;letter-spacing:.08em;border-bottom:1px solid var(--border-color);">
                 <th style="padding:8px 12px;text-align:left;">SEGMENTO</th>
@@ -7007,7 +7072,16 @@ const soepDash = {
             if (p > 0) { receita += q * p; const cu = custos[cod]; if (cu > 0) { custoReal += q * cu; recComCusto += q * p; } }
         }));
         const margem = (recComCusto - custoReal) + (receita - recComCusto) * (margemPct / 100);
-        const proc = (toc._resultProcs || []).filter(p => !p.semDados).sort((a, b) => (b.util || 0) - (a.util || 0))[0];
+        // Gargalo VIVO da demanda do horizonte (antes usava o último resultado da tela TOC,
+        // que podia ser de outro mês/demanda). Demanda agregada ÷ dias agregados escala igual.
+        let proc = null;
+        if (banco.rawData.length && meses.length) {
+            const demAgg = {};
+            meses.forEach(m => { const dm = previsao.getDemandaMapa(m.mes); Object.entries(dm).forEach(([c, q]) => { demAgg[c] = (demAgg[c] || 0) + q; }); });
+            const diasAgg = meses.length * (parseFloat(document.getElementById('toc-dias')?.value) || 22);
+            proc = toc.calcularComDemanda(demAgg, diasAgg).filter(p => !p.semDados && p.cargaMin > 0).sort((a, b) => (b.util || 0) - (a.util || 0))[0] || null;
+        }
+        if (!proc) proc = (toc._resultProcs || []).filter(p => !p.semDados).sort((a, b) => (b.util || 0) - (a.util || 0))[0];
         const utilBase = proc ? (proc.util || 0) : null;
 
         // alavancas
@@ -7131,7 +7205,7 @@ const soepDash = {
         this._renderCiclo();
     },
 
-    _renderCiclo() {
+    async _renderCiclo() {
         const el = document.getElementById('soep-ciclo-content');
         if (!el) return;
         const c = this._cicloMes();
@@ -7139,9 +7213,16 @@ const soepDash = {
         // sinais automáticos
         const dados = vendas.rawData.length > 0 && (typeof estoque !== 'undefined' && estoque.rawData.length > 0) && (typeof op !== 'undefined' && op.rawData.length > 0);
         const demanda = previsao._forecast.length > 0;
-        const capOk = toc._resultProcs && toc._resultProcs.length > 0;
-        const gargalo = capOk ? toc._resultProcs.filter(p => !p.semDados).sort((a, b) => (b.util || 0) - (a.util || 0))[0] : null;
-        const capViavel = capOk ? !toc._resultProcs.some(p => !p.semDados && (p.util || 0) > 1) : null;
+        // Capacidade VIVA do mês do ciclo (antes usava o último resultado da tela TOC,
+        // que podia ser de outro mês/demanda — o passo 3 mostrava "viável" desatualizado)
+        let procsCiclo = toc._resultProcs || [];
+        if (demanda && banco.rawData.length) {
+            try { const diasC = await toc._calcDiasUteisDoMes(c.mes); procsCiclo = toc.calcularComDemanda(previsao.getDemandaMapa(c.mes), diasC); } catch {}
+        }
+        const capOk = procsCiclo.length > 0;
+        const comDadosC = capOk ? procsCiclo.filter(p => !p.semDados && p.cargaMin > 0) : [];
+        const gargalo = comDadosC.sort((a, b) => (b.util || 0) - (a.util || 0))[0] || null;
+        const capViavel = capOk ? !comDadosC.some(p => (p.util || 0) > 1) : null;
         const meta = parseFloat(localStorage.getItem('soep-meta-receita')) || 0;
         const temPlano = Object.keys(planoProducao._plano || {}).length > 0;
 
