@@ -799,9 +799,14 @@ app.post('/api/previsao-planos', auth, sigsEscrita, async (req, res) => {
     // as colunas presentes no payload — omitir = preservar no update.
     let stored = null;
     if (b.id) {
-        const { data: prev, error: e0 } = await supabase.from('previsao_plano').select('congelado,snapshot').eq('id', b.id).maybeSingle();
+        const { data: prev, error: e0 } = await supabase.from('previsao_plano').select('congelado,snapshot,atualizado_em').eq('id', b.id).maybeSingle();
         if (e0 && /schema cache|does not exist|relation/i.test(e0.message || '')) return res.status(503).json({ erro: PREV_503 });
         stored = prev;
+    }
+    // Trava otimista multi-usuário: se o plano mudou no banco depois que este cliente o carregou,
+    // rejeita em vez de sobrescrever silenciosamente as edições do outro (last-write-wins às cegas)
+    if (stored && b.base_atualizado_em && new Date(stored.atualizado_em).getTime() - new Date(b.base_atualizado_em).getTime() > 1500) {
+        return res.status(409).json({ erro: 'Outro usuário salvou este plano depois de você abri-lo. Recarregue o plano (troque para Base e volte) antes de salvar — suas edições continuam no rascunho deste navegador.' });
     }
     if (stored?.congelado) {
         // Plano CONGELADO é imutável no servidor (não só na tela):

@@ -5274,6 +5274,7 @@ const previsao = {
         if (seq !== this._loadSeq) return;   // usuário já trocou de plano enquanto este carregava — descarta
         if (!p || !p.id) { mostrarToast('Não consegui carregar o plano.', 'erro'); this._renderBarraPlanos(); return; }
         this._planoAtivo = p.id;
+        this._planoBaseTs = p.atualizado_em || null;   // versão carregada — trava otimista no salvar (multi-usuário)
         this._setParams(p.params);
         this._setEdicoes(p.edicoes);
         this._congeladoSnap = (p.congelado && p.snapshot && Object.keys(p.snapshot).length) ? p.snapshot : null;
@@ -5291,12 +5292,12 @@ const previsao = {
         let id = this._planoAtivo, nome = this._planos.find(x => x.id === id)?.nome;
         if (!id) { nome = (prompt('Nome do plano:') || '').trim(); if (!nome) return; }
         const body = { nome, params: this._getParams(), edicoes: this._getEdicoes() };
-        if (id) body.id = id;
+        if (id) { body.id = id; if (this._planoBaseTs) body.base_atualizado_em = this._planoBaseTs; }   // trava otimista
         const congAtual = this._planos.find(x => x.id === id);
         if (congAtual) { body.congelado = congAtual.congelado; if (congAtual.congelado && this._congeladoSnap) body.snapshot = this._congeladoSnap; }
         const r = await api.post('/api/previsao-planos', body).catch(() => null);
         if (!r?.ok) { mostrarToast(r?.erro || 'Erro ao salvar o plano.', 'erro'); return; }
-        this._planoAtivo = r.plano.id; this._dirty = false; this._draftSave();
+        this._planoAtivo = r.plano.id; this._planoBaseTs = r.plano.atualizado_em || null; this._dirty = false; this._draftSave();
         await this._carregarPlanos();
         this._ativarNaPolitica();
         mostrarToast(`Plano "${r.plano.nome}" salvo · ativo na Política.`, 'ok');
@@ -5309,7 +5310,7 @@ const previsao = {
     async _salvarPlanoComNome(nome) {
         const r = await api.post('/api/previsao-planos', { nome, params: this._getParams(), edicoes: this._getEdicoes() }).catch(() => null);
         if (!r?.ok) { mostrarToast(r?.erro || 'Erro ao criar o plano.', 'erro'); return; }
-        this._planoAtivo = r.plano.id; this._dirty = false; this._draftSave();
+        this._planoAtivo = r.plano.id; this._planoBaseTs = r.plano.atualizado_em || null; this._dirty = false; this._draftSave();
         await this._carregarPlanos();
         this._ativarNaPolitica();
         mostrarToast(`Plano "${nome}" criado · ativo na Política.`, 'ok');
@@ -5836,6 +5837,7 @@ const previsao = {
                     <th style="padding:8px 10px;text-align:right;">VIÉS</th>
                     <th style="padding:8px 10px;text-align:center;">MESES</th>
                     <th style="padding:8px 10px;text-align:center;">QUALIDADE</th>
+                    <th style="padding:8px 10px;text-align:center;" title="Aplica a correção do viés como ajuste (override) nos meses do horizonte deste SKU">CORRIGIR</th>
                 </tr></thead><tbody>
                 ${rows.map((r,i)=>{
                     const cor  = r.mape<=15?'#26a69a':r.mape<=30?'#ffca28':'#f06292';
@@ -5850,10 +5852,31 @@ const previsao = {
                         <td style="padding:6px 10px;text-align:right;font-size:.73rem;color:${viesCor};">${viesTxt}</td>
                         <td style="padding:6px 10px;text-align:center;color:var(--text-dim);">${r.meses}</td>
                         <td style="padding:6px 10px;text-align:center;font-size:.73rem;color:${cor};">${qual}</td>
+                        <td style="padding:6px 10px;text-align:center;">${viesAbs > 5
+                            ? `<button onclick="previsao._aplicarCorrecaoVies('${escJS(r.cod)}', ${r.vies.toFixed(2)})" title="Multiplica a previsão deste SKU por ${(1 - r.vies/100).toFixed(2)} (compensa o viés histórico)" style="background:transparent;border:1px solid var(--indigo-primary);border-radius:5px;color:var(--indigo-primary);cursor:pointer;font-size:.68rem;padding:2px 9px;">aplicar</button>`
+                            : '<span style="color:var(--text-dim);font-size:.68rem;">—</span>'}</td>
                     </tr>`;
                 }).join('')}
                 </tbody></table>
             </div>`;
+    },
+
+    // Correção de viés 1-clique: previsão nova = prevista × (1 − viés). Vira override (edição do
+    // plano) — nada é inventado, só a compensação do erro sistemático medido nos snapshots.
+    _aplicarCorrecaoVies(cod, viesPct) {
+        if (this._bloqueadoCongelado()) return;
+        const cu = String(cod).toUpperCase();
+        const fator = Math.max(0, 1 - viesPct / 100);
+        const linhas = this._forecast.filter(f => String(f.codigo).toUpperCase() === cu);
+        if (!linhas.length) { mostrarToast(`SKU ${cu} não está na previsão atual (calcule primeiro).`, 'aviso'); return; }
+        linhas.forEach(f => {
+            const novo = Math.round((f.rawQty ?? f.qty) * fator);
+            this._overrides[f.chave] = novo;
+            f.qty = novo; f.isOverride = true;
+        });
+        this._marcarDirty();
+        this.render();
+        mostrarToast(`✓ Viés de ${viesPct > 0 ? '+' : ''}${viesPct.toFixed(1)}% compensado em ${cu} (×${fator.toFixed(2)}) — salve o plano para manter.`, 'ok');
     },
 };
 
@@ -6108,7 +6131,23 @@ const planoProducao = {
                 </td>
             </tr>`;
         }).join('');
-        if (count) count.textContent = `${rows.length} SKUs`;
+        if (count) {
+            // Indicadores do mês: cobertura (plano ÷ demanda prevista) e attainment (realizado ÷ planejado)
+            const excl = previsao._excluidosSet();
+            let demTot = 0, planTot = 0, realTot = 0;
+            previsao._forecast.filter(r => r.mes === this._mesSel && !excl.has(String(r.codigo))).forEach(r => {
+                demTot += r.qty || 0;
+                const pl = this._plano[`${this._mesSel}_${r.codigo}`] || 0;
+                planTot += pl;
+                if (pl > 0) realTot += this._realizado?.[r.codigo]?.porMes?.[this._mesSel] || 0;
+            });
+            const cob = demTot > 0 && planTot > 0 ? Math.round(planTot / demTot * 100) : null;
+            const att = planTot > 0 && realTot > 0 ? Math.round(realTot / planTot * 100) : null;
+            const cobCor = cob === null ? '' : cob < 90 ? '#f06292' : cob < 100 ? '#ffca28' : '#26a69a';
+            count.innerHTML = `${rows.length} SKUs`
+                + (cob !== null ? ` · <span style="color:${cobCor};" title="Σ plano ÷ Σ demanda prevista do mês (plano ativo)">plano cobre ${cob}% da demanda</span>` : '')
+                + (att !== null ? ` · <span style="color:${att >= 95 ? '#26a69a' : att >= 80 ? '#ffca28' : '#f06292'};" title="Σ realizado (MES) ÷ Σ planejado — aderência ao plano">attainment ${att}%</span>` : '');
+        }
     },
 
     async _renderCapacidade() {
@@ -7197,11 +7236,28 @@ const soepDash = {
     _cicloSet(mes, st) { localStorage.setItem('soep-ciclo-' + mes, JSON.stringify(st)); },
     _cicloToggle(passo) { const m = this._cicloMes().mes; const st = this._cicloState(m); st[passo] = st[passo] || {}; st[passo].feito = !st[passo].feito; this._cicloSet(m, st); this._renderCiclo(); },
     _cicloDono(passo, val) { const m = this._cicloMes().mes; const st = this._cicloState(m); st[passo] = st[passo] || {}; st[passo].dono = val; this._cicloSet(m, st); },
-    _cicloAprovar() {
+    async _cicloAprovar() {
         const c = this._cicloMes(); const st = this._cicloState(c.mes);
+        if (!st.aprovado) {
+            // Gate honesto: se o gargalo do mês estoura, exige confirmação explícita (fica registrado que foi aprovado sabendo)
+            if (previsao._forecast.length && banco.rawData.length) {
+                try {
+                    const diasC = await toc._calcDiasUteisDoMes(c.mes);
+                    const estourados = toc.calcularComDemanda(previsao.getDemandaMapa(c.mes), diasC).filter(p => !p.semDados && p.cargaMin > 0 && (p.util || 0) > 1);
+                    if (estourados.length) {
+                        const lista = estourados.map(p => `• ${p.nome}: ${Math.round(p.util * 100)}%`).join('\n');
+                        if (!confirm(`⚠️ Capacidade excedida em ${estourados.length} processo(s):\n\n${lista}\n\nAprovar o plano-único MESMO ASSIM? (registre a contramedida nas ações do S&OP)`)) return;
+                        st.aprovadoComEstouro = estourados.map(p => ({ proc: p.nome, util: Math.round(p.util * 100) }));
+                    } else st.aprovadoComEstouro = null;
+                } catch {}
+            }
+        }
         st.aprovado = !st.aprovado; st.aprovadoEm = st.aprovado ? new Date().toISOString() : null;
         this._cicloSet(c.mes, st);
-        mostrarToast(st.aprovado ? `Plano de ${c.label} APROVADO (plano-único do mês). Congele o Plano de Produção para travar a versão.` : `Aprovação de ${c.label} desfeita.`, st.aprovado ? 'ok' : 'aviso');
+        // Baseline automático do MAPE: aprovar o consenso congela a previsão do horizonte
+        // (meses que já têm snapshot são preservados — sem disciplina manual)
+        if (st.aprovado && previsao._forecast.length) this.salvarSnapshotAtual().catch(() => {});
+        mostrarToast(st.aprovado ? `Plano de ${c.label} APROVADO (plano-único do mês). Baseline de acurácia congelado. Congele o Plano de Produção para travar a versão.` : `Aprovação de ${c.label} desfeita.`, st.aprovado ? 'ok' : 'aviso');
         this._renderCiclo();
     },
 
@@ -7871,7 +7927,8 @@ const preactor = {
                     const familiaT = this._getFamilia(ordem.dados);
                     let forceStartT = this._manualOverrides[`${ordem.codigo}_${pid}`];
                     if (forceStartT !== undefined) forceStartT = Math.min(Math.max(forceStartT, anteriorFim), nSemanas - 1);
-                    const startBase = forceStartT !== undefined ? forceStartT : Math.max(anteriorFim, firstAvailSem[id] || 0);
+                    // time fence: o replanejamento AUTOMÁTICO não coloca OP nova dentro da janela congelada (o manual já era bloqueado)
+                    const startBase = forceStartT !== undefined ? forceStartT : Math.max(anteriorFim, firstAvailSem[id] || 0, this._timeFence || 0);
                     const dl = this._deadlineIdx(ordem, semanas);
 
                     if (!aptos.length) {   // sem tear apto declarado → pendência visível, não aloca; cadeia segue
@@ -7911,7 +7968,7 @@ const preactor = {
 
                 let minRestante = tempoUn * qtyRest;
                 totalMinutos   += minRestante;
-                let semIdx = forceStart !== undefined ? forceStart : Math.max(anteriorFim, firstAvailSem[id] || 0);
+                let semIdx = forceStart !== undefined ? forceStart : Math.max(anteriorFim, firstAvailSem[id] || 0, this._timeFence || 0);   // time fence também no auto
 
                 // Debita setup na semana de início
                 if (setupMins > 0 && semIdx < nSemanas) {
