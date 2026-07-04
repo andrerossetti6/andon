@@ -4686,6 +4686,20 @@ const toc = {
             };
         });
 
+        // Tecelagem: capacidade REAL dos teares cadastrados (OEE por tear), não o OEE agregado da config.
+        // Sem isso o OEE órfão da capacidade_config falsearia a Tecelagem como gargalo.
+        const modsTec = await this.calcularStoll(demanda, bancoMap, dias, cap).catch(() => []);
+        if (modsTec.length) {
+            const capTear   = modsTec.reduce((s,m)=> s + (isFinite(m.capMin)?m.capMin:0), 0);
+            const cargaTear = modsTec.reduce((s,m)=> s + m.cargaMin, 0);
+            const tec = resultados.find(r => r.id === 'tecelagem');
+            if (tec && capTear > 0) {
+                tec.capMin = capTear; tec.capH = capTear/60;
+                tec.cargaMin = cargaTear; tec.cargaH = cargaTear/60;
+                tec.util = cargaTear / capTear; tec.semDados = cargaTear === 0;
+            }
+        }
+
         // Ordena por utilização decrescente
         const comDados = resultados.filter(r => !r.semDados).sort((a, b) => (b.util||0) - (a.util||0));
         const semDados = resultados.filter(r => r.semDados);
