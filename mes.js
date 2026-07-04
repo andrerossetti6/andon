@@ -171,7 +171,15 @@ const mf = {
         // preserva sessões otimistas (criadas offline, ainda não confirmadas pelo servidor) — não descarta o que está na fila
         const idsSrv = new Set(srv.map(s => s.id));
         const otimistas = (this._abertas || []).filter(s => s._pendente && !idsSrv.has(s.id));
-        this._abertas = [...otimistas, ...srv];
+        // preserva quantidades DIGITADAS mas ainda não salvas (o flush de uma NC/parada re-renderiza —
+        // sem isso o número que o operador estava digitando voltava ao valor do servidor)
+        const locais = new Map((this._abertas || []).map(s => [s.id, s]));
+        this._abertas = [...otimistas, ...srv.map(s => {
+            const loc = locais.get(s.id);
+            return (loc && loc._qtdDirty)
+                ? { ...s, qtd_boa: loc.qtd_boa, qtd_refugo: loc.qtd_refugo, qtd_retrabalho: loc.qtd_retrabalho, _qtdDirty: true }
+                : s;
+        })];
         await fila.salvarEstado('abertas', this._abertas);
         if (document.querySelector('#app-sidebar .active')?.dataset.mftab === 'apont') this.renderSessoes();
     },
@@ -1342,10 +1350,11 @@ const mf = {
         if (this._dup('iniciar')) return;  // trava duplo-toque
         localStorage.setItem('mf_last_oper', operId);  // lembra o operador para a próxima sessão
         const id = this._uuid();
+        const inicio = new Date().toISOString();   // hora REAL da captura — vai no payload; sem isso o sync offline gravava a hora do ENVIO (OEE/duração corrompidos)
         const c = this._cad;
         const etapaNome = (this._etapasFluxo || []).find(e => e.id === etapaId)?.nome || '';
         // estado otimista (mostra na hora, mesmo offline)
-        this._abertas.unshift({ id, datahora_inicio: new Date().toISOString(), qtd_boa:0, qtd_refugo:0, qtd_retrabalho:0,
+        this._abertas.unshift({ id, datahora_inicio: inicio, qtd_boa:0, qtd_refugo:0, qtd_retrabalho:0,
             op_id: opId, operador_id: operId, etapa_id: etapaId, etapa_nome: etapaNome,
             op: { numero: c.ops.find(o=>o.id===opId)?.numero || 'OP' },
             maquina: { codigo: c.maquinas.find(m=>m.id===maqId)?.codigo || '' },
@@ -1354,7 +1363,7 @@ const mf = {
             nao_conformidade: [], parada: [], _pendente: true });
         await fila.salvarEstado('abertas', this._abertas);
         this.renderSessoes();
-        await fila.enfileirar('POST', '/api/mf/apontamentos', { id, op_id: opId, maquina_id: maqId, operador_id: operId, turno_id: turnoId, etapa_id: etapaId, dispositivo_id: navigator.userAgent.slice(0, 60) });
+        await fila.enfileirar('POST', '/api/mf/apontamentos', { id, op_id: opId, maquina_id: maqId, operador_id: operId, turno_id: turnoId, etapa_id: etapaId, datahora_inicio: inicio, dispositivo_id: navigator.userAgent.slice(0, 60) });
         toast(navigator.onLine ? 'Sessão iniciada.' : 'Sessão iniciada (offline — na fila).', navigator.onLine ? 'ok' : 'aviso');
     },
 
@@ -1399,11 +1408,12 @@ const mf = {
         if (qb) a.qtd_boa = parseFloat(qb.value) || 0;
         if (qr) a.qtd_refugo = parseFloat(qr.value) || 0;
         if (qt) a.qtd_retrabalho = parseFloat(qt.value) || 0;
+        a._qtdDirty = true;   // digitado e ainda não salvo — o reconcile preserva
     },
 
     async salvarQtd(id) {
         const qtd = { qtd_boa: parseFloat($('mf-qb-' + id).value) || 0, qtd_refugo: parseFloat($('mf-qr-' + id).value) || 0, qtd_retrabalho: parseFloat($('mf-qt-' + id).value) || 0 };
-        const a = this._abertas.find(x => x.id === id); if (a) Object.assign(a, qtd);
+        const a = this._abertas.find(x => x.id === id); if (a) { Object.assign(a, qtd); a._qtdDirty = false; }
         await fila.salvarEstado('abertas', this._abertas);
         await fila.enfileirar('PUT', '/api/mf/apontamentos/' + id, { ...qtd });
         toast(navigator.onLine ? 'Quantidades salvas.' : 'Salvo na fila (offline).', navigator.onLine ? 'ok' : 'aviso');
@@ -1418,7 +1428,7 @@ const mf = {
         await fila.salvarEstado('abertas', this._abertas);
         this.renderSessoes();
         await fila.enfileirar('PUT', '/api/mf/apontamentos/' + id, { ...qtd });
-        await fila.enfileirar('PUT', '/api/mf/apontamentos/' + id, { fechar: true, avancar });
+        await fila.enfileirar('PUT', '/api/mf/apontamentos/' + id, { fechar: true, avancar, datahora_fim: new Date().toISOString() });   // hora real do fechamento (não a do sync)
         toast(navigator.onLine ? (avancar ? 'Sessão fechada e OP avançada no fluxo.' : 'Sessão fechada.') : 'Fechada (offline — na fila).', navigator.onLine ? 'ok' : 'aviso');
     },
 
@@ -1438,12 +1448,13 @@ const mf = {
     async salvarParada(apId) {
         const motivo_id = $('mf-mot').value, observacao = $('mf-mot-obs').value || null;
         if (!motivo_id) return toast('Selecione o motivo.', 'erro');
-        if (this._dup('parada')) return;  // trava duplo-toque
+        if (this._dup('parada:' + apId)) return;  // trava duplo-toque (por sessão — não bloqueia parada de outra sessão)
         const id = this._uuid();
+        const inicio = new Date().toISOString();   // hora real da parada, não a do sync
         const a = this._abertas.find(x => x.id === apId); if (a) { (a.parada = a.parada || []).push({ id, datahora_fim: null }); }
         await fila.salvarEstado('abertas', this._abertas);
         this._fecharModal(); this.renderSessoes();
-        await fila.enfileirar('POST', '/api/mf/paradas', { id, apontamento_id: apId, motivo_id, observacao });
+        await fila.enfileirar('POST', '/api/mf/paradas', { id, apontamento_id: apId, motivo_id, observacao, datahora_inicio: inicio });
         toast(navigator.onLine ? 'Parada registrada.' : 'Parada na fila (offline).', navigator.onLine ? 'ok' : 'aviso');
     },
 
@@ -1528,10 +1539,12 @@ const mf = {
     },
     _previewFoto(ev) {
         const f = ev.target.files?.[0]; if (!f) return;
-        this._comprimirFoto(f).then(d => { const img = $('mf-nc-prev'); img.src = d.url; img.style.display = 'block'; this._fotoData = d; });
+        this._comprimirFoto(f)
+            .then(d => { const img = $('mf-nc-prev'); img.src = d.url; img.style.display = 'block'; this._fotoData = d; })
+            .catch(() => { this._fotoData = null; ev.target.value = ''; toast('Não consegui ler esta imagem (formato não suportado — use JPG/PNG). A NC pode ser salva sem foto.', 'erro'); });
     },
     _comprimirFoto(file) {
-        return new Promise(resolve => {
+        return new Promise((resolve, reject) => {
             const img = new Image();
             img.onload = () => {
                 const max = 1024, sc = Math.min(1, max / Math.max(img.width, img.height));
@@ -1541,6 +1554,7 @@ const mf = {
                 const url = cv.toDataURL('image/jpeg', 0.7);
                 resolve({ url, w, h, bytes: Math.round(url.length * 0.75), nome: file.name });
             };
+            img.onerror = () => reject(new Error('formato'));   // ex.: HEIC não decodificável — antes travava sem feedback e a NC subia sem foto
             img.src = URL.createObjectURL(file);
         });
     },
@@ -1548,14 +1562,17 @@ const mf = {
         const qtd = parseFloat($('mf-nc-qtd').value);
         if (!qtd || qtd <= 0) return toast('Quantidade afetada deve ser > 0.', 'erro');
         if (!$('mf-nc-def')?.value) return toast('Selecione o defeito (catálogo).', 'erro');  // M8: NC é sempre do catálogo
-        if (this._dup('nc')) return;  // trava duplo-toque
+        if (this._dup('nc:' + apId)) return;  // trava duplo-toque (por sessão)
         const ncId = this._uuid();
         const foto = this._fotoData;
         const a = this._abertas.find(x => x.id === apId); if (a) (a.nao_conformidade = a.nao_conformidade || []).push({ id: ncId });
+        // unidade da NC = unidade da OP/sessão (era 'kg' fixo — misturava kg com pc no CNQ/Pareto)
+        const opNc = a && this._cad.ops.find(o => o.id === a.op_id);
         await fila.salvarEstado('abertas', this._abertas);
         // NC primeiro, foto depois (a fila respeita a ordem → foto só sobe após a NC existir)
         await fila.enfileirar('POST', '/api/mf/ncs', {
-            id: ncId, apontamento_id: apId, defeito_id: $('mf-nc-def').value, qtd_afetada: qtd, unidade: 'kg',
+            id: ncId, apontamento_id: apId, defeito_id: $('mf-nc-def').value, qtd_afetada: qtd, unidade: opNc?.unidade || 'kg',
+            datahora: new Date().toISOString(),   // hora real do registro (não a do sync — a janela de recorrência do RNC depende disso)
             disposicao: $('mf-nc-disp').value, posicao: $('mf-nc-pos').value || null, causa_preliminar: $('mf-nc-causa').value || null,
         });
         if (foto) {

@@ -1506,12 +1506,28 @@ app.post('/api/mf/apontamentos', auth, mfEscrita, async (req, res) => {
 app.put('/api/mf/apontamentos/:id', auth, mfEscrita, async (req, res) => {
     const updates = {};
     ['qtd_boa','qtd_refugo','qtd_retrabalho','datahora_fim','sincronizado_em','etapa_id'].forEach(f => { if (req.body[f] !== undefined) updates[f] = req.body[f]; });
-    if (req.body.fechar && !updates.datahora_fim) updates.datahora_fim = new Date().toISOString();
-    const { data, error } = await supabase.from('apontamento').update(updates).eq('id', req.params.id).select().single();
-    if (error) return erro500(res, error);
+    // Estado atual ANTES do update: (a) protege a contagem automática da máquina — formulário
+    // zerado não apaga qtd_boa que o gateway/CLP acumulou; (b) torna fechar+avançar idempotente —
+    // o retry da fila offline não avança a OP duas etapas.
+    const { data: atual, error: eAtu } = await supabase.from('apontamento').select('qtd_boa,datahora_fim,op_id').eq('id', req.params.id).maybeSingle();
+    if (eAtu) return erro500(res, eAtu);
+    if (!atual) return res.status(404).json({ erro: 'Apontamento não encontrado.' });
+    const jaFechada = !!atual.datahora_fim;
+    if (req.body.fechar && !updates.datahora_fim && !jaFechada) updates.datahora_fim = new Date().toISOString();
+    if (req.body.fechar && jaFechada) delete updates.datahora_fim;   // retry do fechamento não move a hora original (correção manual sem `fechar` continua permitida)
+    if (updates.qtd_boa !== undefined && Number(updates.qtd_boa) === 0 && Number(atual.qtd_boa) > 0) delete updates.qtd_boa;
+    let data = null;
+    if (Object.keys(updates).length) {
+        const r = await supabase.from('apontamento').update(updates).eq('id', req.params.id).select().single();
+        if (r.error) return erro500(res, r.error);
+        data = r.data;
+    } else {
+        const r = await supabase.from('apontamento').select('*').eq('id', req.params.id).single();
+        data = r.data;
+    }
     let avanco = null;
-    // ao fechar concluindo a etapa, avança a OP no fluxo (move o ponteiro etapa_atual)
-    if (req.body.avancar && data?.op_id) {
+    // avança no fluxo só na PRIMEIRA vez que a sessão fecha (retry não pula etapa)
+    if (req.body.avancar && data?.op_id && !jaFechada) {
         try { const r = await avancarOpFluxo(data.op_id); if (!r.erro) avanco = r; }
         catch { /* fluxo ausente — sessão já fechada, segue */ }
     }
@@ -1520,7 +1536,10 @@ app.put('/api/mf/apontamentos/:id', auth, mfEscrita, async (req, res) => {
 
 // indicador de adoção do apontamento (hoje): sessões, máquinas e operadores ativos
 app.get('/api/mf/adocao', auth, async (_q, res) => {
-    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    // "hoje" no fuso da fábrica (America/Sao_Paulo) — meia-noite do servidor (UTC) começaria 21h
+    // da véspera no Brasil, misturando o turno da noite anterior na contagem do dia
+    const dataSP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    const hoje = new Date(dataSP + 'T00:00:00-03:00');
     const [apsR, maqsR] = await Promise.all([
         supabase.from('apontamento').select('maquina_id,operador_id').gte('datahora_inicio', hoje.toISOString()),
         supabase.from('maquina').select('id').eq('ativo', true),
@@ -1569,9 +1588,18 @@ async function mfAvaliarGatilhos(nc, defeito) {
             }
         } else if (g.tipo === 'recorrencia' && g.unidade_limiar === 'ocorrencias') {
             const desde = new Date(Date.now() - (Number(g.janela_horas) || 24) * 3600 * 1000).toISOString();
-            const { count } = await supabase.from('nao_conformidade').select('id', { count: 'exact', head: true })
-                .eq('defeito_id', nc.defeito_id).gte('datahora', desde);
-            if ((count || 0) >= Number(g.limiar)) return true;
+            // escopo correto: gatilho por CATEGORIA conta todos os defeitos da categoria (antes só contava o defeito atual)
+            let qc = supabase.from('nao_conformidade').select('id', { count: 'exact', head: true }).gte('datahora', desde);
+            if (g.defeito_id) qc = qc.eq('defeito_id', g.defeito_id);
+            else if (g.categoria) {
+                const { data: defsCat } = await supabase.from('catalogo_defeito').select('id').eq('categoria', g.categoria);
+                const ids = (defsCat || []).map(d => d.id);
+                if (!ids.length) continue;
+                qc = qc.in('defeito_id', ids);
+            } else qc = qc.eq('defeito_id', nc.defeito_id);
+            const { count } = await qc;
+            // +1 = a NC atual (o gatilho roda ANTES do insert; sem isso disparava uma ocorrência atrasado)
+            if ((count || 0) + 1 >= Number(g.limiar)) return true;
         }
     }
     return false;
@@ -1683,23 +1711,32 @@ app.post('/api/mf/fotos', auth, mfEscrita, async (req, res) => {
     if (!/^[0-9a-f-]{36}$/i.test(String(b.nc_id))) return res.status(400).json({ erro: 'nc_id inválido' });  // M12: bloqueia path traversal na chave do Storage
     let urlFinal = b.url, tamanho = b.tamanho_bytes || null;
     // data URL (base64) → upload ao Storage privado; guarda só o CAMINHO
-    const m = /^data:(image\/\w+);base64,(.+)$/s.exec(b.url || '');
+    const m = /^data:(image\/[\w.+-]+);base64,(.+)$/s.exec(b.url || '');
+    let caminhoUpload = null;
     if (m) {
-        const mime = m[1], buffer = Buffer.from(m[2], 'base64');
+        const mime = m[1];
+        if (!/^image\/(jpe?g|png|webp)$/i.test(mime)) return res.status(400).json({ erro: 'Formato de imagem não suportado — use JPG, PNG ou WebP.' });
+        const buffer = Buffer.from(m[2], 'base64');
+        if (buffer.length > 5 * 1024 * 1024) return res.status(413).json({ erro: 'Foto acima de 5 MB — tire novamente (a compressão do app deve reduzir).' });
         const ext = mime.split('/')[1].replace('jpeg', 'jpg');
         const nomeBase = /^[a-z0-9-]{1,40}$/i.test(String(b.id)) ? b.id : Date.now();  // M12: sanitiza o nome
         const caminho = `nc/${b.nc_id}/${nomeBase}.${ext}`;
         const { error: upErr } = await supabase.storage.from(MF_BUCKET).upload(caminho, buffer, { contentType: mime, upsert: true });
-        if (upErr) return res.status(500).json({ erro: 'Falha no upload da foto: ' + upErr.message });
+        if (upErr) return erro500(res, upErr, 'foto upload');
         urlFinal = caminho;  // caminho, não URL pública
         tamanho = buffer.length;
+        caminhoUpload = caminho;
     }
     const row = { nc_id: b.nc_id, url: urlFinal, nome_arquivo: b.nome_arquivo || null,
         tamanho_bytes: tamanho, largura_px: b.largura_px || null, altura_px: b.altura_px || null,
         capturada_em: b.capturada_em || new Date().toISOString(), metadados: b.metadados || null };
     if (b.id) row.id = b.id;
     const { data, error } = await supabase.from('foto').upsert(row).select().single();
-    if (error) return erro500(res, error);
+    if (error) {
+        // não deixa objeto órfão no Storage se a linha não gravou (ex.: nc_id inexistente)
+        if (caminhoUpload) await supabase.storage.from(MF_BUCKET).remove([caminhoUpload]).catch(() => {});
+        return erro500(res, error);
+    }
     res.json({ ok: true, foto: data });
 });
 
@@ -2356,7 +2393,7 @@ async function mfMetricas() {
         supabase.from('vw_cil_cumprimento').select('pct_cumprimento'),
         supabase.from('vw_mtbf').select('mtbf_horas'),
         supabase.from('vw_mttr').select('mttr_min'),
-        supabase.from('apontamento').select('qtd_boa,qtd_refugo,qtd_retrabalho'),
+        fetchAllSelect('apontamento', 'qtd_boa,qtd_refugo,qtd_retrabalho').then(rows => ({ data: rows })),  // paginado — o cap de 1000 linhas silencioso corrompia o FPY
     ]);
     const avg = (arr, k) => { const v = (arr || []).map(x => x[k]).filter(x => x != null); return v.length ? Math.round(v.reduce((s, x) => s + Number(x), 0) / v.length * 10) / 10 : null; };
     const oeeVals = (oee.data || []).map(o => o.oee).filter(v => v != null);

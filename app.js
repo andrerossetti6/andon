@@ -8419,13 +8419,16 @@ const preactor = {
         if (!r) { alvo.innerHTML = '<div class="summary-card" style="color:#f06292;padding:14px;">Erro ao calcular — tente de novo.</div>'; return; }
         if (!r.encontrado) { alvo.innerHTML = `<div class="summary-card" style="color:#ffca28;padding:14px;">Produto <strong>${escHTML(cod)}</strong> não encontrado no cadastro do MES.</div>`; return; }
         const dProm = r.data_promessa ? new Date(r.data_promessa + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
-        const cumpre = r.cumpre === null ? '' : (r.cumpre
-            ? `<span style="color:#26a69a;font-weight:700;">✓ cumpre o desejado</span>`
-            : `<span style="color:#f06292;font-weight:700;">✗ NÃO cumpre (${new Date(r.data_desejada + 'T12:00:00').toLocaleDateString('pt-BR')})</span>`);
+        // Sem tempo-padrão a data não vale — não mostra "✓ cumpre" verde ao lado de "NÃO confiável" (sinais contraditórios)
+        const cumpre = (r.cumpre === null || !r.confiavel)
+            ? (!r.confiavel && r.cumpre !== null ? `<span style="color:#ffca28;font-weight:700;">? indeterminado (sem tempo-padrão)</span>` : '')
+            : (r.cumpre
+                ? `<span style="color:#26a69a;font-weight:700;">✓ cumpre o desejado</span>`
+                : `<span style="color:#f06292;font-weight:700;">✗ NÃO cumpre (${new Date(r.data_desejada + 'T12:00:00').toLocaleDateString('pt-BR')})</span>`);
         const cor = r.confiavel ? '#26a69a' : '#ffca28';
         let html = `<div class="summary-card" style="margin-bottom:14px;border-left:3px solid ${cor};">
             <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center;">
-                <div><div style="font-size:1.7rem;font-weight:800;color:${cor};">${dProm}</div>
+                <div><div style="font-size:1.7rem;font-weight:800;color:${cor};">${r.confiavel ? dProm : dProm + ' ?'}</div>
                     <div style="font-size:.66rem;color:var(--text-dim);">DATA FACTÍVEL · ${r.dias_uteis} dias úteis</div></div>
                 <div style="font-size:.82rem;">${escHTML(r.produto.descricao || r.produto.codigo)} · <strong>${r.qtd.toLocaleString('pt-BR')}</strong> un · gargalo: <strong>${escHTML(r.etapa_gargalo || '—')}</strong></div>
                 <div style="margin-left:auto;">${cumpre}</div>
