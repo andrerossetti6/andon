@@ -4741,18 +4741,19 @@ const toc = {
     },
 
     // Cálculo puro da tecelagem por modelo Stoll (reusado pelo TOC e pelo Plano de Produção).
-    // Capacidade por modelo = teares cadastrados × h/dia × OEE; carga = tempo × qty do 1º modelo apto (coluna Stoll).
+    // Capacidade por modelo = teares cadastrados × h/dia × OEE do PROCESSO (cadastro de capacidade,
+    // fonte única); carga = tempo × qty do 1º modelo apto (coluna Stoll).
     async calcularStoll(demanda, bancoMap, dias, cap) {
         const maquinas = await this._loadMaquinasTecelagem();
         if (!maquinas.length) return [];
         const tecProc  = this._PROCS.find(p => p.id === 'tecelagem');
         const horasDia = (cap?.tecelagem?.horasDia) || 8;
+        const oeeProc  = Math.min((cap?.tecelagem?.oee ?? 100), 100) / 100;   // OEE vem do Processo (não do padrão do tear)
         const capModelo = {}; // modelo → { mins, n }
         maquinas.forEach(m => {
             const modelo = this._normModelo(m.modelo) || '(sem modelo)';
-            const oee = Math.min(m.oee == null ? 100 : Number(m.oee), 100) / 100;
             if (!capModelo[modelo]) capModelo[modelo] = { mins: 0, n: 0 };
-            capModelo[modelo].mins += horasDia * 60 * dias * oee;
+            capModelo[modelo].mins += horasDia * 60 * dias * oeeProc;
             capModelo[modelo].n++;
         });
         const cargaModelo = {}; // modelo → { mins, skus }
