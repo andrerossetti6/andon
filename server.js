@@ -54,8 +54,16 @@ async function batchInsert(tabela, importacaoTabela, importacaoId, rows, batchSi
 }
 
 app.set('trust proxy', 1);   // atrás de proxy (Render etc.): req.ip = IP real do cliente, não o do proxy — senão o rate-limit do login pune/derruba todo mundo junto
-app.use(cors());
-app.use(express.json({ limit: '20mb' }));
+// CORS: front e API são a MESMA origem (mesmo host:porta, inclusive tablets via IP da LAN) e
+// gateways de máquina são server-to-server (CORS não se aplica). Só liberamos cross-origin se
+// ALLOWED_ORIGINS for definido no .env (CSV) — antes era cors() aberto p/ qualquer site.
+const origensPermitidas = String(process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
+if (origensPermitidas.length) app.use(cors({ origin: origensPermitidas }));
+// JSON: 1 MB por padrão; 25 MB só nas rotas que realmente recebem volume (planilhas de import,
+// foto de NC em dataURL, staging do legado) — um body de 20 MB no /login era DoS barato pré-auth
+const jsonPequeno = express.json({ limit: '1mb' });
+const jsonGrande  = express.json({ limit: '25mb' });
+app.use((req, res, next) => (/\/import|\/lote$|\/bulk$|^\/api\/mf\/(fotos|importar|etiquetas)/.test(req.path) ? jsonGrande : jsonPequeno)(req, res, next));
 
 // ── Cabeçalhos de segurança (defesa em profundidade) ─────────────────────────
 // CSP: o front usa MUITO onclick inline + <script> inline, então script-src PRECISA de
@@ -149,6 +157,28 @@ function mfMaquinaAuth(req, res, next) {
 function erro500(res, e, ctx) {
     console.error('[500]' + (ctx ? ' ' + ctx : ''), e?.message || e);
     return res.status(500).json({ erro: 'Erro interno no servidor. Tente novamente.' });
+}
+
+// Incremento/decremento com CAS (compare-and-set): UPDATE ... WHERE campo = valor_lido.
+// Sem isso, duas gravações simultâneas (contador da máquina × formulário, dois consumos do
+// mesmo lote) liam o mesmo valor-base e uma sobrescrevia a outra (lost update).
+async function casDelta(tabela, id, campo, delta, { min0 = false, tentativas = 10 } = {}) {
+    for (let t = 0; t < tentativas; t++) {
+        if (t > 0) await new Promise(r => setTimeout(r, 15 + Math.random() * 60 * t));   // backoff com jitter: rajada de contador não esgota as tentativas
+        const { data: cur, error: e1 } = await supabase.from(tabela).select(campo).eq('id', id).maybeSingle();
+        if (e1) return { error: e1 };
+        if (!cur) return { naoEncontrado: true };
+        const lido = cur[campo];
+        let novo = Number(lido || 0) + delta;
+        if (min0) novo = Math.max(0, novo);
+        let q = supabase.from(tabela).update({ [campo]: novo }).eq('id', id);
+        q = (lido === null || lido === undefined) ? q.is(campo, null) : q.eq(campo, lido);
+        const { data, error } = await q.select('id');
+        if (error) return { error };
+        if (data?.length) return { novo };   // gravou sobre o valor que leu — sem corrida
+        // outro processo gravou no meio: relê e tenta de novo
+    }
+    return { error: new Error(`concorrência persistente em ${tabela}.${campo}`) };
 }
 
 // rate-limit simples do login (em memória): 5 falhas → 15 min de bloqueio por IP — M18
@@ -328,7 +358,7 @@ app.get('/api/vendas', auth, async (req, res) => {
             from += PAGE;
         }
         res.json(all);
-    } catch (e) { res.status(500).json({ erro: 'Erro ao buscar dados: ' + e.message }); }
+    } catch (e) { erro500(res, e, 'buscar dados'); }
 });
 
 // ── GET /api/importacoes-estoque ─────────────────────────────
@@ -354,7 +384,7 @@ app.post("/api/estoque/import", auth, adminOnly, async (req, res) => {
         .select().single();
     if (errImp) {
         console.error('Erro importacoes_estoque:', errImp.message);
-        return res.status(500).json({ erro: errImp.message });
+        return erro500(res, errImp, 'criar importação');
     }
 
     const rows = linhas.map(l => ({
@@ -374,7 +404,7 @@ app.get('/api/estoque', auth, async (req, res) => {
     const { importacao_id } = req.query;
     if (!importacao_id) return res.json([]);
     try { res.json(await fetchAllRows('estoque', importacao_id)); }
-    catch (e) { res.status(500).json({ erro: 'Erro ao buscar estoque: ' + e.message }); }
+    catch (e) { erro500(res, e, 'buscar estoque'); }
 });
 
 // ── DELETE /api/importacoes-estoque/:id ───────────────────────
@@ -407,7 +437,7 @@ app.post("/api/op/import", auth, adminOnly, async (req, res) => {
         .select().single();
     if (errImp) {
         console.error('Erro importacoes_op:', errImp.message);
-        return res.status(500).json({ erro: errImp.message });
+        return erro500(res, errImp, 'criar importação');
     }
 
     const rows = linhas.map(l => ({ importacao_id: imp.id, dados: l.dados || {} }));
@@ -421,7 +451,7 @@ app.get('/api/op', auth, async (req, res) => {
     const { importacao_id } = req.query;
     if (!importacao_id) return res.json([]);
     try { res.json(await fetchAllRows('dados_op', importacao_id)); }
-    catch (e) { res.status(500).json({ erro: 'Erro ao buscar ordens: ' + e.message }); }
+    catch (e) { erro500(res, e, 'buscar ordens'); }
 });
 // Integração Fase 2: ordem_producao (MES) no MESMO formato que o SIGS lê de
 // dados_op ({id, dados:{'N. OP','Ref','Descrição','Cor','Tam','Marca','Qtd','Status'}}).
@@ -435,7 +465,7 @@ app.get('/api/op-unificado', auth, async (req, res) => {
                 q => q.neq('status', 'cancelada').neq('status', 'concluida')),
             fetchAllSelect('produto', 'id,codigo,descricao,cor,marca,tamanho'),
         ]);
-    } catch (e) { return res.status(500).json({ erro: e.message }); }
+    } catch (e) { return erro500(res, e); }
     const pById = new Map((prods || []).map(p => [p.id, p]));
     const rows = (ops || []).map(o => {
         const p = pById.get(o.produto_id) || {};
@@ -483,7 +513,7 @@ app.post("/api/costura/import", auth, adminOnly, async (req, res) => {
         .select().single();
     if (errImp) {
         console.error('Erro importacoes_costura:', errImp.message);
-        return res.status(500).json({ erro: errImp.message });
+        return erro500(res, errImp, 'criar importação');
     }
 
     const rows = linhas.map(l => ({ importacao_id: imp.id, dados: l.dados || {} }));
@@ -497,7 +527,7 @@ app.get('/api/costura', auth, async (req, res) => {
     const { importacao_id } = req.query;
     if (!importacao_id) return res.json([]);
     try { res.json(await fetchAllRows('dados_costura', importacao_id)); }
-    catch (e) { res.status(500).json({ erro: 'Erro ao buscar costura: ' + e.message }); }
+    catch (e) { erro500(res, e, 'buscar costura'); }
 });
 
 // ── DELETE /api/importacoes-costura/:id ──────────────────────
@@ -530,7 +560,7 @@ app.post("/api/cliente/import", auth, adminOnly, async (req, res) => {
         .select().single();
     if (errImp) {
         console.error('Erro importacoes_cliente:', errImp.message);
-        return res.status(500).json({ erro: errImp.message });
+        return erro500(res, errImp, 'criar importação');
     }
 
     const rows = linhas.map(l => ({ importacao_id: imp.id, dados: l.dados || {} }));
@@ -544,7 +574,7 @@ app.get('/api/cliente', auth, async (req, res) => {
     const { importacao_id } = req.query;
     if (!importacao_id) return res.json([]);
     try { res.json(await fetchAllRows('dados_cliente', importacao_id)); }
-    catch (e) { res.status(500).json({ erro: 'Erro ao buscar cliente: ' + e.message }); }
+    catch (e) { erro500(res, e, 'buscar cliente'); }
 });
 
 // ── DELETE /api/importacoes-cliente/:id ──────────────────────
@@ -577,7 +607,7 @@ app.post("/api/banco/import", auth, adminOnly, async (req, res) => {
         .select().single();
     if (errImp) {
         console.error('Erro importacoes_banco:', errImp.message);
-        return res.status(500).json({ erro: errImp.message });
+        return erro500(res, errImp, 'criar importação');
     }
 
     const rows = linhas.map(l => ({ importacao_id: imp.id, dados: l.dados || {} }));
@@ -591,7 +621,7 @@ app.get('/api/banco', auth, async (req, res) => {
     const { importacao_id } = req.query;
     if (!importacao_id) return res.json([]);
     try { res.json(await fetchAllRows('dados_banco', importacao_id)); }
-    catch (e) { res.status(500).json({ erro: 'Erro ao buscar banco: ' + e.message }); }
+    catch (e) { erro500(res, e, 'buscar banco'); }
 });
 
 // ── DELETE /api/importacoes-banco/:id ────────────────────────
@@ -638,11 +668,17 @@ app.get('/api/soep-snapshot', auth, async (_req, res) => {
 app.post('/api/soep-snapshot/bulk', auth, sigsEscrita, async (req, res) => {
     const { mes, items } = req.body;
     if (!mes || !Array.isArray(items) || !items.length) return res.status(400).json({ erro: 'mes e items obrigatórios' });
-    // Remove snapshot anterior do mesmo mês e recria
+    // Remove snapshot anterior do mesmo mês e recria — com BACKUP: se o insert falhar, restaura
+    // (delete+insert sem transação perdia o baseline do mês inteiro numa falha parcial)
+    const rows = items.filter(i => i.codigo != null && String(i.codigo).trim()).map(i => ({ mes, codigo: String(i.codigo).toUpperCase(), qty_prevista: i.qty||0, usuario_id: req.usuario.id }));
+    if (!rows.length) return res.status(400).json({ erro: 'nenhum item com código válido' });
+    const { data: backup } = await supabase.from('soep_snapshot').select('mes,codigo,qty_prevista,usuario_id').eq('mes', mes);
     await supabase.from('soep_snapshot').delete().eq('mes', mes);
-    const rows = items.map(i => ({ mes, codigo: String(i.codigo).toUpperCase(), qty_prevista: i.qty||0, usuario_id: req.usuario.id }));
     const { error } = await supabase.from('soep_snapshot').insert(rows);
-    if (error) return erro500(res, error);
+    if (error) {
+        if (backup?.length) await supabase.from('soep_snapshot').insert(backup).then(() => {}, () => {});
+        return erro500(res, error);
+    }
     res.json({ ok: true, total: rows.length });
 });
 app.delete('/api/soep-snapshot/:mes', auth, adminOnly, async (req, res) => {
@@ -891,15 +927,24 @@ app.post('/api/feriados/lote', auth, sigsEscrita, async (req, res) => {
     if (!Array.isArray(feriados) || !feriados.length)
         return res.status(400).json({ erro: 'Dados inválidos' });
     const rows = feriados.map(f => ({ data: f.data, nome: f.nome, tipo: f.tipo || 'Nacional' }));
-    // Remove feriados do mesmo ano antes de reinserir (evita duplicatas)
+    // Remove feriados do mesmo ano antes de reinserir (evita duplicatas) — com BACKUP p/ restaurar em falha
     const ano = rows[0]?.data?.slice(0, 4);
+    let backup = [];
     if (ano) {
+        backup = (await supabase.from('feriados').select('data,nome,tipo').gte('data', `${ano}-01-01`).lte('data', `${ano}-12-31`)).data || [];
         await supabase.from('feriados').delete()
             .gte('data', `${ano}-01-01`).lte('data', `${ano}-12-31`);
     }
     for (let i = 0; i < rows.length; i += 200) {
         const { error } = await supabase.from('feriados').insert(rows.slice(i, i + 200));
-        if (error) return erro500(res, error);
+        if (error) {
+            // desfaz o que entrou nesta chamada e devolve o ano como estava
+            if (ano) {
+                await supabase.from('feriados').delete().gte('data', `${ano}-01-01`).lte('data', `${ano}-12-31`).then(() => {}, () => {});
+                if (backup.length) await supabase.from('feriados').insert(backup).then(() => {}, () => {});
+            }
+            return erro500(res, error);
+        }
     }
     res.json({ ok: true, total: rows.length });
 });
@@ -1064,7 +1109,7 @@ app.get('/api/maquinas-unificado', auth, async (req, res) => {
         const { data: imp, error: errImp } = await supabase.from(`importacoes_${nome}`)
             .insert({ nome_arquivo: nomeArquivo || nome, usuario_id: req.usuario.id, total_linhas: linhas.length })
             .select().single();
-        if (errImp) return res.status(500).json({ erro: errImp.message });
+        if (errImp) return erro500(res, errImp, 'criar importação');
         const rows = linhas.map(l => ({ importacao_id: imp.id, dados: l.dados || {} }));
         const rg = await batchInsert(`dados_${nome}`, `importacoes_${nome}`, imp.id, rows);
         if (rg.erro) return res.status(500).json({ erro: rg.erro });
@@ -2011,7 +2056,7 @@ app.post('/api/mf/etiquetas', auth, mfEscrita, async (req, res) => {
     if (!b.maquina_id || !b.operador_id || !b.tipo || !b.descricao) return res.status(400).json({ erro: 'maquina_id, operador_id, tipo e descricao obrigatórios' });
     const id = b.id || require('crypto').randomUUID();
     let foto_url = null;
-    if (b.foto_url) { try { foto_url = (await mfSubirImagem(b.foto_url, `etiqueta/${id}/${id}.jpg`)).url; } catch (e) { return res.status(500).json({ erro: e.message }); } }
+    if (b.foto_url) { try { foto_url = (await mfSubirImagem(b.foto_url, `etiqueta/${id}/${id}.jpg`)).url; } catch (e) { return erro500(res, e); } }
     const row = { id, maquina_id: b.maquina_id, componente_id: b.componente_id || null, operador_id: b.operador_id,
         tipo: b.tipo, gravidade: b.gravidade || 'media', descricao: b.descricao, foto_url };
     const { data, error } = await supabase.from('etiqueta_anomalia').upsert(row).select().single();
@@ -2062,9 +2107,8 @@ app.post('/api/mf/oms/:id/peca', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.peca_id || !(Number(b.quantidade) > 0)) return res.status(400).json({ erro: 'peca_id e quantidade>0 obrigatórios' });
     const { error: e1 } = await supabase.from('consumo_peca').insert({ ordem_manutencao_id: req.params.id, peca_id: b.peca_id, quantidade: b.quantidade });
-    if (e1) return res.status(500).json({ erro: e1.message });
-    const { data: pc } = await supabase.from('peca').select('estoque_atual').eq('id', b.peca_id).single();
-    if (pc) await supabase.from('peca').update({ estoque_atual: Math.max(0, Number(pc.estoque_atual) - Number(b.quantidade)) }).eq('id', b.peca_id);
+    if (e1) return erro500(res, e1);
+    await casDelta('peca', b.peca_id, 'estoque_atual', -Number(b.quantidade), { min0: true });   // CAS
     res.json({ ok: true });
 });
 
@@ -2221,8 +2265,7 @@ app.post('/api/mf/consumo-fio', auth, mfEscrita, async (req, res) => {
         if (e1.code === '23505') return res.json({ ok: true, duplicado: true });  // já processado — não baixa de novo
         return erro500(res, e1);
     }
-    const { data: lf } = await supabase.from('lote_fio').select('qtd_disponivel_kg').eq('id', b.lote_fio_id).single();
-    if (lf) await supabase.from('lote_fio').update({ qtd_disponivel_kg: Math.max(0, Number(lf.qtd_disponivel_kg) - Number(b.qtd_consumida_kg)) }).eq('id', b.lote_fio_id);
+    await casDelta('lote_fio', b.lote_fio_id, 'qtd_disponivel_kg', -Number(b.qtd_consumida_kg), { min0: true });   // CAS: dois consumos simultâneos não se sobrescrevem
     res.json({ ok: true });
 });
 // genealogia: forward (lote_fio_id → tudo que produziu) ou backward (op_id → lotes de fio)
@@ -2367,8 +2410,7 @@ app.post('/api/mf/consumo-lote', auth, mfEscrita, async (req, res) => {
     if (!b.apontamento_id || !b.lote_producao_id || !(Number(b.qtd_consumida_kg) > 0)) return res.status(400).json({ erro: 'apontamento_id, lote_producao_id e qtd>0 obrigatórios' });
     const { error } = await supabase.from('consumo_lote').insert({ apontamento_id: b.apontamento_id, lote_producao_id: b.lote_producao_id, qtd_consumida_kg: b.qtd_consumida_kg });
     if (error) return erro500(res, error);
-    const { data: lp } = await supabase.from('lote_producao').select('qtd_disponivel_kg').eq('id', b.lote_producao_id).single();
-    if (lp) await supabase.from('lote_producao').update({ qtd_disponivel_kg: Math.max(0, Number(lp.qtd_disponivel_kg) - Number(b.qtd_consumida_kg)) }).eq('id', b.lote_producao_id);
+    await casDelta('lote_producao', b.lote_producao_id, 'qtd_disponivel_kg', -Number(b.qtd_consumida_kg), { min0: true });   // CAS
     res.json({ ok: true });
 });
 // genealogia recursiva: cadeia de etapas de um lote final
@@ -2917,10 +2959,10 @@ app.post('/api/mf/maquina-contagem', mfMaquinaAuth, async (req, res) => {
     if (!maq) return res.status(404).json({ erro: 'máquina não encontrada' });
     const { data: aps } = await supabase.from('apontamento').select('id,qtd_boa').eq('maquina_id', maq.id).is('datahora_fim', null).order('datahora_inicio', { ascending: false }).limit(1);
     if (!aps?.length) return res.status(409).json({ erro: 'sem sessão aberta nesta máquina — abra o apontamento antes' });
-    const novo = Number(aps[0].qtd_boa || 0) + delta;
-    const { error } = await supabase.from('apontamento').update({ qtd_boa: novo }).eq('id', aps[0].id);
-    if (error) return erro500(res, error);
-    res.json({ ok: true, apontamento_id: aps[0].id, qtd_boa: novo });
+    const r = await casDelta('apontamento', aps[0].id, 'qtd_boa', delta);   // CAS: contador concorrente não perde incremento
+    if (r.error) return erro500(res, r.error);
+    if (r.naoEncontrado) return res.status(404).json({ erro: 'apontamento não encontrado' });
+    res.json({ ok: true, apontamento_id: aps[0].id, qtd_boa: r.novo });
 });
 // ── #5 ERP write-back: confirmações de produção (OPs + produzido) p/ o ERP ────
 app.get('/api/mf/erp/confirmacoes', auth, async (req, res) => {

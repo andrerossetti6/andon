@@ -5787,7 +5787,10 @@ const previsao = {
             const real = realMap[s.mes]?.[s.codigo] ?? null;
             if (real === null || s.qty_prevista <= 0) return;
             if (!skuStats[s.codigo]) skuStats[s.codigo] = { erros:[], vieses:[], segmento:'' };
-            skuStats[s.codigo].erros.push(Math.abs(real - s.qty_prevista) / s.qty_prevista * 100);
+            // MAPE padrão divide pelo REAL (antes dividia pela previsão — não comparável com benchmark).
+            // Mês com real=0 fica fora do MAPE (convenção); o viés continua ÷ previsão porque a
+            // correção 1-clique usa exatamente esse fator (prev × (1−viés) = real).
+            if (real > 0) skuStats[s.codigo].erros.push(Math.abs(real - s.qty_prevista) / real * 100);
             skuStats[s.codigo].vieses.push((s.qty_prevista - real) / s.qty_prevista * 100);
         });
         vendas.rawData.forEach(r => {
@@ -6620,7 +6623,7 @@ const soepDash = {
             const prevTotal = Object.values(prevMap).reduce((s,v)=>s+v,0);
             const realTotal = Object.values(realMes).reduce((s,v)=>s+v,0);
             const diff   = realTotal - prevTotal;
-            const errPct = prevTotal > 0 ? Math.abs(diff/prevTotal*100) : null;
+            const errPct = realTotal > 0 ? Math.abs(diff/realTotal*100) : null;   // erro ÷ REAL (convenção MAPE)
             const temReal = realTotal > 0;
             const cor = !temReal ? 'var(--text-dim)' : errPct<=10?'#26a69a':errPct<=20?'#ffca28':'#f06292';
             const status = !temReal ? 'Futuro' : errPct<=10?'Boa':errPct<=20?'Regular':'Alta variação';
