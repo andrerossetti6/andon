@@ -5267,7 +5267,7 @@ const previsao = {
         const congAtual = this._planos.find(x => x.id === id);
         if (congAtual) { body.congelado = congAtual.congelado; if (congAtual.congelado && this._congeladoSnap) body.snapshot = this._congeladoSnap; }
         const r = await api.post('/api/previsao-planos', body).catch(() => null);
-        if (!r?.ok) { mostrarToast('Erro ao salvar o plano.', 'erro'); return; }
+        if (!r?.ok) { mostrarToast(r?.erro || 'Erro ao salvar o plano.', 'erro'); return; }
         this._planoAtivo = r.plano.id; this._dirty = false; this._draftSave();
         await this._carregarPlanos();
         this._ativarNaPolitica();
@@ -5280,7 +5280,7 @@ const previsao = {
     },
     async _salvarPlanoComNome(nome) {
         const r = await api.post('/api/previsao-planos', { nome, params: this._getParams(), edicoes: this._getEdicoes() }).catch(() => null);
-        if (!r?.ok) { mostrarToast('Erro ao criar o plano.', 'erro'); return; }
+        if (!r?.ok) { mostrarToast(r?.erro || 'Erro ao criar o plano.', 'erro'); return; }
         this._planoAtivo = r.plano.id; this._dirty = false; this._draftSave();
         await this._carregarPlanos();
         this._ativarNaPolitica();
@@ -5291,7 +5291,7 @@ const previsao = {
         const atual = this._planos.find(x => x.id === this._planoAtivo);
         const nome = (prompt('Novo nome:', atual?.nome || '') || '').trim(); if (!nome) return;
         const r = await api.post('/api/previsao-planos', { id: this._planoAtivo, nome, params: this._getParams(), edicoes: this._getEdicoes() }).catch(() => null);
-        if (!r?.ok) { mostrarToast('Erro ao renomear.', 'erro'); return; }
+        if (!r?.ok) { mostrarToast(r?.erro || 'Erro ao renomear.', 'erro'); return; }
         await this._carregarPlanos();
     },
     async _excluirPlano() {
@@ -5310,7 +5310,7 @@ const previsao = {
         const congelar = !(atual && atual.congelado);
         const snapshot = congelar ? this._snapshotAtual() : {};
         const r = await api.post('/api/previsao-planos', { id: this._planoAtivo, nome: atual?.nome, params: this._getParams(), edicoes: this._getEdicoes(), congelado: congelar, snapshot }).catch(() => null);
-        if (!r?.ok) { mostrarToast('Erro ao congelar.', 'erro'); return; }
+        if (!r?.ok) { mostrarToast(r?.erro || 'Erro ao congelar.', 'erro'); return; }
         this._congeladoSnap = congelar ? snapshot : null;
         await this._carregarPlanos();
         this.calcular();

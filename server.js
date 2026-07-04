@@ -53,6 +53,7 @@ async function batchInsert(tabela, importacaoTabela, importacaoId, rows, batchSi
     return { ok: true };
 }
 
+app.set('trust proxy', 1);   // atrás de proxy (Render etc.): req.ip = IP real do cliente, não o do proxy — senão o rate-limit do login pune/derruba todo mundo junto
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
 
@@ -81,6 +82,7 @@ app.use((_req, res, next) => {
     res.set('X-Frame-Options', 'DENY');
     res.set('Referrer-Policy', 'same-origin');           // não vaza URL (com token em query, se houver) no Referer
     res.set('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+    res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');   // só tem efeito em HTTPS (deploy); em HTTP local o browser ignora
     next();
 });
 
@@ -116,6 +118,14 @@ function mfEscrita(req, res, next) {
     next();
 }
 
+// Escrita no SIGS: mesma regra do MES — viewer não grava/exclui nada (review: rotas
+// destrutivas do SIGS só tinham `auth`, então um perfil somente-leitura podia apagar
+// feriados/turnos/processos/máquinas/planos; o service_role ignora RLS, o Express é a única barreira).
+function sigsEscrita(req, res, next) {
+    if (req.usuario?.perfil === 'viewer') return res.status(403).json({ erro: 'Seu perfil é somente leitura.' });
+    next();
+}
+
 // Auth máquina-a-máquina (#4 contagem): aceita a chave fixa MF_MAQUINA_API_KEY
 // (header X-API-Key ou Authorization: Bearer <chave>) OU o login normal (JWT).
 // Assim o contador/CLP/gateway da máquina chama sem precisar de usuário.
@@ -144,7 +154,11 @@ function erro500(res, e, ctx) {
 // rate-limit simples do login (em memória): 5 falhas → 15 min de bloqueio por IP — M18
 const _loginFails = new Map();
 function _loginBloqueado(ip) { const e = _loginFails.get(ip); return (e?.until && Date.now() < e.until) ? Math.ceil((e.until - Date.now()) / 1000) : 0; }
-function _loginFalhou(ip) { const e = _loginFails.get(ip) || { count: 0 }; e.count++; if (e.count >= 5) { e.until = Date.now() + 15 * 60 * 1000; e.count = 0; } _loginFails.set(ip, e); }
+function _loginFalhou(ip) {
+    // mapa com teto: expira entradas velhas p/ não crescer sem limite (memória)
+    if (_loginFails.size > 500) { for (const [k, v] of _loginFails) { if (!v.until || v.until < Date.now()) _loginFails.delete(k); } }
+    const e = _loginFails.get(ip) || { count: 0 }; e.count++; if (e.count >= 5) { e.until = Date.now() + 15 * 60 * 1000; e.count = 0; } _loginFails.set(ip, e);
+}
 function _loginOk(ip) { _loginFails.delete(ip); }
 
 // ── GET /api/ping — wake-up sem auth ─────────────────────────
@@ -593,7 +607,7 @@ app.get('/api/soep-acoes', auth, async (_req, res) => {
     if (error) return erro500(res, error);
     res.json(data || []);
 });
-app.post('/api/soep-acoes', auth, async (req, res) => {
+app.post('/api/soep-acoes', auth, sigsEscrita, async (req, res) => {
     const { descricao, responsavel, prazo, modulo } = req.body;
     if (!descricao?.trim()) return res.status(400).json({ erro: 'descricao obrigatória' });
     const { data, error } = await supabase.from('soep_acoes')
@@ -602,7 +616,7 @@ app.post('/api/soep-acoes', auth, async (req, res) => {
     if (error) return erro500(res, error);
     res.json({ ok: true, acao: data });
 });
-app.put('/api/soep-acoes/:id', auth, async (req, res) => {
+app.put('/api/soep-acoes/:id', auth, sigsEscrita, async (req, res) => {
     const fields = {};
     ['status','descricao','responsavel','prazo'].forEach(k => { if (req.body[k] !== undefined) fields[k] = req.body[k] || null; });
     const { error } = await supabase.from('soep_acoes').update(fields).eq('id', req.params.id);
@@ -621,7 +635,7 @@ app.get('/api/soep-snapshot', auth, async (_req, res) => {
     if (error) return erro500(res, error);
     res.json(data || []);
 });
-app.post('/api/soep-snapshot/bulk', auth, async (req, res) => {
+app.post('/api/soep-snapshot/bulk', auth, sigsEscrita, async (req, res) => {
     const { mes, items } = req.body;
     if (!mes || !Array.isArray(items) || !items.length) return res.status(400).json({ erro: 'mes e items obrigatórios' });
     // Remove snapshot anterior do mesmo mês e recria
@@ -643,7 +657,7 @@ app.get('/api/soep-plano', auth, async (_req, res) => {
     if (error) return erro500(res, error);
     res.json(data || []);
 });
-app.post('/api/soep-plano/bulk', auth, async (req, res) => {
+app.post('/api/soep-plano/bulk', auth, sigsEscrita, async (req, res) => {
     const { items } = req.body;
     if (!Array.isArray(items) || !items.length) return res.json({ ok: true });
     const rows = items.map(i => ({ mes: i.mes, codigo: String(i.codigo).toUpperCase(), quantidade: i.quantidade||0, usuario_id: req.usuario.id }));
@@ -651,7 +665,7 @@ app.post('/api/soep-plano/bulk', auth, async (req, res) => {
     if (error) return erro500(res, error);
     res.json({ ok: true });
 });
-app.delete('/api/soep-plano/:mes', auth, async (req, res) => {
+app.delete('/api/soep-plano/:mes', auth, sigsEscrita, async (req, res) => {
     const { error } = await supabase.from('soep_plano').delete().eq('mes', req.params.mes);
     if (error) return erro500(res, error);
     res.json({ ok: true });
@@ -659,7 +673,7 @@ app.delete('/api/soep-plano/:mes', auth, async (req, res) => {
 
 // ── S&OP — VERSÕES CONGELADAS DO PLANO ───────────────────────
 // Congela uma cópia do plano salvo (soep_plano) para comparação futura
-app.post('/api/plano-versao/congelar', auth, async (req, res) => {
+app.post('/api/plano-versao/congelar', auth, sigsEscrita, async (req, res) => {
     const { label } = req.body || {};
     const { data: plano, error: e1 } = await supabase.from('soep_plano').select('mes,codigo,quantidade');
     if (e1) return res.status(500).json({ erro: e1.message });
@@ -700,7 +714,7 @@ app.get('/api/capacidade-config', auth, async (_req, res) => {
     if (error) return erro500(res, error);
     res.json(data || []);
 });
-app.post('/api/capacidade-config/bulk', auth, async (req, res) => {
+app.post('/api/capacidade-config/bulk', auth, sigsEscrita, async (req, res) => {
     const { items } = req.body;
     if (!Array.isArray(items) || !items.length) return res.json({ ok: true });
     const rows = items.map(i => ({
@@ -719,7 +733,7 @@ app.get('/api/estoque-minimo', auth, async (_req, res) => {
     if (error) return erro500(res, error);
     res.json(data || []);
 });
-app.post('/api/estoque-minimo/bulk', auth, async (req, res) => {
+app.post('/api/estoque-minimo/bulk', auth, sigsEscrita, async (req, res) => {
     const { items } = req.body;
     if (!Array.isArray(items) || !items.length) return res.json({ ok: true });
     const rows = items.map(i => ({ codigo: String(i.codigo).toUpperCase(), quantidade: i.quantidade||0 }));
@@ -740,7 +754,7 @@ app.get('/api/op-datas', auth, async (_req, res) => {
         res.json(data || []);
     } catch (e) { return erro500(res, e); }
 });
-app.post('/api/op-datas/bulk', auth, async (req, res) => {
+app.post('/api/op-datas/bulk', auth, sigsEscrita, async (req, res) => {
     const { items } = req.body;
     if (!Array.isArray(items)) return res.status(400).json({ erro: 'items obrigatório' });
     const rows = items.map(i => ({ nop: i.nop||null, codigo: String(i.codigo).toUpperCase(), data_entrega: i.data_entrega||null, cpv: i.cpv||0, usuario_id: req.usuario.id }));
@@ -763,30 +777,41 @@ app.get('/api/previsao-planos', auth, async (_req, res) => {
     res.json(data || []);
 });
 app.get('/api/previsao-planos/:id', auth, async (req, res) => {
-    const { data, error } = await supabase.from('previsao_plano').select('*').eq('id', req.params.id).single();
+    const { data, error } = await supabase.from('previsao_plano').select('*').eq('id', req.params.id).maybeSingle();
     if (error && /schema cache|does not exist|relation/i.test(error.message || '')) return res.status(503).json({ erro: PREV_503 });
     if (error) return erro500(res, error);
+    if (!data) return res.status(404).json({ erro: 'Plano não encontrado.' });
     res.json(data);
 });
-app.post('/api/previsao-planos', auth, async (req, res) => {
+app.post('/api/previsao-planos', auth, sigsEscrita, async (req, res) => {
     const b = req.body || {};
     if (!b.nome || !String(b.nome).trim()) return res.status(400).json({ erro: 'nome obrigatório' });
     const row = {
         nome: String(b.nome).trim().slice(0, 120),
-        params: b.params && typeof b.params === 'object' ? b.params : {},
-        edicoes: b.edicoes && typeof b.edicoes === 'object' ? b.edicoes : {},
         usuario_id: req.usuario.id,
         atualizado_em: new Date().toISOString(),
     };
+    // campo ausente no body = preservar o que está no banco (o upsert só altera colunas presentes)
+    if (b.params  !== undefined || !b.id) row.params  = b.params  && typeof b.params  === 'object' ? b.params  : {};
+    if (b.edicoes !== undefined || !b.id) row.edicoes = b.edicoes && typeof b.edicoes === 'object' ? b.edicoes : {};
     if (b.id) row.id = b.id;
-    // congelado/snapshot: usa o que veio; se não veio num update (ex.: renomear), preserva o existente
-    if (b.congelado !== undefined) {
+    // Estado atual no banco (p/ regra do congelado). O upsert do PostgREST só altera
+    // as colunas presentes no payload — omitir = preservar no update.
+    let stored = null;
+    if (b.id) {
+        const { data: prev, error: e0 } = await supabase.from('previsao_plano').select('congelado,snapshot').eq('id', b.id).maybeSingle();
+        if (e0 && /schema cache|does not exist|relation/i.test(e0.message || '')) return res.status(503).json({ erro: PREV_503 });
+        stored = prev;
+    }
+    if (stored?.congelado) {
+        // Plano CONGELADO é imutável no servidor (não só na tela):
+        if (b.congelado === false) { row.congelado = false; row.snapshot = {}; }   // descongelar — aceita as edições junto
+        else if (b.congelado === undefined) { delete row.params; delete row.edicoes; } // renomear — só o nome muda; resto preservado
+        else return res.status(409).json({ erro: 'Plano congelado — descongele (🔓) antes de salvar alterações.' });
+    } else if (b.congelado !== undefined) {
         row.congelado = !!b.congelado;
         row.snapshot  = b.snapshot && typeof b.snapshot === 'object' ? b.snapshot : {};
-    } else if (b.id) {
-        const { data: prev } = await supabase.from('previsao_plano').select('congelado,snapshot').eq('id', b.id).single();
-        if (prev) { row.congelado = prev.congelado; row.snapshot = prev.snapshot; }
-    } else {
+    } else if (!b.id) {
         row.congelado = false; row.snapshot = {};
     }
     const { data, error } = await supabase.from('previsao_plano').upsert(row).select().single();
@@ -794,7 +819,7 @@ app.post('/api/previsao-planos', auth, async (req, res) => {
     if (error) return erro500(res, error);
     res.json({ ok: true, plano: data });
 });
-app.delete('/api/previsao-planos/:id', auth, async (req, res) => {
+app.delete('/api/previsao-planos/:id', auth, sigsEscrita, async (req, res) => {
     const { error } = await supabase.from('previsao_plano').delete().eq('id', req.params.id);
     if (error) return erro500(res, error);
     res.json({ ok: true });
@@ -806,7 +831,7 @@ app.get('/api/setup-matrix', auth, async (_req, res) => {
     if (error) return erro500(res, error);
     res.json(data || []);
 });
-app.post('/api/setup-matrix/bulk', auth, async (req, res) => {
+app.post('/api/setup-matrix/bulk', auth, sigsEscrita, async (req, res) => {
     const { items } = req.body;
     if (!Array.isArray(items)) return res.status(400).json({ erro: 'items obrigatório' });
     // Backup antes do delete: se o insert falhar, restaura — evita perder a matriz inteira
@@ -831,14 +856,14 @@ app.get('/api/timeline-cenario', auth, async (_req, res) => {
     if (error) return erro500(res, error);
     res.json(data || []);
 });
-app.post('/api/timeline-cenario', auth, async (req, res) => {
+app.post('/api/timeline-cenario', auth, sigsEscrita, async (req, res) => {
     const { nome, config, resultado } = req.body;
     if (!nome) return res.status(400).json({ erro: 'Nome obrigatório' });
     const { data, error } = await supabase.from('timeline_cenario').insert({ nome, config: config||{}, resultado: resultado||{}, usuario_id: req.usuario.id }).select().single();
     if (error) return erro500(res, error);
     res.json({ ok: true, cenario: data });
 });
-app.put('/api/timeline-cenario/:id', auth, async (req, res) => {
+app.put('/api/timeline-cenario/:id', auth, sigsEscrita, async (req, res) => {
     const { nome } = req.body;
     const { error } = await supabase.from('timeline_cenario').update({ nome }).eq('id', req.params.id);
     if (error) return erro500(res, error);
@@ -856,7 +881,7 @@ app.get('/api/feriados', auth, async (_req, res) => {
     if (error) return erro500(res, error);
     res.json(data);
 });
-app.post('/api/feriados/lote', auth, async (req, res) => {
+app.post('/api/feriados/lote', auth, sigsEscrita, async (req, res) => {
     const { feriados } = req.body;
     if (!Array.isArray(feriados) || !feriados.length)
         return res.status(400).json({ erro: 'Dados inválidos' });
@@ -873,14 +898,14 @@ app.post('/api/feriados/lote', auth, async (req, res) => {
     }
     res.json({ ok: true, total: rows.length });
 });
-app.post('/api/feriados', auth, async (req, res) => {
+app.post('/api/feriados', auth, sigsEscrita, async (req, res) => {
     const { data: d, nome, tipo } = req.body;
     if (!d || !nome) return res.status(400).json({ erro: 'Data e nome obrigatórios' });
     const { data, error } = await supabase.from('feriados').insert({ data: d, nome, tipo: tipo || 'Nacional' }).select().single();
     if (error) return erro500(res, error);
     res.json({ ok: true, feriado: data });
 });
-app.delete('/api/feriados/:id', auth, async (req, res) => {
+app.delete('/api/feriados/:id', auth, sigsEscrita, async (req, res) => {
     const { error } = await supabase.from('feriados').delete().eq('id', req.params.id);
     if (error) return erro500(res, error);
     res.json({ ok: true });
@@ -917,21 +942,21 @@ app.get('/api/turnos', auth, async (_req, res) => {
     if (error) return erro500(res, error);
     res.json((data || []).map(normalizarTurno));
 });
-app.post('/api/turnos', auth, async (req, res) => {
+app.post('/api/turnos', auth, sigsEscrita, async (req, res) => {
     const { processo, nome, inicio, fim, intervalo_min, dias_semana } = req.body;
     if (!nome || !inicio || !fim) return res.status(400).json({ erro: 'Nome, início e fim obrigatórios' });
     const { data, error } = await salvarTurno('insert', null, { processo, nome, inicio, fim, intervalo_min, dias_semana });
     if (error) return erro500(res, error);
     res.json({ ok: true, turno: normalizarTurno(data) });
 });
-app.put('/api/turnos/:id', auth, async (req, res) => {
+app.put('/api/turnos/:id', auth, sigsEscrita, async (req, res) => {
     const { processo, nome, inicio, fim, intervalo_min, dias_semana } = req.body;
     const { data, error } = await salvarTurno('update', req.params.id, { processo, nome, inicio, fim, intervalo_min, dias_semana });
     if (error) return erro500(res, error);
     res.json({ ok: true, data: normalizarTurno(data) });
 });
 
-app.delete('/api/turnos/:id', auth, async (req, res) => {
+app.delete('/api/turnos/:id', auth, sigsEscrita, async (req, res) => {
     const { error } = await supabase.from('turnos').delete().eq('id', req.params.id);
     if (error) return erro500(res, error);
     res.json({ ok: true });
@@ -951,19 +976,19 @@ app.get('/api/migrar-turnos-sql', auth, async (_req, res) => {
     });
 });
 
-app.post('/api/processos-config', auth, async (req, res) => {
+app.post('/api/processos-config', auth, sigsEscrita, async (req, res) => {
     const { nome, descricao } = req.body;
     const { data, error } = await supabase.from('processos_config').insert({ nome, descricao }).select().single();
     if (error) return erro500(res, error);
     res.json({ ok: true, data });
 });
-app.put('/api/processos-config/:id', auth, async (req, res) => {
+app.put('/api/processos-config/:id', auth, sigsEscrita, async (req, res) => {
     const { nome, descricao } = req.body;
     const { data, error } = await supabase.from('processos_config').update({ nome, descricao }).eq('id', req.params.id).select().single();
     if (error) return erro500(res, error);
     res.json({ ok: true, data });
 });
-app.delete('/api/processos-config/:id', auth, async (req, res) => {
+app.delete('/api/processos-config/:id', auth, sigsEscrita, async (req, res) => {
     const { error } = await supabase.from('processos_config').delete().eq('id', req.params.id);
     if (error) return erro500(res, error);
     res.json({ ok: true });
@@ -977,7 +1002,7 @@ app.get('/api/maquinas', auth, async (req, res) => {
     if (error) return erro500(res, error);
     res.json(data);
 });
-app.post('/api/maquinas', auth, async (req, res) => {
+app.post('/api/maquinas', auth, sigsEscrita, async (req, res) => {
     const { processo_id, id_maquina, modelo, oee, status, n_pessoas } = req.body;
     if (!processo_id) return res.status(400).json({ erro: 'processo_id obrigatório' });
     if (!id_maquina && !modelo && oee == null && n_pessoas == null)
@@ -986,13 +1011,13 @@ app.post('/api/maquinas', auth, async (req, res) => {
     if (error) return erro500(res, error);
     res.json({ ok: true, data });
 });
-app.put('/api/maquinas/:id', auth, async (req, res) => {
+app.put('/api/maquinas/:id', auth, sigsEscrita, async (req, res) => {
     const { id_maquina, modelo, oee, status, n_pessoas } = req.body;
     const { data, error } = await supabase.from('maquinas').update({ id_maquina, modelo, oee, status, n_pessoas }).eq('id', req.params.id).select().single();
     if (error) return erro500(res, error);
     res.json({ ok: true, data });
 });
-app.delete('/api/maquinas/:id', auth, async (req, res) => {
+app.delete('/api/maquinas/:id', auth, sigsEscrita, async (req, res) => {
     const { error } = await supabase.from('maquinas').delete().eq('id', req.params.id);
     if (error) return erro500(res, error);
     res.json({ ok: true });
@@ -1077,7 +1102,7 @@ app.get('/api/mes/apontamentos', auth, async (req, res) => {
     res.json(data || []);
 });
 
-app.post('/api/mes/apontamentos', auth, async (req, res) => {
+app.post('/api/mes/apontamentos', auth, sigsEscrita, async (req, res) => {
     const { op_numero, cod, descricao, processo, operador, turno, maquina, qtd_planejada } = req.body;
     if (!cod || !processo) return res.status(400).json({ erro: 'Código e processo obrigatórios' });
     const { data, error } = await supabase.from('apontamentos')
@@ -1090,7 +1115,7 @@ app.post('/api/mes/apontamentos', auth, async (req, res) => {
     res.json({ ok: true, apontamento: data });
 });
 
-app.put('/api/mes/apontamentos/:id', auth, async (req, res) => {
+app.put('/api/mes/apontamentos/:id', auth, sigsEscrita, async (req, res) => {
     const updates = {};
     ['fim','qtd_produzida','qtd_refugo','status','obs','operador','maquina'].forEach(f => {
         if (req.body[f] !== undefined) updates[f] = req.body[f];
@@ -1108,7 +1133,7 @@ app.delete('/api/mes/apontamentos/:id', auth, adminOnly, async (req, res) => {
 });
 
 // ── MES — PARADAS ────────────────────────────────────────────────
-app.post('/api/mes/paradas', auth, async (req, res) => {
+app.post('/api/mes/paradas', auth, sigsEscrita, async (req, res) => {
     const { apontamento_id, tipo, motivo } = req.body;
     if (!apontamento_id || !motivo) return res.status(400).json({ erro: 'apontamento_id e motivo obrigatórios' });
     await supabase.from('apontamentos').update({ status: 'parado' }).eq('id', apontamento_id);
@@ -1119,7 +1144,7 @@ app.post('/api/mes/paradas', auth, async (req, res) => {
     res.json({ ok: true, parada: data });
 });
 
-app.put('/api/mes/paradas/:id', auth, async (req, res) => {
+app.put('/api/mes/paradas/:id', auth, sigsEscrita, async (req, res) => {
     const fimTs = new Date().toISOString();
     const { data: par } = await supabase.from('paradas_mes').select('inicio,apontamento_id').eq('id', req.params.id).single();
     const duracao_min = par ? Math.max(1, Math.round((new Date(fimTs) - new Date(par.inicio)) / 60000)) : 1;
@@ -1426,6 +1451,9 @@ app.post('/api/mf/cadastro/:tabela', auth, mfEscrita, async (req, res) => {
     const t = req.params.tabela;
     if (!MF_CADASTROS[t]) return res.status(400).json({ erro: 'Tabela inválida' });
     const { criado_em, atualizado_em, ...corpo } = req.body || {};  // o cliente não define os carimbos de auditoria (trigger cuida)
+    // Campos de custo (custo_hora etc.) são admin-only — a rota /api/mf/custo/taxa já exige admin;
+    // sem este filtro, o cadastro genérico deixava operador gravar salário/taxa por mass-assignment.
+    if (req.usuario?.perfil !== 'admin') for (const k of Object.keys(corpo)) { if (/^custo/i.test(k)) delete corpo[k]; }
     const { data, error } = await supabase.from(t).upsert(corpo, { onConflict: MF_CADASTROS[t] }).select().single();
     if (error) return erro500(res, error);
     res.json({ ok: true, registro: data });
