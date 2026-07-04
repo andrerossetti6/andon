@@ -33,7 +33,19 @@ roteiro (`produto_etapa`), tempos (`tempo_padrao` produto×etapa c/ fallback), `
 - [ ] `pausada` não tem UI própria no APS (só via bloqueio); avaliar se o MES deveria pausar sessões automaticamente.
 - [ ] Trigger SQL que proíba UPDATE/DELETE em `op_state_log` (hoje é convenção da aplicação; service_role bypassa).
 
-## Fase 2 — Dados mestres de setup por atributo (pendente)
+## Fase 2 — Dados mestres de setup por atributo (2026-07-04)
+
+**Entregue:** atributos de setup no produto (`galga`, `cor_base`, `programa_maquina` — `titulo_fio` já existia), restrições físicas na máquina (`galga_min`/`galga_max`), tabela `setup_troca_atributo` (minutos por troca de fio/galga/cor/programa), endpoints (`GET/POST /api/aps/setup-troca`, `POST /api/aps/atributos/bulk` com allowlist por tabela, UPDATE-only por código), aba **Produtos & Setup** no APS (tempos de troca + tabela editável inline + import por colagem de planilha TAB/;) e galga mín/máx editável na aba Máquinas.
+
+**Decisões:**
+- **Modelo v1 por ATRIBUTO, não por par de valores:** custo de transição = soma dos minutos dos atributos que mudam entre OPs consecutivas. O prompt pedia matriz `attr_from→attr_to`; pares explodem combinatorialmente e ninguém preenche. Limitação documentada: se um par específico tiver tempo muito diferente (ex.: galga 5→12 ≠ 12→14), evoluir para pares com fallback no atributo. A `setup_matrix` por FAMÍLIA (SIGS/Preactor) continua valendo onde já é usada.
+- **Minutos começam em 0** — tempos reais são da fábrica, nada inventado. Sequenciador (Fase 4) ignora atributo com 0 min.
+- **Import não cria produto** — só atualiza códigos existentes (UPDATE-only) e reporta os não encontrados; criação de produto continua no MES/ERP.
+- **Atributos NÃO entram no gate de liberação** — são qualidade de sequenciamento, não viabilidade da OP. Entram como custo na Fase 4.
+
+**Dívidas:**
+- [ ] Compatibilidade produto×máquina (galga do produto dentro de galga_min/max do tear) aplicada na alocação — Fase 4.
+- [ ] Evoluir para matriz por par de valores se os tempos reais exigirem.
 ## Fase 3 — MTS/MTO + kanban eletrônico (pendente)
 ## Fase 4 — Pesos do sequenciador + granularidade dia/turno (pendente)
 ## Fase 5 — Loop fechado (DESATUALIZADO + comparadores) (pendente)

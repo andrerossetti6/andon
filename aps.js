@@ -113,9 +113,9 @@ const aps = {
     sair() { localStorage.removeItem(TOKEN_KEY); location.reload(); },
 
     async _carregar() {
-        const [ops, maquinas, cap, procs, produtos] = await Promise.all([
+        const [ops, maquinas, cap, procs, produtos, maqMf] = await Promise.all([
             api.get('/api/mf/ops'), api.get('/api/maquinas-unificado'), api.get('/api/capacidade-config'),
-            api.get('/api/processos-config'), api.get('/api/mf/produtos'),
+            api.get('/api/processos-config'), api.get('/api/mf/produtos'), api.get('/api/mf/maquinas'),
         ]);
         if (ops === null && maquinas === null) return false;   // 401/sem conexão
         this._ops = Array.isArray(ops) ? ops : [];
@@ -123,6 +123,9 @@ const aps = {
         this._cap = Array.isArray(cap) ? cap : [];
         this._procs = Array.isArray(procs) ? procs : [];
         this._produtos = Array.isArray(produtos) ? produtos : [];
+        // enriquece com galga_min/max do cadastro cru do MES (a view unificada não traz as colunas novas)
+        const porCod = {}; (Array.isArray(maqMf) ? maqMf : []).forEach(m => { porCod[m.codigo] = m; });
+        this._maquinas.forEach(m => { const raw = porCod[m.id_maquina]; if (raw) { m.galga_min = raw.galga_min ?? null; m.galga_max = raw.galga_max ?? null; } });
         return true;
     },
 
@@ -135,13 +138,12 @@ const aps = {
 
     tab(nome) {
         this._tab = nome;
-        ['painel','carteira','capac','seq','maquinas','config'].forEach(t => {
+        ['painel','carteira','capac','seq','maquinas','produtos','config'].forEach(t => {
             const pan = $('aps-pan-' + t); if (pan) pan.style.display = t === nome ? 'block' : 'none';
-            const li = $('nav-' + (t === 'capac' ? 'capac' : t)); // ids batem
         });
         document.querySelectorAll('[data-apstab]').forEach(li => li.classList.toggle('active', li.dataset.apstab === nome));
-        ({ painel:'_renderPainel', carteira:'_renderCarteira', capac:'_renderCapac', seq:'_renderSeq', maquinas:'_renderMaquinas', config:'_renderConfig' })[nome]
-            && this[({ painel:'_renderPainel', carteira:'_renderCarteira', capac:'_renderCapac', seq:'_renderSeq', maquinas:'_renderMaquinas', config:'_renderConfig' })[nome]]();
+        const R = { painel:'_renderPainel', carteira:'_renderCarteira', capac:'_renderCapac', seq:'_renderSeq', maquinas:'_renderMaquinas', produtos:'_renderProdutos', config:'_renderConfig' };
+        if (R[nome]) this[R[nome]]();
     },
 
     // ── util de capacidade ──
@@ -509,14 +511,17 @@ const aps = {
         const procNome = {}; this._procs.forEach(p => procNome[p.id] = p.nome);
         const rows = [...this._maquinas].sort((a,b) => String(a.id_maquina||'').localeCompare(String(b.id_maquina||''), 'pt-BR', { numeric:true }));
         const ativas = rows.filter(m => String(m.status||'').toLowerCase() !== 'inativo').length;
+        const gInp = (m, campo) => `<input class="aps-input" type="number" step="0.5" style="width:70px;padding:3px 6px;font-size:.74rem;text-align:right;" value="${m[campo] ?? ''}" placeholder="—" onchange="aps._salvarAttrMaquina('${esc(m.id_maquina)}','${campo}',this.value)">`;
         el.innerHTML = `
         <div class="summary-card" style="margin-bottom:16px;padding:12px 16px;">
-            <span style="font-size:.8rem;color:var(--text-dim);"><strong style="color:var(--text-primary);">${rows.length}</strong> recursos cadastrados · <strong style="color:#26a69a;">${ativas}</strong> ativos</span>
+            <span style="font-size:.8rem;color:var(--text-dim);"><strong style="color:var(--text-primary);">${rows.length}</strong> recursos cadastrados · <strong style="color:#26a69a;">${ativas}</strong> ativos · galga mín/máx = restrição física (o sequenciador só aloca produto compatível — Fase 4)</span>
         </div>
         <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:66vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
             <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;">
                 <th class="aps-th">MÁQUINA</th><th class="aps-th">MODELO</th><th class="aps-th">PROCESSO</th>
-                <th class="aps-th" style="text-align:right;">OEE</th><th class="aps-th">STATUS</th>
+                <th class="aps-th" style="text-align:right;">OEE</th>
+                <th class="aps-th" style="text-align:right;">GALGA MÍN</th><th class="aps-th" style="text-align:right;">GALGA MÁX</th>
+                <th class="aps-th">STATUS</th>
             </tr></thead><tbody>${rows.map((m,i) => {
                 const inativa = String(m.status||'').toLowerCase() === 'inativo';
                 return `<tr style="background:${i%2?'var(--bg-input)':'transparent'};opacity:${inativa?.5:1};">
@@ -524,9 +529,118 @@ const aps = {
                     <td class="aps-td">${m.modelo?`Stoll ${esc(m.modelo)}`:'—'}</td>
                     <td class="aps-td" style="color:var(--text-dim);">${esc(procNome[m.processo_id]||'—')}</td>
                     <td class="aps-td" style="text-align:right;font-weight:600;">${m.oee!=null?esc(m.oee)+'%':'—'}</td>
+                    <td class="aps-td" style="text-align:right;">${gInp(m,'galga_min')}</td>
+                    <td class="aps-td" style="text-align:right;">${gInp(m,'galga_max')}</td>
                     <td class="aps-td"><span style="color:${inativa?'#8b949e':'#26a69a'};font-weight:600;font-size:.74rem;">${esc(m.status||'Ativo')}</span></td>
                 </tr>`;
             }).join('')}</tbody></table></div></div>`;
+    },
+    async _salvarAttrMaquina(codigo, campo, valor) {
+        const r = await api.post('/api/aps/atributos/bulk', { tabela: 'maquina', items: [{ codigo, [campo]: valor === '' ? '' : Number(valor) }] });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao salvar (rode aps_setup_atributos.sql?).', 'erro');
+        if (r.totalNaoEncontrados) return toast(`Máquina ${codigo} não encontrada no cadastro do MES.`, 'aviso');
+        const m = this._maquinas.find(x => x.id_maquina === codigo); if (m) m[campo] = valor === '' ? null : Number(valor);
+        toast(`${codigo} · ${campo.replace('_',' ')} salvo ✓`);
+    },
+
+    // ═══ PRODUTOS & SETUP (Fase 2 — atributos de troca) ═══
+    _prodBusca: '',
+    async _renderProdutos() {
+        const el = $('aps-pan-produtos');
+        const troca = await api.get('/api/aps/setup-troca');
+        const indisp = !Array.isArray(troca);
+        const ATTR_LABEL = { titulo_fio: 'Troca de FIO (título)', galga: 'Troca de GALGA', cor_base: 'Troca de COR', programa_maquina: 'Troca de PROGRAMA' };
+        el.innerHTML = `
+        ${indisp ? `<div class="summary-card" style="margin-bottom:16px;border-left:3px solid #ffca28;"><span style="font-size:.8rem;color:#ffca28;">⚠ Rode <code>aps_setup_atributos.sql</code> no Supabase para ativar os atributos de setup.</span></div>` : `
+        <div class="summary-card" style="margin-bottom:16px;">
+            <div class="s-label" style="margin-bottom:6px;">TEMPOS DE TROCA POR ATRIBUTO</div>
+            <p style="font-size:.74rem;color:var(--text-dim);margin-bottom:12px;">Custo de transição entre duas OPs = <strong>soma dos atributos que mudam</strong> (ex.: mudou fio e cor = fio + cor). Preencha com os tempos REAIS da fábrica — o sequenciador vai usar isso na Fase 4.</p>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;">
+                ${(troca||[]).map(t => `<div style="display:flex;align-items:center;gap:8px;">
+                    <span style="flex:1;font-size:.78rem;">${ATTR_LABEL[t.atributo]||t.atributo}</span>
+                    <input type="number" min="0" id="aps-troca-${t.atributo}" value="${Number(t.minutos)||0}" class="aps-input" style="width:76px;text-align:right;">
+                    <span style="font-size:.7rem;color:var(--text-dim);">min</span>
+                </div>`).join('')}
+            </div>
+            <div style="display:flex;justify-content:flex-end;margin-top:12px;"><button class="btn primary" style="font-size:.78rem;" onclick="aps._salvarTroca()">💾 Salvar tempos</button></div>
+        </div>`}
+        <div class="summary-card" style="margin-bottom:16px;padding:12px 16px;">
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <input class="aps-input" style="flex:1;min-width:200px;max-width:340px;" placeholder="Buscar código ou descrição…" value="${esc(this._prodBusca)}" oninput="aps._prodBusca=this.value;aps._renderProdTabela()">
+                <button class="btn secondary" style="font-size:.78rem;" onclick="aps._formImportCsv()">📋 Importar planilha (colar)</button>
+                <span style="font-size:.72rem;color:var(--text-dim);">${fmt(this._produtos.length)} produtos</span>
+            </div>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div id="aps-prod-tabela"></div></div>`;
+        this._renderProdTabela();
+    },
+    async _salvarTroca() {
+        const items = ['titulo_fio','galga','cor_base','programa_maquina'].map(a => ({ atributo: a, minutos: parseInt($('aps-troca-' + a)?.value) || 0 }));
+        const r = await api.post('/api/aps/setup-troca', { items });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao salvar.', 'erro');
+        toast('Tempos de troca salvos ✓');
+    },
+    _renderProdTabela() {
+        const el = $('aps-prod-tabela'); if (!el) return;
+        const q = this._prodBusca.trim().toLowerCase();
+        const rows = this._produtos.filter(p => !q || String(p.codigo||'').toLowerCase().includes(q) || String(p.descricao||'').toLowerCase().includes(q)).slice(0, 200);
+        if (!rows.length) { el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim);">Nenhum produto.</div>'; return; }
+        const inp = (p, campo) => `<input class="aps-input" style="width:100%;min-width:84px;padding:4px 8px;font-size:.76rem;" value="${esc(p[campo]||'')}" onchange="aps._salvarAttrProduto('${esc(p.codigo)}','${campo}',this.value)">`;
+        el.innerHTML = `<div style="max-height:56vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;">
+                <th class="aps-th">CÓDIGO</th><th class="aps-th">DESCRIÇÃO</th>
+                <th class="aps-th">FIO (TÍTULO)</th><th class="aps-th">GALGA</th><th class="aps-th">COR-BASE</th><th class="aps-th">PROGRAMA</th>
+            </tr></thead><tbody>${rows.map((p,i) => `
+                <tr style="background:${i%2?'var(--bg-input)':'transparent'};">
+                    <td class="aps-td" style="font-weight:700;color:var(--indigo-primary);white-space:nowrap;">${esc(p.codigo)}</td>
+                    <td class="aps-td" style="color:var(--text-dim);">${esc((p.descricao||'').slice(0,34))}</td>
+                    <td class="aps-td">${inp(p,'titulo_fio')}</td>
+                    <td class="aps-td">${inp(p,'galga')}</td>
+                    <td class="aps-td">${inp(p,'cor_base')}</td>
+                    <td class="aps-td">${inp(p,'programa_maquina')}</td>
+                </tr>`).join('')}</tbody></table></div>
+            <div style="padding:8px 14px;font-size:.7rem;color:var(--text-dim);border-top:1px solid var(--border-color);">Edite direto na célula — salva ao sair do campo.${this._produtos.length>200?' Mostrando 200 (use a busca).':''}</div>`;
+    },
+    async _salvarAttrProduto(codigo, campo, valor) {
+        const r = await api.post('/api/aps/atributos/bulk', { tabela: 'produto', items: [{ codigo, [campo]: valor.trim() }] });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao salvar atributo.', 'erro');
+        const p = this._produtos.find(x => x.codigo === codigo); if (p) p[campo] = valor.trim() || null;
+        toast(`${codigo} · ${campo} salvo ✓`);
+    },
+    _formImportCsv() {
+        this._modal(`
+            <div class="s-label" style="margin-bottom:10px;">📋 IMPORTAR ATRIBUTOS (colar da planilha)</div>
+            <p style="font-size:.74rem;color:var(--text-dim);margin-bottom:10px;">Cole do Excel (colunas separadas por TAB ou ponto-e-vírgula). Cabeçalho esperado — a ordem não importa, só o nome:<br>
+            <code style="color:var(--indigo-primary);">codigo · titulo_fio · galga · cor_base · programa</code><br>
+            Só produtos JÁ cadastrados são atualizados (não cria produto novo).</p>
+            <textarea id="aps-csv" class="aps-input" style="height:180px;font-family:monospace;font-size:.74rem;" placeholder="codigo\ttitulo_fio\tgalga\tcor_base\tprograma\n12603\t2/30 PA\t12\tPRETA\tJOELH-SLIDE2"></textarea>
+            <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+                <button class="btn secondary" onclick="aps._fecharModal()">Cancelar</button>
+                <button class="btn primary" onclick="aps._importarCsv()">Importar</button>
+            </div>`);
+    },
+    async _importarCsv() {
+        const raw = $('aps-csv').value.trim();
+        if (!raw) return toast('Cole os dados primeiro.', 'erro');
+        const linhas = raw.split(/\r?\n/).filter(l => l.trim());
+        const sep = linhas[0].includes('\t') ? '\t' : linhas[0].includes(';') ? ';' : ',';
+        const header = linhas[0].split(sep).map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+        const idx = c => header.findIndex(h => h === c || h.startsWith(c));
+        const iCod = idx('codigo') >= 0 ? idx('codigo') : idx('cod');
+        if (iCod < 0) return toast('Cabeçalho precisa ter a coluna "codigo".', 'erro');
+        const map = { titulo_fio: idx('titulo') >= 0 ? idx('titulo') : idx('fio'), galga: idx('galga'), cor_base: idx('cor'), programa_maquina: idx('programa') };
+        const items = linhas.slice(1).map(l => {
+            const c = l.split(sep).map(x => x.trim());
+            const it = { codigo: c[iCod] };
+            Object.entries(map).forEach(([campo, i]) => { if (i >= 0 && c[i] !== undefined) it[campo] = c[i]; });
+            return it;
+        }).filter(it => it.codigo);
+        if (!items.length) return toast('Nenhuma linha de dados encontrada.', 'erro');
+        const r = await api.post('/api/aps/atributos/bulk', { tabela: 'produto', items });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao importar.', 'erro');
+        this._fecharModal();
+        toast(`✓ ${r.atualizados} produto(s) atualizados${r.totalNaoEncontrados ? ` · ${r.totalNaoEncontrados} código(s) não encontrado(s)` : ''}`, r.totalNaoEncontrados ? 'aviso' : 'ok');
+        await this._carregar(); this._renderProdutos();
     },
 
     // ═══ CAPACIDADE (config, leitura) ═══

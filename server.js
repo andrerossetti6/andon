@@ -1651,6 +1651,53 @@ app.get('/api/aps/ops/:id/log', auth, async (req, res) => {
     res.json(data || []);
 });
 
+// ── APS Fase 2 — atributos de setup + tempos de troca ────────
+const APS2_503 = 'Atributos de setup não inicializados — rode aps_setup_atributos.sql no Supabase.';
+app.get('/api/aps/setup-troca', auth, async (_req, res) => {
+    const { data, error } = await supabase.from('setup_troca_atributo').select('atributo,minutos').order('atributo');
+    if (apsErroTabela(error)) return res.status(503).json({ erro: APS2_503 });
+    if (error) return erro500(res, error);
+    res.json(data || []);
+});
+app.post('/api/aps/setup-troca', auth, sigsEscrita, async (req, res) => {
+    const items = (req.body?.items || []).filter(i => ['titulo_fio','galga','cor_base','programa_maquina'].includes(i.atributo));
+    if (!items.length) return res.status(400).json({ erro: 'items com atributo válido obrigatório' });
+    for (const i of items) {
+        const { error } = await supabase.from('setup_troca_atributo')
+            .upsert({ atributo: i.atributo, minutos: Math.max(0, Math.round(Number(i.minutos) || 0)), atualizado_em: new Date().toISOString() }, { onConflict: 'atributo' });
+        if (apsErroTabela(error)) return res.status(503).json({ erro: APS2_503 });
+        if (error) return erro500(res, error);
+    }
+    res.json({ ok: true, total: items.length });
+});
+
+// Atualização em lote de atributos (UPDATE-only, por código — não cria registro novo;
+// colunas permitidas por allowlist p/ não virar mass-assignment)
+const APS_ATTRS = {
+    produto: ['titulo_fio', 'galga', 'cor_base', 'programa_maquina'],
+    maquina: ['galga_min', 'galga_max'],
+};
+app.post('/api/aps/atributos/bulk', auth, sigsEscrita, async (req, res) => {
+    const t = String(req.body?.tabela || '');
+    const cols = APS_ATTRS[t];
+    if (!cols) return res.status(400).json({ erro: 'tabela deve ser produto ou maquina' });
+    const items = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!items.length) return res.status(400).json({ erro: 'items obrigatório' });
+    let atualizados = 0; const naoEncontrados = [];
+    for (const it of items.slice(0, 2000)) {
+        const cod = String(it.codigo || '').trim();
+        if (!cod) continue;
+        const upd = {};
+        cols.forEach(c => { if (it[c] !== undefined) upd[c] = it[c] === '' ? null : it[c]; });
+        if (!Object.keys(upd).length) continue;
+        const { data, error } = await supabase.from(t).update(upd).eq('codigo', cod).select('id');
+        if (error && /column|schema cache|could not find/i.test(error.message || '')) return res.status(503).json({ erro: APS2_503 });
+        if (error) return erro500(res, error);
+        if (data?.length) atualizados++; else naoEncontrados.push(cod);
+    }
+    res.json({ ok: true, atualizados, naoEncontrados: naoEncontrados.slice(0, 50), totalNaoEncontrados: naoEncontrados.length });
+});
+
 // ── Apontamento (sessão de trabalho) ──────────────────────────
 app.get('/api/mf/apontamentos', auth, async (req, res) => {
     let q = supabase.from('apontamento')
