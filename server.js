@@ -1516,9 +1516,139 @@ app.post('/api/mf/ops', auth, mfEscrita, async (req, res) => {
     const row = { numero: b.numero, produto_id: b.produto_id, qtd_planejada: b.qtd_planejada, unidade: b.unidade || 'kg',
         maquina_prevista_id: b.maquina_prevista_id || null, data_abertura: b.data_abertura || null, data_prevista: b.data_prevista || null,
         status: b.status || 'planejada', origem: b.origem || 'manual' };
+    // Governança (APS Fase 1): status de OP EXISTENTE só muda pela máquina de estados
+    // (/api/aps/ops/:id/transicao) — o upsert genérico não vira porta lateral
+    const { data: jaExiste } = await supabase.from('ordem_producao').select('status').eq('numero', b.numero).maybeSingle();
+    if (jaExiste) row.status = jaExiste.status;
     const { data, error } = await supabase.from('ordem_producao').upsert(row, { onConflict: 'numero' }).select().single();
     if (error) return erro500(res, error);
     res.json({ ok: true, op: data });
+});
+
+// ══════════════════════════════════════════════════════════════
+// APS — GOVERNANÇA DE ORDENS (Fase 1)
+// Máquina de estados validada + gate de liberação + ledger auditado.
+// Telas no aps.html; a execução (apontamento) continua no MES.
+// ══════════════════════════════════════════════════════════════
+const APS_503 = 'Governança não inicializada — rode aps_governanca.sql no Supabase.';
+const APS_TRANS = {   // transições MANUAIS válidas (as automáticas — apontamento/fluxo — são logadas à parte)
+    planejada:   ['liberada', 'bloqueada', 'cancelada'],
+    liberada:    ['planejada', 'em_producao', 'bloqueada', 'cancelada'],
+    em_producao: ['pausada', 'concluida', 'bloqueada'],
+    pausada:     ['em_producao', 'bloqueada', 'cancelada'],
+    bloqueada:   [],           // sai só via desbloqueio com disposição (volta ao estado anterior) ou cancelada
+    concluida:   [],
+    cancelada:   [],
+};
+const APS_DISPOSICOES = ['refazer', 'retrabalhar', 'refugar', 'substituir', 'investigar'];
+function apsErroTabela(e) { return e && /schema cache|does not exist|relation/i.test(e.message || ''); }
+async function apsLog(op_id, de, para, { motivo = null, disposicao = null, origem = 'manual', usuario = null } = {}) {
+    const { error } = await supabase.from('op_state_log').insert({
+        op_id, de, para, motivo, disposicao, origem,
+        usuario_id: usuario?.id || null, usuario_nome: usuario?.nome || null,
+    });
+    return error || null;
+}
+
+// Gate de liberação (regra de ouro): roteiro + tempos-padrão + prazo. Vazio = pronto p/ liberar.
+async function apsGate(op) {
+    const pend = [];
+    let rot = [];
+    try { rot = await roteiroDaOp(op.id) || []; } catch { }
+    if (!rot.length) pend.push('Produto sem roteiro (nenhuma etapa ativa/produto_etapa).');
+    else {
+        const { data: tps } = await supabase.from('tempo_padrao').select('etapa_id,produto_id,seg_por_unidade')
+            .or(`produto_id.eq.${op.produto_id},produto_id.is.null`);
+        const semTempo = rot.filter(et => {
+            const espec = (tps || []).find(t => t.etapa_id === et.id && t.produto_id === op.produto_id);
+            const geral = (tps || []).find(t => t.etapa_id === et.id && t.produto_id === null);
+            return !(Number(espec?.seg_por_unidade) > 0 || Number(geral?.seg_por_unidade) > 0);
+        });
+        if (semTempo.length) pend.push(`Sem tempo-padrão em ${semTempo.length} etapa(s) do roteiro: ${semTempo.map(e => e.nome).join(', ')}.`);
+    }
+    if (!op.data_prevista) pend.push('OP sem data prevista (prazo de entrega).');
+    if (!(Number(op.qtd_planejada) > 0)) pend.push('Quantidade planejada deve ser > 0.');
+    return pend;
+}
+
+// Criar OP pelo APS (origem manual, nasce PLANEJADA, já com registro no ledger)
+app.post('/api/aps/ops', auth, sigsEscrita, async (req, res) => {
+    const b = req.body || {};
+    if (!b.numero || !b.produto_id || !(Number(b.qtd_planejada) > 0))
+        return res.status(400).json({ erro: 'numero, produto_id e qtd_planejada>0 obrigatórios' });
+    const { data: dup } = await supabase.from('ordem_producao').select('id').eq('numero', String(b.numero)).maybeSingle();
+    if (dup) return res.status(409).json({ erro: `Já existe OP com o número ${b.numero}.` });
+    const row = { numero: String(b.numero), produto_id: b.produto_id, qtd_planejada: Number(b.qtd_planejada),
+        unidade: b.unidade || 'pc', data_abertura: new Date().toISOString(), data_prevista: b.data_prevista || null,
+        prioridade: Number(b.prioridade) || 0, status: 'planejada', origem: 'manual' };
+    const { data, error } = await supabase.from('ordem_producao').insert(row).select().single();
+    if (error) return erro500(res, error);
+    const eLog = await apsLog(data.id, null, 'planejada', { motivo: 'OP criada no APS', usuario: req.usuario });
+    res.json({ ok: true, op: data, governanca: eLog ? 'sem ledger (rode aps_governanca.sql)' : 'ok' });
+});
+
+// Checagem do gate (a UI mostra as pendências antes de liberar)
+app.get('/api/aps/ops/:id/gate', auth, async (req, res) => {
+    const { data: op, error } = await supabase.from('ordem_producao').select('*').eq('id', req.params.id).maybeSingle();
+    if (error) return erro500(res, error);
+    if (!op) return res.status(404).json({ erro: 'OP não encontrada.' });
+    const pendencias = await apsGate(op);
+    res.json({ pronto: pendencias.length === 0, pendencias, status: op.status });
+});
+
+// Transição de estado — ÚNICO caminho para mudar status manualmente
+app.post('/api/aps/ops/:id/transicao', auth, sigsEscrita, async (req, res) => {
+    const b = req.body || {};
+    const { data: op, error: e0 } = await supabase.from('ordem_producao').select('*').eq('id', req.params.id).maybeSingle();
+    if (e0) return erro500(res, e0);
+    if (!op) return res.status(404).json({ erro: 'OP não encontrada.' });
+    const de = op.status;
+    let para = String(b.para || '').trim();
+    let origem = 'manual';
+
+    if (de === 'bloqueada') {
+        // desbloqueio exige DISPOSIÇÃO registrada; volta ao estado anterior (do ledger) ou cancela
+        if (!APS_DISPOSICOES.includes(b.disposicao)) return res.status(422).json({ erro: `Desbloqueio exige disposição: ${APS_DISPOSICOES.join(' | ')}.` });
+        if (!String(b.motivo || '').trim()) return res.status(422).json({ erro: 'Desbloqueio exige justificativa (motivo).' });
+        if (!para || para === 'anterior') {
+            const { data: ult, error: eL } = await supabase.from('op_state_log').select('de').eq('op_id', op.id).eq('para', 'bloqueada').order('criado_em', { ascending: false }).limit(1).maybeSingle();
+            if (apsErroTabela(eL)) return res.status(503).json({ erro: APS_503 });
+            para = ult?.de || 'planejada';
+        }
+        if (para !== 'cancelada' && !['planejada', 'liberada', 'em_producao', 'pausada'].includes(para))
+            return res.status(409).json({ erro: `Destino inválido para desbloqueio: ${para}.` });
+    } else {
+        if (!(APS_TRANS[de] || []).includes(para))
+            return res.status(409).json({ erro: `Transição inválida: ${de} → ${para || '?'}. Permitidas: ${(APS_TRANS[de] || []).join(', ') || 'nenhuma (estado final)'}.` });
+        if (para === 'bloqueada' && !String(b.motivo || '').trim())
+            return res.status(422).json({ erro: 'Bloqueio exige justificativa (motivo).' });
+        // GATE de liberação: planejada → liberada só com roteiro/tempos/prazo — ou override justificado
+        if (de === 'planejada' && para === 'liberada') {
+            const pendencias = await apsGate(op);
+            if (pendencias.length && !b.override) return res.status(422).json({ erro: 'Gate de liberação reprovou.', pendencias });
+            if (pendencias.length && b.override) {
+                if (!String(b.motivo || '').trim()) return res.status(422).json({ erro: 'Override do gate exige justificativa (motivo).' });
+                origem = 'gate';
+                b.motivo = 'OVERRIDE DO GATE: ' + b.motivo + ' · Pendências: ' + pendencias.join(' ');
+            } else origem = 'gate';
+        }
+    }
+
+    const { data: upd, error: e1 } = await supabase.from('ordem_producao').update({ status: para }).eq('id', op.id).select().single();
+    // CHECK constraint ainda sem 'bloqueada' = governança não inicializada no banco
+    if (e1 && (e1.code === '23514' || /check constraint|violates/i.test(e1.message || ''))) return res.status(503).json({ erro: APS_503 });
+    if (e1) return erro500(res, e1);
+    const eLog = await apsLog(op.id, de, para, { motivo: b.motivo || null, disposicao: de === 'bloqueada' ? b.disposicao : null, origem, usuario: req.usuario });
+    if (apsErroTabela(eLog)) return res.json({ ok: true, op: upd, aviso: APS_503 });
+    res.json({ ok: true, op: upd });
+});
+
+// Ledger (trilha de auditoria da OP)
+app.get('/api/aps/ops/:id/log', auth, async (req, res) => {
+    const { data, error } = await supabase.from('op_state_log').select('*').eq('op_id', req.params.id).order('criado_em', { ascending: false }).limit(200);
+    if (apsErroTabela(error)) return res.status(503).json({ erro: APS_503 });
+    if (error) return erro500(res, error);
+    res.json(data || []);
 });
 
 // ── Apontamento (sessão de trabalho) ──────────────────────────
@@ -1535,6 +1665,10 @@ app.get('/api/mf/apontamentos', auth, async (req, res) => {
 app.post('/api/mf/apontamentos', auth, mfEscrita, async (req, res) => {
     const b = req.body || {};
     for (const f of ['op_id','maquina_id','operador_id','turno_id']) if (!b[f]) return res.status(400).json({ erro: `${f} obrigatório` });
+    // Governança (APS): OP bloqueada/cancelada não pode ser apontada — o hold é real, não decorativo
+    const { data: opG } = await supabase.from('ordem_producao').select('status').eq('id', b.op_id).maybeSingle();
+    if (opG && (opG.status === 'bloqueada' || opG.status === 'cancelada'))
+        return res.status(409).json({ erro: `OP ${opG.status === 'bloqueada' ? 'BLOQUEADA (hold de qualidade/material)' : 'CANCELADA'} — não pode ser apontada. Veja a disposição no APS.` });
     const row = { op_id: b.op_id, maquina_id: b.maquina_id, operador_id: b.operador_id, turno_id: b.turno_id,
         datahora_inicio: b.datahora_inicio || new Date().toISOString(), unidade: b.unidade || 'kg',
         dispositivo_id: b.dispositivo_id || null, origem: b.origem || 'pwa',
@@ -1543,8 +1677,11 @@ app.post('/api/mf/apontamentos', auth, mfEscrita, async (req, res) => {
     if (b.id) row.id = b.id;  // id gerado no cliente (fila offline) → upsert idempotente
     const { data, error } = await supabase.from('apontamento').upsert(row).select().single();
     if (error) return erro500(res, error);
-    // marca a OP como em produção
-    await supabase.from('ordem_producao').update({ status: 'em_producao' }).eq('id', b.op_id).in('status', ['planejada','liberada']);
+    // marca a OP como em produção (transição automática — registrada no ledger do APS)
+    if (opG && (opG.status === 'planejada' || opG.status === 'liberada')) {
+        await supabase.from('ordem_producao').update({ status: 'em_producao' }).eq('id', b.op_id).in('status', ['planejada','liberada']);
+        apsLog(b.op_id, opG.status, 'em_producao', { motivo: 'Sessão de apontamento iniciada', origem: 'apontamento', usuario: req.usuario }).catch(() => {});
+    }
     // liga ao fluxo: se a OP ainda não está em etapa nenhuma, a sessão a "traz" para a etapa informada
     if (b.etapa_id) {
         try { await supabase.from('ordem_producao').update({ etapa_atual_id: b.etapa_id, etapa_desde: new Date().toISOString() }).eq('id', b.op_id).is('etapa_atual_id', null); }
@@ -2568,6 +2705,7 @@ async function avancarOpFluxo(op_id) {
         return { proxima: prox.nome };
     }
     await supabase.from('ordem_producao').update({ etapa_atual_id: null, etapa_desde: null, status: 'concluida' }).eq('id', op_id);  // saiu da última etapa do roteiro
+    apsLog(op_id, 'em_producao', 'concluida', { motivo: 'Última etapa do roteiro concluída', origem: 'fluxo' }).catch(() => {});   // ledger APS (best-effort)
     return { concluida: true };
 }
 // quadro: por etapa, as OPs cujo etapa_atual = etapa; sessão aberta = "em processo". Lead/throughput vêm do apontamento.

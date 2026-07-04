@@ -24,6 +24,7 @@ function toast(msg, tipo = 'ok') {
 const api = {
     _h() { return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem(TOKEN_KEY) || '') }; },
     async get(url) { try { const r = await fetch(url, { headers: this._h() }); if (r.status === 401) return aps._expirou(); return r.ok ? r.json() : null; } catch { return null; } },
+    async post(url, b) { try { const r = await fetch(url, { method: 'POST', headers: this._h(), body: JSON.stringify(b) }); if (r.status === 401) return aps._expirou(); return r.json().catch(() => null); } catch { return null; } },
 };
 
 // Sidebar: colapsar seções (mesmo comportamento do SIGS/MES)
@@ -38,9 +39,12 @@ const STATUS = {
     planejada:   { label: 'Planejada',    cor: '#8b949e' },
     liberada:    { label: 'Liberada',     cor: '#26c6da' },
     em_producao: { label: 'Em produção',  cor: '#ffca28' },
+    pausada:     { label: 'Pausada',      cor: '#ffab76' },
+    bloqueada:   { label: '⛔ Bloqueada', cor: '#ff5252' },
     concluida:   { label: 'Concluída',    cor: '#26a69a' },
     cancelada:   { label: 'Cancelada',    cor: '#f06292' },
 };
+const DISPOSICOES = ['refazer', 'retrabalhar', 'refugar', 'substituir', 'investigar'];
 const PROC_LABEL = { tecelagem:'Tecelagem', costura_auto:'Costura Automática', costura_manual:'Costura Manual', soldagem:'Soldagem', silicone:'Silicone', passadoria:'Passadoria', embalagem:'Embalagem' };
 
 const hojeISO = () => new Date().toISOString().slice(0, 10);
@@ -228,7 +232,7 @@ const aps = {
         </div>`;
     },
 
-    // ═══ CARTEIRA DE ORDENS ═══
+    // ═══ CARTEIRA DE ORDENS (com governança — Fase 1) ═══
     _renderCarteira() {
         const el = $('aps-pan-carteira');
         el.innerHTML = `
@@ -245,10 +249,151 @@ const aps = {
                     <option value="qtd"${this._carteiraSort==='qtd'?' selected':''}>Ordenar: quantidade</option>
                     <option value="numero"${this._carteiraSort==='numero'?' selected':''}>Ordenar: nº da OP</option>
                 </select>
+                <button class="btn primary" style="font-size:.8rem;" onclick="aps._formNovaOp()">+ Nova OP</button>
             </div>
         </div>
         <div class="summary-card" style="padding:0;overflow:hidden;"><div id="aps-carteira-tabela"></div></div>`;
         this._renderCarteiraTabela();
+    },
+
+    // ── Governança: modal genérico ──
+    _modal(html) {
+        let m = $('aps-modal');
+        if (!m) { m = document.createElement('div'); m.id = 'aps-modal';
+            m.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:1000;align-items:center;justify-content:center;padding:20px;';
+            m.innerHTML = '<div class="summary-card" style="max-width:560px;width:100%;max-height:90vh;overflow-y:auto;" id="aps-modal-body"></div>';
+            m.onclick = e => { if (e.target === m) aps._fecharModal(); };
+            document.body.appendChild(m); }
+        $('aps-modal-body').innerHTML = html;
+        m.style.display = 'flex';
+    },
+    _fecharModal() { const m = $('aps-modal'); if (m) m.style.display = 'none'; },
+
+    _formNovaOp() {
+        const prods = [...this._produtos].sort((a,b)=>String(a.codigo).localeCompare(String(b.codigo),'pt-BR',{numeric:true}));
+        this._modal(`
+            <div class="s-label" style="margin-bottom:14px;">➕ NOVA ORDEM DE PRODUÇÃO</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+                <div><span class="aps-label">Nº DA OP *</span><input id="aps-op-num" class="aps-input" placeholder="ex: 21500"></div>
+                <div><span class="aps-label">QUANTIDADE *</span><input id="aps-op-qtd" type="number" min="1" class="aps-input" placeholder="0"></div>
+            </div>
+            <span class="aps-label">PRODUTO *</span>
+            <select id="aps-op-prod" class="aps-input" style="margin-bottom:12px;">${prods.map(p=>`<option value="${esc(p.id)}">${esc(p.codigo)} — ${esc((p.descricao||'').slice(0,44))}</option>`).join('')}</select>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+                <div><span class="aps-label">PRAZO (data prevista)</span><input id="aps-op-prazo" type="date" class="aps-input"></div>
+                <div><span class="aps-label">PRIORIDADE (0-9)</span><input id="aps-op-prio" type="number" min="0" max="9" value="0" class="aps-input"></div>
+            </div>
+            <p style="font-size:.72rem;color:var(--text-dim);margin-bottom:14px;">A OP nasce <strong>PLANEJADA</strong>. Para entrar na carga ela precisa passar pelo <strong>gate de liberação</strong> (roteiro + tempos-padrão + prazo) — ou ser liberada com override justificado.</p>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button class="btn secondary" onclick="aps._fecharModal()">Cancelar</button>
+                <button class="btn primary" onclick="aps._criarOp()">Criar OP</button>
+            </div>`);
+    },
+    async _criarOp() {
+        const body = { numero: $('aps-op-num').value.trim(), produto_id: $('aps-op-prod').value,
+            qtd_planejada: parseFloat($('aps-op-qtd').value) || 0, data_prevista: $('aps-op-prazo').value || null,
+            prioridade: parseInt($('aps-op-prio').value) || 0, unidade: 'pc' };
+        if (!body.numero || !body.produto_id || body.qtd_planejada <= 0) return toast('Preencha nº, produto e quantidade > 0.', 'erro');
+        const r = await api.post('/api/aps/ops', body);
+        if (!r?.ok) return toast(r?.erro || 'Erro ao criar a OP.', 'erro');
+        this._fecharModal();
+        toast(`OP ${body.numero} criada (PLANEJADA).`);
+        await this._carregar(); this._renderCarteiraTabela();
+    },
+
+    async _liberar(id) {
+        const g = await api.get(`/api/aps/ops/${id}/gate`);
+        if (!g) return toast('Erro ao consultar o gate.', 'erro');
+        if (g.pronto) {
+            const r = await api.post(`/api/aps/ops/${id}/transicao`, { para: 'liberada' });
+            if (!r?.ok) return toast(r?.erro || 'Erro ao liberar.', 'erro');
+            toast('OP LIBERADA — gate aprovado ✓');
+            await this._carregar(); this._renderCarteiraTabela();
+            return;
+        }
+        // gate reprovou → mostra pendências e oferece override justificado
+        this._modal(`
+            <div class="s-label" style="margin-bottom:12px;color:#f06292;">⛔ GATE DE LIBERAÇÃO REPROVOU</div>
+            <ul style="margin:0 0 14px 18px;font-size:.82rem;color:#ffca28;">${g.pendencias.map(p=>`<li style="margin-bottom:6px;">${esc(p)}</li>`).join('')}</ul>
+            <p style="font-size:.74rem;color:var(--text-dim);margin-bottom:10px;">Resolva as pendências (roteiro/tempos em MES › Engenharia) — ou libere com <strong>override justificado</strong> (fica registrado no histórico com seu nome).</p>
+            <span class="aps-label">JUSTIFICATIVA DO OVERRIDE *</span>
+            <input id="aps-ov-motivo" class="aps-input" placeholder="por que liberar mesmo assim?" style="margin-bottom:14px;">
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button class="btn secondary" onclick="aps._fecharModal()">Cancelar</button>
+                <button class="btn primary" style="background:#f06292;" onclick="aps._liberarOverride('${esc(id)}')">Liberar MESMO ASSIM</button>
+            </div>`);
+    },
+    async _liberarOverride(id) {
+        const motivo = $('aps-ov-motivo').value.trim();
+        if (!motivo) return toast('O override exige justificativa.', 'erro');
+        const r = await api.post(`/api/aps/ops/${id}/transicao`, { para: 'liberada', override: true, motivo });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao liberar.', 'erro');
+        this._fecharModal(); toast('OP liberada com OVERRIDE (registrado no histórico).', 'aviso');
+        await this._carregar(); this._renderCarteiraTabela();
+    },
+
+    _formBloquear(id, numero) {
+        this._modal(`
+            <div class="s-label" style="margin-bottom:12px;color:#ff5252;">⛔ BLOQUEAR OP ${esc(numero)}</div>
+            <p style="font-size:.76rem;color:var(--text-dim);margin-bottom:10px;">OP bloqueada <strong>não pode ser apontada</strong> nem sequenciada até o desbloqueio com disposição.</p>
+            <span class="aps-label">MOTIVO DO BLOQUEIO *</span>
+            <input id="aps-blq-motivo" class="aps-input" placeholder="ex: suspeita de defeito no fio / aguardando material" style="margin-bottom:14px;">
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button class="btn secondary" onclick="aps._fecharModal()">Cancelar</button>
+                <button class="btn primary" style="background:#ff5252;" onclick="aps._transicao('${esc(id)}','bloqueada',$('aps-blq-motivo').value)">Bloquear</button>
+            </div>`);
+    },
+    _formDesbloquear(id, numero) {
+        this._modal(`
+            <div class="s-label" style="margin-bottom:12px;color:#26a69a;">🔓 DESBLOQUEAR OP ${esc(numero)}</div>
+            <span class="aps-label">DISPOSIÇÃO *</span>
+            <select id="aps-dsp" class="aps-input" style="margin-bottom:12px;">${DISPOSICOES.map(d=>`<option value="${d}">${d}</option>`).join('')}</select>
+            <span class="aps-label">JUSTIFICATIVA *</span>
+            <input id="aps-dsp-motivo" class="aps-input" placeholder="o que foi decidido e por quê" style="margin-bottom:14px;">
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button class="btn secondary" onclick="aps._fecharModal()">Cancelar</button>
+                <button class="btn primary" onclick="aps._desbloquear('${esc(id)}')">Desbloquear</button>
+            </div>`);
+    },
+    async _desbloquear(id) {
+        const disposicao = $('aps-dsp').value, motivo = $('aps-dsp-motivo').value.trim();
+        if (!motivo) return toast('Desbloqueio exige justificativa.', 'erro');
+        const r = await api.post(`/api/aps/ops/${id}/transicao`, { disposicao, motivo });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao desbloquear.', 'erro');
+        this._fecharModal(); toast(`Desbloqueada → ${r.op?.status} (disposição: ${disposicao}).`);
+        await this._carregar(); this._renderCarteiraTabela();
+    },
+    async _transicao(id, para, motivo) {
+        if (para === 'bloqueada' && !String(motivo||'').trim()) return toast('Bloqueio exige motivo.', 'erro');
+        if (para === 'cancelada' && !confirm('Cancelar esta OP? (fica no histórico, não volta pra fila)')) return;
+        const r = await api.post(`/api/aps/ops/${id}/transicao`, { para, motivo: motivo || null });
+        if (!r?.ok) return toast(r?.erro || 'Transição rejeitada.', 'erro');
+        this._fecharModal(); toast(`OP → ${STATUS[para]?.label || para}.`);
+        await this._carregar(); this._renderCarteiraTabela();
+    },
+    async _verLog(id, numero) {
+        const log = await api.get(`/api/aps/ops/${id}/log`);
+        if (!Array.isArray(log)) return toast('Histórico indisponível — rode aps_governanca.sql no Supabase.', 'aviso');
+        this._modal(`
+            <div class="s-label" style="margin-bottom:12px;">🕐 HISTÓRICO — OP ${esc(numero)}</div>
+            ${log.length ? log.map(l => `
+                <div style="padding:8px 0;border-bottom:1px solid var(--border-color);font-size:.78rem;">
+                    <div><strong style="color:${STATUS[l.para]?.cor||'#fff'};">${esc(l.de||'—')} → ${esc(l.para)}</strong>
+                        <span style="color:var(--text-dim);"> · ${new Date(l.criado_em).toLocaleString('pt-BR')} · ${esc(l.usuario_nome||l.origem)}</span></div>
+                    ${l.motivo ? `<div style="color:var(--text-dim);margin-top:2px;">${esc(l.motivo)}</div>` : ''}
+                    ${l.disposicao ? `<div style="color:#26a69a;margin-top:2px;">disposição: ${esc(l.disposicao)}</div>` : ''}
+                </div>`).join('') : '<div style="color:var(--text-dim);padding:14px;">Sem registros (a OP é anterior à governança).</div>'}
+            <div style="display:flex;justify-content:flex-end;margin-top:14px;"><button class="btn secondary" onclick="aps._fecharModal()">Fechar</button></div>`);
+    },
+    _acoesOp(o) {
+        const b = (txt, fn, cor) => `<button onclick="${fn}" title="${esc(txt)}" style="background:transparent;border:1px solid ${cor}55;border-radius:5px;color:${cor};cursor:pointer;font-size:.68rem;padding:2px 8px;margin-right:4px;">${txt}</button>`;
+        const id = esc(o.id), num = esc(o.numero);
+        let acts = '';
+        if (o.status === 'planejada')   acts = b('Liberar', `aps._liberar('${id}')`, '#26a69a') + b('⛔', `aps._formBloquear('${id}','${num}')`, '#ff5252') + b('✕', `aps._transicao('${id}','cancelada')`, '#f06292');
+        else if (o.status === 'liberada') acts = b('⛔', `aps._formBloquear('${id}','${num}')`, '#ff5252') + b('↩ planejar', `aps._transicao('${id}','planejada')`, '#8b949e') + b('✕', `aps._transicao('${id}','cancelada')`, '#f06292');
+        else if (o.status === 'em_producao' || o.status === 'pausada') acts = b('⛔', `aps._formBloquear('${id}','${num}')`, '#ff5252');
+        else if (o.status === 'bloqueada') acts = b('🔓 Desbloquear', `aps._formDesbloquear('${id}','${num}')`, '#26a69a');
+        return acts + b('🕐', `aps._verLog('${id}','${num}')`, '#26c6da');
     },
     _carteiraFiltrada() {
         const q = this._carteiraBusca.trim().toLowerCase();
@@ -278,7 +423,7 @@ const aps = {
         el.innerHTML = `<div style="max-height:66vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
             <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;">
                 <th class="aps-th">OP</th><th class="aps-th">CÓDIGO</th><th class="aps-th">PRODUTO</th>
-                <th class="aps-th" style="text-align:right;">QTD</th><th class="aps-th">PRAZO</th><th class="aps-th">ETAPA</th><th class="aps-th">STATUS</th>
+                <th class="aps-th" style="text-align:right;">QTD</th><th class="aps-th">PRAZO</th><th class="aps-th">ETAPA</th><th class="aps-th">STATUS</th><th class="aps-th">AÇÕES</th>
             </tr></thead><tbody>${rows.slice(0, 500).map((o,i) => {
                 const d = diasAte(o.data_prevista);
                 const atras = d != null && d < 0 && o.status !== 'concluida';
@@ -287,11 +432,12 @@ const aps = {
                 return `<tr style="background:${i%2?'var(--bg-input)':'transparent'};">
                     <td class="aps-td" style="font-weight:700;color:var(--indigo-primary);white-space:nowrap;">${esc(o.numero)}${Number(o.prioridade)>0?` <span title="prioridade ${o.prioridade}" style="color:#ffab76;">★</span>`:''}</td>
                     <td class="aps-td">${esc(o.produto?.codigo||'—')}</td>
-                    <td class="aps-td">${esc((o.produto?.descricao||'—')).slice(0,40)}</td>
+                    <td class="aps-td">${esc((o.produto?.descricao||'—')).slice(0,34)}</td>
                     <td class="aps-td" style="text-align:right;white-space:nowrap;">${fmt(o.qtd_planejada)} ${esc(o.unidade||'')}</td>
                     <td class="aps-td" style="color:${prazoCor};white-space:nowrap;">${o.data_prevista ? new Date(o.data_prevista).toLocaleDateString('pt-BR') : '—'}${atras?` <span style="font-size:.68rem;">(${Math.abs(d)}d)</span>`:''}</td>
                     <td class="aps-td" style="color:var(--text-dim);">${esc(o.etapa?.nome||'—')}</td>
                     <td class="aps-td"><span style="color:${st.cor};font-weight:600;font-size:.74rem;">${st.label}</span></td>
+                    <td class="aps-td" style="white-space:nowrap;">${this._acoesOp(o)}</td>
                 </tr>`;
             }).join('')}</tbody></table></div>
             <div style="padding:8px 14px;font-size:.72rem;color:var(--text-dim);border-top:1px solid var(--border-color);">${fmt(rows.length)} OPs${rows.length>500?' (mostrando 500)':''} · ordenado por ${this._carteiraSort==='prazo'?'prazo (EDD — a mais urgente primeiro)':this._carteiraSort}</div>`;
