@@ -4539,7 +4539,7 @@ const toc = {
                 style="font-size:.58rem;font-weight:700;letter-spacing:.05em;color:${CORES_ORIGEM[org]};border:1px solid ${CORES_ORIGEM[org]}55;border-radius:4px;padding:1px 5px;">${org.toUpperCase()}</span>` : '';
             return `<div style="display:flex;flex-direction:column;gap:8px;padding:10px 14px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-color);">
                 <span style="display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:0.82rem;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${p.nome}">${p.nome} ${badge}</span>
-                <div style="display:flex;align-items:center;gap:6px;">
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;row-gap:8px;">
                     <input id="toc-maq-${p.id}" type="number" value="${c.maquinas}" min="0" step="0.5"
                         style="width:48px;padding:4px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.8rem;text-align:center;"
                         title="Máquinas/operadores">
@@ -4555,6 +4555,7 @@ const toc = {
                         title="OEE nominal (planejado) usado no cálculo de capacidade — ${org === 'cadastro' ? 'média do OEE cadastrado das máquinas' : 'valor de planejamento'}. NÃO é o OEE medido em tempo real (esse aparece no Cockpit/Home, a partir dos apontamentos).">
                     <span style="font-size:0.7rem;color:var(--text-dim);" title="OEE nominal de planejamento — distinto do OEE medido do Cockpit">% OEE<sup style="font-size:.5rem;color:var(--text-dim);">nom</sup></span>
                 </div>
+                ${p.id === 'tecelagem' ? `<span style="font-size:.62rem;color:#0ea5e9;" title="A capacidade da Tecelagem vem do OEE de cada tear (Processos › Tecelagem), não deste campo.">↳ OEE real por tear (Processos › Tecelagem)</span>` : ''}
             </div>`;
         }).join('');
     },
