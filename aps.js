@@ -146,11 +146,11 @@ const aps = {
 
     tab(nome) {
         this._tab = nome;
-        ['painel','carteira','capac','seq','kanban','maquinas','produtos','config'].forEach(t => {
+        ['painel','carteira','capac','seq','kanban','heijunka','maquinas','produtos','config'].forEach(t => {
             const pan = $('aps-pan-' + t); if (pan) pan.style.display = t === nome ? 'block' : 'none';
         });
         document.querySelectorAll('[data-apstab]').forEach(li => li.classList.toggle('active', li.dataset.apstab === nome));
-        const R = { painel:'_renderPainel', carteira:'_renderCarteira', capac:'_renderCapac', seq:'_renderSeq', kanban:'_renderKanban', maquinas:'_renderMaquinas', produtos:'_renderProdutos', config:'_renderConfig' };
+        const R = { painel:'_renderPainel', carteira:'_renderCarteira', capac:'_renderCapac', seq:'_renderSeq', kanban:'_renderKanban', heijunka:'_renderHeijunka', maquinas:'_renderMaquinas', produtos:'_renderProdutos', config:'_renderConfig' };
         if (R[nome]) this[R[nome]]();
     },
 
@@ -677,6 +677,75 @@ const aps = {
             <div style="padding:8px 14px;font-size:.7rem;color:var(--text-dim);border-top:1px solid var(--border-color);">${r.itens.length} produto(s) MTS · ${r.aRepor} a repor${r.estoqueDe?` · estoque da importação de ${fmtData(r.estoqueDe)}`:''}</div>
         </div>`;
         if (!dry) { await this._carregar(); }   // atualiza carteira com as OPs novas
+    },
+
+    // ═══ HEIJUNKA — NIVELAMENTO (Fase Lean, Onda 3) ═══
+    _heijPer: 5,
+    _familiaDe(o) {
+        // família de nivelamento: marca → 1ª palavra da descrição (tipo de produto) → código
+        const m = String(o.produto?.marca || '').trim();
+        if (m) return m;
+        const d = String(o.produto?.descricao || '').trim();
+        if (d) return d.split(/[\s·]+/)[0].toUpperCase();
+        return String(o.produto?.codigo || '—');
+    },
+    _renderHeijunka() {
+        const el = $('aps-pan-heijunka');
+        const per = this._heijPer;
+        const ativas = this._ops.filter(o => !['concluida', 'cancelada'].includes(o.status));
+        // agrupa por família
+        const fam = {};
+        ativas.forEach(o => { const f = this._familiaDe(o); if (!fam[f]) fam[f] = { qtd: 0, ops: 0 }; fam[f].qtd += Number(o.qtd_planejada) || 0; fam[f].ops++; });
+        const familias = Object.entries(fam).map(([nome, v]) => ({ nome, qtd: Math.round(v.qtd), ops: v.ops, porPeriodo: v.qtd / per })).sort((a, b) => b.qtd - a.qtd);
+        const totalGeral = familias.reduce((s, f) => s + f.qtd, 0);
+
+        if (!familias.length) { el.innerHTML = `<div class="summary-card" style="padding:24px;text-align:center;color:var(--text-dim);">Sem OPs ativas para nivelar.</div>`; return; }
+
+        // MIX LEVELING (caixa Heijunka): distribui os slots interleaveando famílias (maior-resto),
+        // em vez de rodar todo A depois todo B — padrão A-B-A-C-A-B.
+        const SLOTS = 24;   // slots por período no padrão de repetição
+        const cor = f => ['#26c6da','#f06292','#7c4dff','#ffab76','#26a69a','#ffca28','#90caf9','#8b949e'][familias.findIndex(x=>x.nome===f.nome) % 8];
+        const seqDe = () => {
+            const share = familias.map(f => ({ nome: f.nome, peso: f.qtd / totalGeral, acc: 0 }));
+            const seq = [];
+            for (let i = 0; i < SLOTS; i++) { share.forEach(s => s.acc += s.peso); const g = share.filter(s=>s.peso>0).sort((a,b)=>b.acc-a.acc)[0]; if (!g) break; g.acc -= 1; seq.push(g.nome); }
+            return seq;
+        };
+        const seq = seqDe();
+
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:16px;border-left:3px solid #7c4dff;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px;">
+                <div>
+                    <div class="s-label" style="margin-bottom:6px;">HEIJUNKA — nivelamento da carteira por família</div>
+                    <p style="font-size:.76rem;color:var(--text-dim);max-width:640px;">Distribui a produção de forma ritmada em vez de lotes grandes: <strong>${fmt(totalGeral)}</strong> peças de <strong>${familias.length}</strong> famílias em <strong>${per}</strong> períodos. A caixa mostra a sequência nivelada (mix A-B-A-C), reduzindo pico de estoque e tempo de resposta.</p>
+                </div>
+                <div style="display:flex;align-items:flex-end;gap:8px;">
+                    <div><span class="aps-label">PERÍODOS</span><input id="aps-heij-per" type="number" min="2" max="12" value="${per}" class="aps-input" style="width:76px;text-align:right;"></div>
+                    <button class="btn primary" style="font-size:.78rem;" onclick="aps._heijPer=Math.max(2,Math.min(12,parseInt($('aps-heij-per').value)||5));aps._renderHeijunka()">Nivelar</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="summary-card" style="margin-bottom:16px;">
+            <div class="s-label" style="margin-bottom:10px;">RITMO POR FAMÍLIA (peças/período)</div>
+            ${familias.slice(0,15).map(f => `<div style="display:flex;align-items:center;gap:12px;padding:5px 0;">
+                <div style="width:170px;font-size:.8rem;font-weight:600;color:${cor(f)};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(f.nome)}</div>
+                <div style="flex:1;height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="width:${Math.round(f.qtd/familias[0].qtd*100)}%;height:100%;background:${cor(f)};border-radius:4px;"></div></div>
+                <div style="width:150px;text-align:right;font-size:.78rem;"><strong style="color:${cor(f)};">${fmt(Math.round(f.porPeriodo))}</strong><span style="color:var(--text-dim);font-size:.7rem;">/período · ${fmt(f.qtd)} tot · ${f.ops} OP</span></div>
+            </div>`).join('')}
+        </div>
+
+        <div class="summary-card">
+            <div class="s-label" style="margin-bottom:10px;">CAIXA HEIJUNKA — sequência nivelada (1 ciclo repetível)</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;">
+                ${seq.map(nome => { const f = familias.find(x=>x.nome===nome); return `<div title="${esc(nome)}" style="width:30px;height:30px;border-radius:5px;background:${cor(f)}22;border:1px solid ${cor(f)};display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:700;color:${cor(f)};">${esc(nome.slice(0,3))}</div>`; }).join('')}
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:10px;">
+                ${familias.slice(0,8).map(f => `<span style="font-size:.72rem;color:var(--text-dim);"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${cor(f)};vertical-align:middle;"></span> ${esc(f.nome)}</span>`).join('')}
+            </div>
+            <p style="font-size:.7rem;color:var(--text-dim);margin-top:10px;">Repita este ciclo ao longo do período. Nivela o MIX (não só o volume) — o chão produz um pouco de cada família sempre, em vez de esvaziar uma antes de começar a outra.</p>
+        </div>`;
     },
 
     // ═══ MÁQUINAS & TEARES ═══

@@ -18,8 +18,8 @@ capacidade mora em UM sistema (o dono natural pela camada ISA-95/MESA-11). Sem r
 
 ## Ondas de consolidação (menor risco → maior)
 - [x] **Onda 1** — aposentar SIGS "Matriz de Set Up" (importador órfão de `dados_capacidade`, nada lê); registrar esta arquitetura. *Zero risco.*
-- [ ] **Onda 2** — prioridade com dono único: APS grava; MES `sequenciar-carteira`/`prazo` param de gravar `prioridade` (só exibem risco). *Risco baixo — só cortar a escrita do MES.*
-- [ ] **Onda 3** — Heijunka no APS (aba nova, read-only leveling); MES vira ponteiro. *Risco baixo (aditivo).*
+- [ ] **Onda 2 (REGISTRADA — pendente de execução)** — prioridade com dono único. **Problema:** `ordem_producao.prioridade` é gravada em 2 lugares — MES (`POST /api/mf/sequenciar-carteira` ~server.js:1496, e a tela `prazo`) e APS (`PUT /api/aps/ops/:id`). Last-writer-wins silencioso. **Ação:** cortar a escrita do MES (a tela `prazo`/`fila` passa a só EXIBIR risco; o `sequenciar-carteira` deixa de gravar); APS continua o único que grava. **Risco baixo**, mas muda o botão "sequenciar carteira" do MES (hoje o operador o usa) → precisa OK do dono. Adiada a pedido do dono.
+- [x] **Onda 3 (FEITA)** — Heijunka no APS (aba Planejamento › Heijunka): ritmo por família (peças/período) + **caixa Heijunka com sequência mix-nivelada A-B-A-C** (maior-resto). Client-side sobre `this._ops`, família = marca→1ª palavra da descrição→código. Mais rico que o MES (que só nivelava volume). O `GET /api/mf/heijunka` + aba `heijunka` do MES ficam superados — **retirar do MES numa micro-onda com OK** (1 item de menu).
 - [ ] **Onda 4** — tempo-padrão fonte MES: TOC do SIGS lê `tempo_padrao` (de-para com `banco`). *Risco médio — pode zerar o gargalo; validar números antes.*
 - [ ] **Onda 5** — Preactor → APS: migrar `op_datas`/`setup_matrix`/`timeline_cenario` e o sequenciamento finito por tear para o APS; SIGS deixa de ter engine de sequenciamento. *Risco alto — Plano de Produção e a promessa leem essas tabelas.*
 - [ ] **Onda 6** — entrada única da OP: um só canal de intake (APS dono da criação); ERP entra por ele; `op-unificado` mantém compatibilidade. *Risco alto — muitos dashboards leem a view.*
