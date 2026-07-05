@@ -1560,27 +1560,11 @@ app.post('/api/mf/cadastro/:tabela', auth, mfEscrita, async (req, res) => {
 });
 
 // ── Ordem de produção ─────────────────────────────────────────
-app.post('/api/mf/ops', auth, mfEscrita, async (req, res) => {
-    const b = req.body || {};
-    if (!b.numero || !b.produto_id || !b.qtd_planejada) return res.status(400).json({ erro: 'numero, produto_id e qtd_planejada obrigatórios' });
-    const campos = { produto_id: b.produto_id, qtd_planejada: b.qtd_planejada, unidade: b.unidade || 'kg',
-        maquina_prevista_id: b.maquina_prevista_id || null, data_abertura: b.data_abertura || null, data_prevista: b.data_prevista || null };
-    // Governança (APS Fase 1): status de OP EXISTENTE só muda pela máquina de estados.
-    // Sem TOCTOU: UPDATE por numero NÃO toca status (a transição concorrente sobrevive);
-    // se não existir, INSERT novo com status inicial. A UNIQUE(numero) resolve corrida de criação.
-    const { data: upd, error: eU } = await supabase.from('ordem_producao').update(campos).eq('numero', b.numero).select().maybeSingle();
-    if (eU) return erro500(res, eU);
-    if (upd) return res.json({ ok: true, op: upd });
-    const { data, error } = await supabase.from('ordem_producao').insert({ ...campos, numero: b.numero, status: b.status || 'planejada', origem: b.origem || 'manual' }).select().single();
-    if (error) {
-        if (error.code === '23505') {   // criada por uma requisição concorrente entre o UPDATE e o INSERT
-            const { data: ex } = await supabase.from('ordem_producao').update(campos).eq('numero', b.numero).select().maybeSingle();
-            return res.json({ ok: true, op: ex });
-        }
-        return erro500(res, error);
-    }
-    res.json({ ok: true, op: data });
-});
+// DEPRECADO (Onda 6 — entrada única da OP): a CRIAÇÃO de OP tem dono único = APS
+// (POST /api/aps/ops, que nasce PLANEJADA e escreve no ledger). Este canal não tinha
+// caller na UI. O ERP entra por POST /api/mf/importar-ops (também registrado no ledger).
+app.post('/api/mf/ops', auth, mfEscrita, (_req, res) =>
+    res.status(410).json({ ok: false, movido: '/api/aps/ops', erro: 'Criação de OP é feita no APS (governança + ledger) ou pelo import de ERP. Este canal foi aposentado.' }));
 
 // ══════════════════════════════════════════════════════════════
 // APS — GOVERNANÇA DE ORDENS (Fase 1)
@@ -3491,14 +3475,19 @@ app.post('/api/mf/importar-ops', auth, mfEscrita, async (req, res) => {
         const { data, error } = await supabase.from('produto').insert({ codigo: p.codigo, descricao: p.descricao, cor: p.cor, marca: p.marca, tamanho: p.tamanho, unidade_medida: unidade }).select('id,codigo').single();
         if (!error && data) { prodMap.set(String(data.codigo), data.id); produtos_criados++; }
     }
-    let inseridas = 0; const erros = [];
+    let inseridas = 0; const erros = []; const nascimentos = [];
     for (const o of novas) {
         const pid = prodMap.get(String(o.prod_codigo));
         if (!pid) { erros.push(`${o.numero}: produto ${o.prod_codigo} não cadastrado`); continue; }
-        const { error } = await supabase.from('ordem_producao').insert({ numero: o.numero, produto_id: pid, qtd_planejada: o.qtd || 0, unidade,
-            status: _opErpStatus(o.status), origem: 'erp', data_abertura: _opErpData(o.emissao), data_prevista: _opErpData(o.previsao) });
-        if (error) erros.push(`${o.numero}: ${error.message}`); else inseridas++;
+        const st = _opErpStatus(o.status);
+        const { data: ins, error } = await supabase.from('ordem_producao').insert({ numero: o.numero, produto_id: pid, qtd_planejada: o.qtd || 0, unidade,
+            status: st, origem: 'erp', data_abertura: _opErpData(o.emissao), data_prevista: _opErpData(o.previsao) }).select('id').single();
+        if (error) erros.push(`${o.numero}: ${error.message}`);
+        else { inseridas++; if (ins?.id) nascimentos.push({ op_id: ins.id, de: null, para: st, origem: 'erp', motivo: `Importada do ERP (OP ${o.numero})`, usuario_nome: req.usuario?.nome || null, usuario_id: req.usuario?.id || null }); }
     }
+    // Onda 6: toda OP nasce com registro no ledger, qualquer que seja o canal de entrada.
+    // Best-effort — se a governança não foi inicializada, o import não falha por isso.
+    if (nascimentos.length) { const { error: eLog } = await supabase.from('op_state_log').insert(nascimentos); if (eLog) console.warn('importar-ops: ledger indisponível:', eLog.message); }
     res.json({ ok: true, inseridas, produtos_criados, ignoradas: existentes.length, erros });
 });
 
