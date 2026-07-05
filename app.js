@@ -1133,12 +1133,10 @@ const cockpit = {
     }
 };
 
-// Fase 3 (Plano→Chão): sequencia a carteira por EDD e empurra a prioridade ao chão (Fila do MES)
-async function sequenciarCarteira() {
-    if (!confirm('Sequenciar a carteira por data de entrega (EDD) e enviar a prioridade para o chão?\n\nAs prioridades que o operador já ajustou manualmente na Fila são PRESERVADAS (OK para sobrescrever tudo → Cancelar e use "forçar").')) return;
-    const r = await api.post('/api/mf/sequenciar-carteira', {});
-    if (r?.ok) mostrarToast(`✓ Sequenciado por EDD: ${r.urgente} urgentes · ${r.alta} alta · ${r.normal} normal${r.preservadas ? ` · ${r.preservadas} manuais preservadas` : ''} — enviado ao chão.`);
-    else mostrarToast('Erro ao sequenciar carteira.', 'erro');
+// Onda 2 (dono único da prioridade = APS): a priorização da carteira mudou para o
+// APS. O SIGS (planejamento) não grava mais prioridade — abre o APS › Sequenciamento.
+function sequenciarCarteira() {
+    if (confirm('A priorização da carteira agora é feita no APS (dono único da prioridade).\n\nAbrir o APS › Sequenciamento agora?')) location.href = '/aps.html';
 }
 
 function navigateTo(viewName) {

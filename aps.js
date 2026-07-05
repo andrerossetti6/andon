@@ -541,6 +541,15 @@ const aps = {
             <div style="padding:8px 14px;font-size:.7rem;color:var(--text-dim);border-top:1px solid var(--border-color);">${r.fila.length} OP(s) LIBERADAS · atributo <span style="color:#ffca28;font-weight:700;">amarelo</span> = troca em relação à OP anterior · fila é SUGESTÃO (nada foi gravado)</div>
         </div>`;
     },
+    // Onda 2: o APS é o dono único da prioridade. Ranqueia a carteira por EDD e grava
+    // ordem_producao.prioridade (capacidade que antes vivia no SIGS "Priorizar p/ chão").
+    async _aplicarPrioridadeEDD() {
+        if (!confirm('Aplicar prioridade por data de entrega (EDD) a toda a carteira?\n\nOs 20% de prazo mais curto viram "urgente", os 30% seguintes "alta". Prioridades já ajustadas (>0) são PRESERVADAS.')) return;
+        const r = await api.post('/api/aps/prioridade-edd', { forcar: false });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao aplicar prioridade.', 'erro');
+        toast(`✓ Prioridade por EDD: ${r.urgente} urgentes · ${r.alta} alta · ${r.normal} normal${r.preservadas ? ` · ${r.preservadas} preservadas` : ''}.`);
+        this._renderSeqInteligente();
+    },
     async _salvarPesos() {
         const pesos = {};
         ['edd','setup','prioridade','spt'].forEach(k => { pesos[k] = parseFloat($('aps-peso-'+k)?.value) || 0; });
@@ -597,6 +606,7 @@ const aps = {
             <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;" id="aps-pesos-wrap">
                 ${['edd','setup','prioridade','spt'].map(k => `<div><span class="aps-label">${{edd:'PRAZO (EDD)',setup:'MENOS SETUP',prioridade:'PRIORIDADE ★',spt:'MAIS CURTA (SPT)'}[k]}</span><input id="aps-peso-${k}" type="number" min="0" class="aps-input" style="width:92px;text-align:right;" value="0"></div>`).join('')}
                 <button class="btn secondary" style="font-size:.78rem;" onclick="aps._salvarPesos()">💾 Salvar pesos</button>
+                <button class="btn secondary" style="font-size:.78rem;" title="Ranqueia toda a carteira por data de entrega (EDD) e grava a prioridade (20% mais urgentes → urgente, 30% seguintes → alta). Preserva prioridades já ajustadas. O MES só exibe." onclick="aps._aplicarPrioridadeEDD()">⚡ Prioridade por EDD</button>
                 <button class="btn primary" style="font-size:.78rem;" onclick="aps._renderSeqInteligente()">🧮 Sequenciar</button>
             </div>
         </div>

@@ -1462,31 +1462,34 @@ app.get('/api/mf/ops', auth, async (req, res) => {
     }
 });
 
-// atualiza campos de uma OP (prioridade, status, datas)
+// atualiza campos de uma OP (datas). Onda 2: 'prioridade' saiu do allowlist —
+// dono único = APS (PUT /api/aps/ops/:id e POST /api/aps/prioridade-edd).
 app.put('/api/mf/ops/:id', auth, mfEscrita, async (req, res) => {
     const upd = {};
     // 'status' NÃO entra aqui — mudança de estado só pela máquina de estados do APS
     // (/api/aps/ops/:id/transicao), que valida transição, roda o gate e escreve no ledger.
-    ['prioridade', 'data_prevista', 'data_abertura'].forEach(f => { if (req.body[f] !== undefined) upd[f] = req.body[f]; });
-    if (upd.prioridade !== undefined) upd.prioridade = Math.max(0, Math.min(9, Number(upd.prioridade) || 0));
+    // 'prioridade' também NÃO entra — é campo de programação (N3), dono = APS.
+    ['data_prevista', 'data_abertura'].forEach(f => { if (req.body[f] !== undefined) upd[f] = req.body[f]; });
     if (!Object.keys(upd).length) return res.status(400).json({ erro: 'nada para atualizar' });
     const { error } = await supabase.from('ordem_producao').update(upd).eq('id', req.params.id);
     if (error) return erro500(res, error);
     res.json({ ok: true });
 });
-// Fase 3 (Plano→Chão): sequencia a carteira por EDD (data de entrega) e empurra a
-// prioridade para a Fila do operador. Ranking: 20% mais urgentes→2, 30% seguintes→1.
-app.post('/api/mf/sequenciar-carteira', auth, mfEscrita, async (req, res) => {
-    const dry = !!req.body?.dry, forcar = !!req.body?.forcar;  // M8: preserva prioridade manual (>0) a menos que forcar
+// Onda 2 (dono único da prioridade = APS): ranqueia a carteira por EDD e grava
+// ordem_producao.prioridade. Ranking: 20% mais urgentes→2, 30% seguintes→1.
+// Antes vivia em POST /api/mf/sequenciar-carteira (chamado pelo SIGS) — movido para
+// cá porque prioridade é campo de programação (N3), dono natural = APS.
+app.post('/api/aps/prioridade-edd', auth, sigsEscrita, async (req, res) => {
+    const dry = !!req.body?.dry, forcar = !!req.body?.forcar;  // preserva prioridade manual (>0) a menos que forcar
     let ops;
-    try { ops = await fetchAllSelect('ordem_producao', 'id,data_prevista,prioridade', q => q.neq('status', 'cancelada').neq('status', 'concluida')); }  // paginado + erro tratado (A2/A4)
+    try { ops = await fetchAllSelect('ordem_producao', 'id,data_prevista,prioridade', q => q.neq('status', 'cancelada').neq('status', 'concluida')); }  // paginado + erro tratado
     catch (e) { return erro500(res, e); }
     ops.sort((a, b) => { if (!a.data_prevista) return 1; if (!b.data_prevista) return -1; return new Date(a.data_prevista) - new Date(b.data_prevista); });
     const n = ops.length; let urgente = 0, alta = 0, normal = 0, preservadas = 0;
     const prioDe = ops.map((o, i) => {
         const frac = n > 1 ? i / n : 0;
         const p = (o.data_prevista && frac < 0.2) ? 2 : (o.data_prevista && frac < 0.5) ? 1 : 0;
-        const manual = !forcar && (Number(o.prioridade) || 0) > 0;  // não atropela o que o operador marcou na Fila
+        const manual = !forcar && (Number(o.prioridade) || 0) > 0;  // não atropela prioridade já ajustada
         if (manual) { preservadas++; return { id: o.id, p, aplica: false }; }
         if (p === 2) urgente++; else if (p === 1) alta++; else normal++;
         return { id: o.id, p, aplica: true };
@@ -1497,6 +1500,10 @@ app.post('/api/mf/sequenciar-carteira', auth, mfEscrita, async (req, res) => {
     }
     res.json({ ok: true, dry, criterio: 'EDD (data de entrega)', urgente, alta, normal, preservadas, total: n });
 });
+// DEPRECADO (Onda 2): a priorização da carteira mudou para o APS (dono único da
+// prioridade). Mantido como ponteiro — não grava nada, evita erro em cliente antigo.
+app.post('/api/mf/sequenciar-carteira', auth, mfEscrita, (_req, res) =>
+    res.status(410).json({ ok: false, movido: '/api/aps/prioridade-edd', erro: 'A priorização da carteira agora é feita no APS (Sequenciamento › Aplicar prioridade por EDD).' }));
 
 // ── Cadastros (escrita genérica, admin) ───────────────────────
 const MF_CADASTROS = { produto:'codigo', maquina:'codigo', operador:'matricula', turno:'codigo', motivo_parada:'codigo', catalogo_defeito:'codigo' };

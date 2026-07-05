@@ -457,7 +457,7 @@ const mf = {
                 <td style="padding:6px 8px;white-space:nowrap;">${dt(o.data_prevista)}</td>
                 <td style="padding:6px 8px;white-space:nowrap;">${diasTxt}</td>
                 <td style="padding:6px 8px;">${pos}</td>
-                <td style="padding:6px 8px;">${Number(o.prioridade || 0) < 2 ? `<button onclick="mf.prazoUrgente('${o.id}')" style="background:none;border:1px solid #f0629255;color:#f06292;border-radius:5px;font-size:.66rem;padding:2px 7px;cursor:pointer;">▲ urgente</button>` : '<span style="font-size:.62rem;color:#f06292;">● urgente</span>'}</td>
+                <td style="padding:6px 8px;">${Number(o.prioridade || 0) >= 2 ? '<span style="font-size:.62rem;color:#f06292;">● urgente</span>' : Number(o.prioridade || 0) === 1 ? '<span style="font-size:.62rem;color:#ffca28;">● alta</span>' : ''}</td>
             </tr>`;
         }).join('');
         $('mf-prazo-tab').innerHTML = `<div class="summary-card" style="padding:0;overflow:auto;max-height:60vh;">
@@ -467,12 +467,8 @@ const mf = {
                 </tr></thead><tbody>${linhas || '<tr><td colspan="8" style="padding:20px;text-align:center;color:var(--text-dim);">Nenhuma OP ativa.</td></tr>'}</tbody>
             </table></div>`;
     },
-    async prazoUrgente(id) {
-        const o = (this._prazoOps || []).find(x => x.id === id); if (o) o.prioridade = 2;
-        const r = await api.put('/api/mf/ops/' + id, { prioridade: 2 });
-        toast(r?.ok ? 'Marcada como urgente (vai ao topo da Fila).' : 'Erro.', r?.ok ? 'ok' : 'erro');
-        this._prazoCalc();
-    },
+    // Onda 2: urgência (prioridade) define-se no APS. Aqui a tela só mostra o risco.
+    prazoUrgente() { toast('Marque a urgência no APS › Sequenciamento (dono único da prioridade).', 'info'); },
 
     // ═══ FILA / BACKLOG DE OPs ═════════════════════════════════════════════════
     _filaStatusCor(s) { return { planejada:'#8b949e', liberada:'#26c6da', em_producao:'#66bb6a', pausada:'#ffca28', concluida:'#7c4dff', cancelada:'#f06292' }[s] || '#8b949e'; },
@@ -541,8 +537,7 @@ const mf = {
                 <td style="padding:6px 8px;font-weight:600;">${esc(o.numero)}</td>
                 <td style="padding:6px 8px;">${esc(o.produto?.descricao || '?')}<span style="color:var(--text-dim);font-size:.72rem;"> ${esc(o.produto?.codigo || '')}${o.produto?.tamanho ? ` · ${esc(o.produto.tamanho)}` : ''}${o.produto?.marca ? ` · ${esc(o.produto.marca)}` : ''}</span></td>
                 <td style="padding:6px 8px;text-align:right;white-space:nowrap;">${brl(o.qtd_planejada)} ${esc(o.unidade || '')}</td>
-                <td style="padding:6px 8px;"><select onchange="mf.salvarPrioridade('${o.id}', this.value)" style="font-size:.7rem;padding:2px 4px;background:var(--bg-card);border:1px solid ${PR[p][1] === 'transparent' ? 'var(--border-color)' : PR[p][1]};border-radius:5px;color:${PR[p][1] === 'transparent' ? 'var(--text-dim)' : PR[p][1]};">
-                    <option value="0" ${p === 0 ? 'selected' : ''}>normal</option><option value="1" ${p === 1 ? 'selected' : ''}>alta</option><option value="2" ${p === 2 ? 'selected' : ''}>urgente</option></select></td>
+                <td style="padding:6px 8px;"><span title="Prioridade definida no APS (Sequenciamento). O chão só exibe." style="font-size:.66rem;padding:1px 7px;border-radius:5px;border:1px solid ${PR[p][1] === 'transparent' ? 'var(--border-color)' : PR[p][1]};color:${PR[p][1] === 'transparent' ? 'var(--text-dim)' : PR[p][1]};">${PR[p][0]}</span></td>
                 <td style="padding:6px 8px;"><span style="font-size:.66rem;color:${cor};border:1px solid ${cor}55;border-radius:4px;padding:1px 6px;">${esc(o.status)}</span></td>
                 <td style="padding:6px 8px;white-space:nowrap;">${dt(o.data_prevista)}</td>
                 <td style="padding:6px 8px;">${pos}</td>
@@ -565,13 +560,8 @@ const mf = {
         (this._filaVisiveis || []).forEach(id => { const o = this._fila.find(x => x.id === id); if (o && !o.etapa_atual_id && !['concluida', 'cancelada'].includes(o.status)) { if (on) this._filaSel.add(id); else this._filaSel.delete(id); } });
         this._filaTabela();
     },
-    async salvarPrioridade(id, v) {
-        const o = (this._fila || []).find(x => x.id === id); const antes = o ? o.prioridade : undefined;
-        if (o) o.prioridade = Number(v);  // atualiza local (otimista)
-        this._filaTabela();  // re-ordena na hora (a OP pula para a posição certa)
-        const r = await api.put('/api/mf/ops/' + id, { prioridade: Number(v) });
-        if (!r?.ok) { if (o) o.prioridade = antes; this._filaTabela(); toast(r?.erro || 'Erro ao salvar prioridade.', 'erro'); }  // B2: reverte se falhar
-    },
+    // Onda 2: prioridade tem dono único (APS). O MES só exibe — não grava mais.
+    salvarPrioridade() { toast('A prioridade agora se define no APS › Sequenciamento (dono único). O chão apenas segue a fila.', 'info'); },
     async filaJogarFluxo() {
         const ids = [...this._filaSel]; if (!ids.length) return;
         const r = await api.post('/api/mf/wip/iniciar-lote', { op_ids: ids });
