@@ -4672,21 +4672,31 @@ const toc = {
             if (cod) bancoMap[cod] = r.dados;
         });
 
+        // Onda 4: tempo-padrão MEDIDO (MES) tem prioridade sobre a planilha. Enquanto o
+        // MES não mediu (tempo_padrao vazia), porProc vem {} → tudo cai no fallback da planilha.
+        const medidos = await api.get('/api/toc/tempos-medidos').catch(() => ({ porProc: {} }));
+        const porProc = medidos?.porProc || {};
+
         // Calcula carga por processo
         const resultados = this._PROCS.map(p => {
             const capP = cap[p.id] || { maquinas: 1, horasDia: 8, oee: 100 };
             const capMin = capP.maquinas * capP.horasDia * 60 * dias * (Math.min(capP.oee || 100, 100) / 100);
-            let cargaMin = 0;
+            let cargaMin = 0, medidasUsadas = 0;
             const topPecas = [];
+            const medProc = porProc[p.id];
 
             Object.entries(demanda).forEach(([cod, qty]) => {
                 const dados = bancoMap[cod];
-                if (!dados) return;
-                const tempoUn = this._getTempoMinutos(dados, p.cols);
+                // tempo medido do MES por código (seg→min) tem prioridade; senão planilha
+                const segMed = medProc?.porCodigo?.[cod];
+                let tempoUn, medido = false;
+                if (segMed != null && segMed > 0) { tempoUn = segMed / 60; medido = true; }
+                else { if (!dados) return; tempoUn = this._getTempoMinutos(dados, p.cols); }
                 if (!tempoUn) return;
+                if (medido) medidasUsadas++;
                 const carga = tempoUn * qty;
                 cargaMin += carga;
-                topPecas.push({ cod, tempoUn, qty, carga });
+                topPecas.push({ cod, tempoUn, qty, carga, medido });
             });
 
             topPecas.sort((a, b) => b.carga - a.carga);
@@ -4702,6 +4712,8 @@ const toc = {
                 util,
                 semDados,
                 topPecas: topPecas.slice(0, 15),
+                medidasUsadas,                          // nº de SKUs cujo tempo veio medido (MES)
+                fonteTempo: medidasUsadas > 0 ? 'medido' : 'planilha',
             };
         });
 
@@ -4873,9 +4885,12 @@ const toc = {
             const cor = p.util >= 1 ? '#f06292' : p.util >= 0.8 ? '#ffca28' : '#26a69a';
             const label = p.util >= 1 ? 'GARGALO' : p.util >= 0.8 ? 'ATENÇÃO' : 'OK';
             const barW = Math.min(pct / 1.5, 100); // escala visual: 150% = barra cheia
+            const selo = p.fonteTempo === 'medido'
+                ? `<span title="${p.medidasUsadas} SKU(s) com tempo MEDIDO no MES (cronoanálise) — tem prioridade sobre a planilha" style="font-size:.6rem;color:#26c6da;border:1px solid #26c6da55;border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:middle;">medido MES</span>`
+                : '';
             return `<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border-color);cursor:pointer;"
                 onclick="toc._mostrarTop('${p.id}')">
-                <div style="width:160px;font-size:0.82rem;font-weight:600;color:var(--text-primary);">${p.nome}</div>
+                <div style="width:160px;font-size:0.82rem;font-weight:600;color:var(--text-primary);">${p.nome}${selo}</div>
                 <div style="flex:1;height:10px;background:var(--bg-input);border-radius:5px;overflow:hidden;">
                     <div style="width:${barW}%;height:100%;background:${cor};border-radius:5px;transition:width .5s;"></div>
                 </div>

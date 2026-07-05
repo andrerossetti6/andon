@@ -763,6 +763,46 @@ app.post('/api/capacidade-config/bulk', auth, sigsEscrita, async (req, res) => {
     res.json({ ok: true });
 });
 
+// ── Onda 4: tempo-padrão MEDIDO (MES) para o TOC do SIGS ─────────────────────
+// O MES é o dono do tempo-padrão (cronoanálise). As etapas do MES batem 1:1 com
+// os processos do TOC (Tecelagem/Costura/Soldagem/…). Aqui o TOC BUSCA o tempo
+// medido; a planilha "Banco de Dados" vira só fallback. Enquanto tempo_padrao
+// estiver vazia, a resposta é vazia → o TOC segue usando a planilha (zero risco).
+const TOC_ETAPA_PROC = { // etapa MES (normalizada) → id de processo do TOC
+    'tecelagem': 'tecelagem', 'costura automatica': 'costura_auto', 'costura manual': 'costura_manual',
+    'soldagem': 'soldagem', 'silicone': 'silicone', 'passadoria': 'passadoria', 'embalagem': 'embalagem',
+};
+const _norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+app.get('/api/toc/tempos-medidos', auth, async (_req, res) => {
+    const [etR, tpR] = await Promise.all([
+        supabase.from('etapa_processo').select('id,nome'),
+        supabase.from('tempo_padrao').select('etapa_id,produto_id,seg_por_unidade'),
+    ]);
+    if (etR.error) { // etapa_processo é do MES; se faltar, degrada limpo (TOC usa planilha)
+        if (/schema cache|does not exist|relation/i.test(etR.error.message || '')) return res.json({ porProc: {}, cobertura: 0, indisponivel: true });
+        return erro500(res, etR.error);
+    }
+    if (tpR.error) return res.json({ porProc: {}, cobertura: 0, indisponivel: true });
+    // etapa_id → procId do TOC (por nome)
+    const procDeEtapa = {}; (etR.data || []).forEach(e => { const p = TOC_ETAPA_PROC[_norm(e.nome)]; if (p) procDeEtapa[e.id] = p; });
+    // produto_id → código (para casar com o código da planilha, em UPPER)
+    const pids = [...new Set((tpR.data || []).map(t => t.produto_id).filter(Boolean))];
+    const codDe = {};
+    if (pids.length) {
+        const { data: prods } = await supabase.from('produto').select('id,codigo').in('id', pids);
+        (prods || []).forEach(p => { if (p.codigo) codDe[p.id] = String(p.codigo).trim().toUpperCase(); });
+    }
+    const porProc = {}; let cobertura = 0;
+    (tpR.data || []).forEach(t => {
+        const proc = procDeEtapa[t.etapa_id]; const seg = Number(t.seg_por_unidade) || 0;
+        if (!proc || seg <= 0) return;
+        const bucket = porProc[proc] || (porProc[proc] = { geral: null, porCodigo: {} });
+        if (t.produto_id && codDe[t.produto_id]) { bucket.porCodigo[codDe[t.produto_id]] = seg; cobertura++; }
+        else if (!t.produto_id) { bucket.geral = seg; }         // tempo genérico da etapa (sem produto)
+    });
+    res.json({ porProc, cobertura, procsComMedida: Object.keys(porProc) });
+});
+
 // ── S&OP — ESTOQUE MÍNIMO POR SKU ────────────────────────────
 app.get('/api/estoque-minimo', auth, async (_req, res) => {
     const { data, error } = await supabase.from('estoque_minimo').select('codigo,quantidade');
