@@ -46,6 +46,19 @@ roteiro (`produto_etapa`), tempos (`tempo_padrao` produto×etapa c/ fallback), `
 **Dívidas:**
 - [ ] Compatibilidade produto×máquina (galga do produto dentro de galga_min/max do tear) aplicada na alocação — Fase 4.
 - [ ] Evoluir para matriz por par de valores se os tempos reais exigirem.
-## Fase 3 — MTS/MTO + kanban eletrônico (pendente)
+## Fase 3 — MTS/MTO + kanban eletrônico (2026-07-05)
+
+**Entregue:** política de produção por SKU (`produto.politica` MTS|MTO|ATO, NULL = não definida), lote de reposição (`produto.lote_reposicao`), origem `kanban` nas OPs, endpoint `POST /api/aps/kanban/verificar` (dry-run padrão; `dry:false` gera), aba **Kanban (Reposição)** no APS + colunas POLÍTICA/LOTE em Produtos & Setup.
+
+**Decisões:**
+- **Fontes de dados reais, nada inventado:** estoque = última importação de estoque do SIGS; ponto de reposição = `estoque_minimo` (SIGS › Política de Estoques). Produto sem ponto/lote/estoque aparece na prévia com a situação explícita (SEM PONTO / SEM LOTE / SEM ESTOQUE INFO) — não gera OP às cegas.
+- **Kanban clássico: 1 cartão ativo por produto** — enquanto existir OP `origem='kanban'` não concluída/cancelada, não gera outra. Qtd do cartão = lote_reposicao fixo (não `ponto−estoque`): reposição por lote é o modelo de supermercado; se o buraco for maior que um lote, o próximo cartão sai quando o primeiro concluir.
+- **Sob demanda, não job automático:** o PCP clica Verificar (prévia) e decide gerar — sem OPs nascendo silenciosamente de madrugada. Automatizar depois é trivial (cron chamando o mesmo endpoint).
+- **OP kanban nasce PLANEJADA e passa pelo gate** como qualquer OP (sem prazo — o PCP define ao liberar). Criação registrada no ledger com estoque/ponto/lote do momento.
+- Numeração `KB-<código>-<aammdd>` com sufixo em colisão.
+
+**Dívidas:**
+- [ ] Estoque considera só produto acabado importado no SIGS — sem WIP/reservas (carteira MTO não abate).
+- [ ] Automatizar verificação (cron) quando o fluxo estiver rodado manualmente por algumas semanas.
 ## Fase 4 — Pesos do sequenciador + granularidade dia/turno (pendente)
 ## Fase 5 — Loop fechado (DESATUALIZADO + comparadores) (pendente)

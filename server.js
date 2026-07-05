@@ -1674,7 +1674,7 @@ app.post('/api/aps/setup-troca', auth, sigsEscrita, async (req, res) => {
 // Atualização em lote de atributos (UPDATE-only, por código — não cria registro novo;
 // colunas permitidas por allowlist p/ não virar mass-assignment)
 const APS_ATTRS = {
-    produto: ['titulo_fio', 'galga', 'cor_base', 'programa_maquina'],
+    produto: ['titulo_fio', 'galga', 'cor_base', 'programa_maquina', 'politica', 'lote_reposicao'],
     maquina: ['galga_min', 'galga_max'],
 };
 app.post('/api/aps/atributos/bulk', auth, sigsEscrita, async (req, res) => {
@@ -1690,12 +1690,81 @@ app.post('/api/aps/atributos/bulk', auth, sigsEscrita, async (req, res) => {
         const upd = {};
         cols.forEach(c => { if (it[c] !== undefined) upd[c] = it[c] === '' ? null : it[c]; });
         if (!Object.keys(upd).length) continue;
+        if (upd.politica != null && !['MTS', 'MTO', 'ATO'].includes(upd.politica))
+            return res.status(422).json({ erro: `politica inválida (${upd.politica}) — use MTS, MTO ou ATO.` });
         const { data, error } = await supabase.from(t).update(upd).eq('codigo', cod).select('id');
         if (error && /column|schema cache|could not find/i.test(error.message || '')) return res.status(503).json({ erro: APS2_503 });
         if (error) return erro500(res, error);
         if (data?.length) atualizados++; else naoEncontrados.push(cod);
     }
     res.json({ ok: true, atualizados, naoEncontrados: naoEncontrados.slice(0, 50), totalNaoEncontrados: naoEncontrados.length });
+});
+
+// ── APS Fase 3 — kanban eletrônico (reposição MTS) ───────────
+// Sob demanda (o PCP dispara — sem job silencioso): produto MTS com estoque < ponto
+// de reposição gera OP candidata origem='kanban'. 1 cartão ativo por produto (dedup).
+const APS3_503 = 'Kanban não inicializado — rode aps_mts_kanban.sql no Supabase.';
+app.post('/api/aps/kanban/verificar', auth, sigsEscrita, async (req, res) => {
+    const dry = req.body?.dry !== false;   // padrão = prévia (só gera com dry:false explícito)
+    const { data: prods, error: eP } = await supabase.from('produto')
+        .select('id,codigo,descricao,politica,lote_reposicao,unidade_medida').eq('politica', 'MTS').eq('ativo', true);
+    if (eP && /column|schema cache|could not find/i.test(eP.message || '')) return res.status(503).json({ erro: APS3_503 });
+    if (eP) return erro500(res, eP);
+    if (!prods?.length) return res.json({ ok: true, dry, itens: [], aRepor: 0, gerados: [], aviso: 'Nenhum produto marcado como MTS — defina a política em APS › Produtos & Setup.' });
+
+    // estoque atual = última importação de estoque do SIGS (produto acabado)
+    const { data: imp } = await supabase.from('importacoes_estoque').select('id,criado_em').order('criado_em', { ascending: false }).limit(1).maybeSingle();
+    const estoquePorCod = {};
+    if (imp) (await fetchAllRows('estoque', imp.id).catch(() => [])).forEach(r => {
+        const c = String(r.codigo || '').trim().toUpperCase();
+        if (c) estoquePorCod[c] = (estoquePorCod[c] || 0) + (Number(r.quantidade) || 0);
+    });
+    // ponto de reposição (SIGS · Política de Estoques → estoque_minimo)
+    const { data: minimos } = await supabase.from('estoque_minimo').select('codigo,quantidade');
+    const pontoPorCod = {}; (minimos || []).forEach(m => { pontoPorCod[String(m.codigo).toUpperCase()] = Number(m.quantidade) || 0; });
+    // dedup: OP kanban ainda ativa segura novo cartão do mesmo produto
+    const { data: ativas } = await supabase.from('ordem_producao').select('id,produto_id,numero,status').eq('origem', 'kanban').not('status', 'in', '(concluida,cancelada)');
+    const cartaoAtivo = {}; (ativas || []).forEach(o => { cartaoAtivo[o.produto_id] = o; });
+
+    const itens = [], aGerar = [];
+    for (const p of prods) {
+        const cod = String(p.codigo).toUpperCase();
+        const estoque = estoquePorCod[cod] ?? null;
+        const ponto = pontoPorCod[cod] ?? null;
+        const lote = Number(p.lote_reposicao) || 0;
+        let situacao, motivo;
+        if (ponto === null)            { situacao = 'sem_ponto';   motivo = 'sem ponto de reposição — use SIGS › Política de Estoques › Sugerir Est. Mínimo'; }
+        else if (!lote)                { situacao = 'sem_lote';    motivo = 'sem lote de reposição — defina em Produtos & Setup'; }
+        else if (estoque === null)     { situacao = 'sem_estoque'; motivo = 'código não aparece na última importação de estoque'; }
+        else if (cartaoAtivo[p.id])    { situacao = 'cartao_aberto'; motivo = `cartão ${cartaoAtivo[p.id].numero} ainda ativo (${cartaoAtivo[p.id].status})`; }
+        else if (estoque < ponto)      { situacao = 'repor';       motivo = `estoque ${estoque} < ponto ${ponto}`; aGerar.push({ p, cod, estoque, ponto, lote }); }
+        else                           { situacao = 'ok';          motivo = `estoque ${estoque} ≥ ponto ${ponto}`; }
+        itens.push({ codigo: p.codigo, descricao: p.descricao, estoque, ponto, lote, situacao, motivo });
+    }
+
+    const gerados = [];
+    if (!dry) {
+        const hojeSP = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date()).replace(/-/g, '').slice(2);
+        for (const g of aGerar) {
+            let numero = `KB-${g.cod}-${hojeSP}`;
+            for (let s = 2; s <= 9; s++) {   // colisão (recriado no mesmo dia) → sufixo
+                const { data: dup } = await supabase.from('ordem_producao').select('id').eq('numero', numero).maybeSingle();
+                if (!dup) break;
+                numero = `KB-${g.cod}-${hojeSP}-${s}`;
+            }
+            const { data: op, error } = await supabase.from('ordem_producao').insert({
+                numero, produto_id: g.p.id, qtd_planejada: g.lote, unidade: g.p.unidade_medida || 'pc',
+                data_abertura: new Date().toISOString(), status: 'planejada', origem: 'kanban',
+            }).select().single();
+            if (error) {
+                if (/origem|check/i.test(error.message || '')) return res.status(503).json({ erro: APS3_503 });
+                continue;
+            }
+            await apsLog(op.id, null, 'planejada', { motivo: `Kanban: estoque ${g.estoque} < ponto ${g.ponto} → repõe lote de ${g.lote}`, origem: 'kanban', usuario: req.usuario }).catch(() => {});
+            gerados.push({ numero, codigo: g.cod, qtd: g.lote });
+        }
+    }
+    res.json({ ok: true, dry, itens, aRepor: aGerar.length, gerados, estoqueDe: imp?.criado_em || null });
 });
 
 // ── Apontamento (sessão de trabalho) ──────────────────────────

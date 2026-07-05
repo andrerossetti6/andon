@@ -138,11 +138,11 @@ const aps = {
 
     tab(nome) {
         this._tab = nome;
-        ['painel','carteira','capac','seq','maquinas','produtos','config'].forEach(t => {
+        ['painel','carteira','capac','seq','kanban','maquinas','produtos','config'].forEach(t => {
             const pan = $('aps-pan-' + t); if (pan) pan.style.display = t === nome ? 'block' : 'none';
         });
         document.querySelectorAll('[data-apstab]').forEach(li => li.classList.toggle('active', li.dataset.apstab === nome));
-        const R = { painel:'_renderPainel', carteira:'_renderCarteira', capac:'_renderCapac', seq:'_renderSeq', maquinas:'_renderMaquinas', produtos:'_renderProdutos', config:'_renderConfig' };
+        const R = { painel:'_renderPainel', carteira:'_renderCarteira', capac:'_renderCapac', seq:'_renderSeq', kanban:'_renderKanban', maquinas:'_renderMaquinas', produtos:'_renderProdutos', config:'_renderConfig' };
         if (R[nome]) this[R[nome]]();
     },
 
@@ -505,6 +505,52 @@ const aps = {
         </div>`;
     },
 
+    // ═══ KANBAN — REPOSIÇÃO MTS (Fase 3) ═══
+    async _renderKanban() {
+        const el = $('aps-pan-kanban');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:16px;border-left:3px solid var(--indigo-primary);">
+            <div class="s-label" style="margin-bottom:6px;">KANBAN ELETRÔNICO — reposição de itens de linha (MTS)</div>
+            <p style="font-size:.78rem;color:var(--text-dim);margin-bottom:12px;">Produto <strong>MTS</strong> com <strong>estoque &lt; ponto de reposição</strong> vira OP candidata (origem <em>kanban</em>, nasce PLANEJADA — passa pelo gate como qualquer OP). Regra: <strong>1 cartão ativo por produto</strong>. Estoque vem da última importação do SIGS; ponto vem da Política de Estoques (estoque mínimo).</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button class="btn secondary" style="font-size:.8rem;" onclick="aps._kanbanVerificar(true)">🔍 Verificar (prévia — não cria nada)</button>
+                <button class="btn primary" style="font-size:.8rem;display:none;" id="aps-kb-gerar" onclick="aps._kanbanVerificar(false)">⚡ Gerar OPs kanban</button>
+            </div>
+        </div>
+        <div id="aps-kb-result"></div>`;
+    },
+    async _kanbanVerificar(dry) {
+        const out = $('aps-kb-result');
+        out.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Verificando…</div>';
+        const r = await api.post('/api/aps/kanban/verificar', { dry });
+        if (!r?.ok) { out.innerHTML = `<div class="summary-card" style="border-left:3px solid #ffca28;padding:14px;"><span style="font-size:.8rem;color:#ffca28;">${esc(r?.erro || 'Erro na verificação.')}</span></div>`; return; }
+        if (r.aviso) { out.innerHTML = `<div class="summary-card" style="padding:16px;color:var(--text-dim);font-size:.82rem;">${esc(r.aviso)}</div>`; return; }
+        const COR = { repor:'#f06292', ok:'#26a69a', cartao_aberto:'#26c6da', sem_ponto:'#ffca28', sem_lote:'#ffca28', sem_estoque:'#8b949e' };
+        const LBL = { repor:'REPOR', ok:'OK', cartao_aberto:'CARTÃO ABERTO', sem_ponto:'SEM PONTO', sem_lote:'SEM LOTE', sem_estoque:'SEM ESTOQUE INFO' };
+        const btn = $('aps-kb-gerar'); if (btn) btn.style.display = (dry && r.aRepor > 0) ? '' : 'none';
+        if (btn && r.aRepor > 0) btn.textContent = `⚡ Gerar ${r.aRepor} OP(s) kanban`;
+        out.innerHTML = `
+        ${!dry && r.gerados.length ? `<div class="summary-card" style="margin-bottom:14px;border-left:3px solid #26a69a;"><span style="font-size:.84rem;color:#26a69a;font-weight:700;">✓ ${r.gerados.length} OP(s) criada(s):</span> <span style="font-size:.8rem;">${r.gerados.map(g=>`${esc(g.numero)} (${fmt(g.qtd)})`).join(' · ')}</span><div style="font-size:.72rem;color:var(--text-dim);margin-top:4px;">Nasceram PLANEJADAS — libere pelo gate na Carteira de Ordens.</div></div>` : ''}
+        <div class="summary-card" style="padding:0;overflow:hidden;">
+            <table style="width:100%;border-collapse:collapse;">
+            <thead><tr><th class="aps-th">CÓDIGO</th><th class="aps-th">DESCRIÇÃO</th>
+                <th class="aps-th" style="text-align:right;">ESTOQUE</th><th class="aps-th" style="text-align:right;">PONTO</th><th class="aps-th" style="text-align:right;">LOTE</th>
+                <th class="aps-th">SITUAÇÃO</th><th class="aps-th">DETALHE</th></tr></thead>
+            <tbody>${r.itens.sort((a,b)=>(a.situacao==='repor'?0:1)-(b.situacao==='repor'?0:1)).map((x,i)=>`
+                <tr style="background:${i%2?'var(--bg-input)':'transparent'};">
+                    <td class="aps-td" style="font-weight:700;color:var(--indigo-primary);">${esc(x.codigo)}</td>
+                    <td class="aps-td" style="color:var(--text-dim);">${esc((x.descricao||'').slice(0,30))}</td>
+                    <td class="aps-td" style="text-align:right;">${x.estoque==null?'—':fmt(x.estoque)}</td>
+                    <td class="aps-td" style="text-align:right;">${x.ponto==null?'—':fmt(x.ponto)}</td>
+                    <td class="aps-td" style="text-align:right;">${x.lote?fmt(x.lote):'—'}</td>
+                    <td class="aps-td"><span style="color:${COR[x.situacao]||'#fff'};font-weight:700;font-size:.72rem;">${LBL[x.situacao]||x.situacao}</span></td>
+                    <td class="aps-td" style="color:var(--text-dim);font-size:.74rem;">${esc(x.motivo)}</td>
+                </tr>`).join('')}</tbody></table>
+            <div style="padding:8px 14px;font-size:.7rem;color:var(--text-dim);border-top:1px solid var(--border-color);">${r.itens.length} produto(s) MTS · ${r.aRepor} a repor${r.estoqueDe?` · estoque da importação de ${new Date(r.estoqueDe).toLocaleDateString('pt-BR')}`:''}</div>
+        </div>`;
+        if (!dry) { await this._carregar(); }   // atualiza carteira com as OPs novas
+    },
+
     // ═══ MÁQUINAS & TEARES ═══
     _renderMaquinas() {
         const el = $('aps-pan-maquinas');
@@ -585,19 +631,27 @@ const aps = {
         const q = this._prodBusca.trim().toLowerCase();
         const rows = this._produtos.filter(p => !q || String(p.codigo||'').toLowerCase().includes(q) || String(p.descricao||'').toLowerCase().includes(q)).slice(0, 200);
         if (!rows.length) { el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim);">Nenhum produto.</div>'; return; }
-        const inp = (p, campo) => `<input class="aps-input" style="width:100%;min-width:84px;padding:4px 8px;font-size:.76rem;" value="${esc(p[campo]||'')}" onchange="aps._salvarAttrProduto('${esc(p.codigo)}','${campo}',this.value)">`;
+        const inp = (p, campo) => `<input class="aps-input" style="width:100%;min-width:76px;padding:4px 8px;font-size:.76rem;" value="${esc(p[campo]||'')}" onchange="aps._salvarAttrProduto('${esc(p.codigo)}','${campo}',this.value)">`;
+        const selPol = p => `<select class="aps-input" style="width:76px;padding:4px 6px;font-size:.76rem;" onchange="aps._salvarAttrProduto('${esc(p.codigo)}','politica',this.value)">
+            <option value=""${!p.politica?' selected':''}>—</option>
+            ${['MTS','MTO','ATO'].map(v=>`<option value="${v}"${p.politica===v?' selected':''}>${v}</option>`).join('')}</select>`;
+        const inpLote = p => `<input class="aps-input" type="number" min="0" style="width:80px;padding:4px 6px;font-size:.76rem;text-align:right;" value="${p.lote_reposicao ?? ''}" placeholder="—" onchange="aps._salvarAttrProduto('${esc(p.codigo)}','lote_reposicao',this.value)">`;
         el.innerHTML = `<div style="max-height:56vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
             <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;">
                 <th class="aps-th">CÓDIGO</th><th class="aps-th">DESCRIÇÃO</th>
                 <th class="aps-th">FIO (TÍTULO)</th><th class="aps-th">GALGA</th><th class="aps-th">COR-BASE</th><th class="aps-th">PROGRAMA</th>
+                <th class="aps-th" title="MTS = linha (kanban repõe) · MTO = sob encomenda (OP por pedido)">POLÍTICA</th>
+                <th class="aps-th" style="text-align:right;" title="Quantidade do cartão kanban (produto MTS)">LOTE REPOS.</th>
             </tr></thead><tbody>${rows.map((p,i) => `
                 <tr style="background:${i%2?'var(--bg-input)':'transparent'};">
                     <td class="aps-td" style="font-weight:700;color:var(--indigo-primary);white-space:nowrap;">${esc(p.codigo)}</td>
-                    <td class="aps-td" style="color:var(--text-dim);">${esc((p.descricao||'').slice(0,34))}</td>
+                    <td class="aps-td" style="color:var(--text-dim);">${esc((p.descricao||'').slice(0,28))}</td>
                     <td class="aps-td">${inp(p,'titulo_fio')}</td>
                     <td class="aps-td">${inp(p,'galga')}</td>
                     <td class="aps-td">${inp(p,'cor_base')}</td>
                     <td class="aps-td">${inp(p,'programa_maquina')}</td>
+                    <td class="aps-td">${selPol(p)}</td>
+                    <td class="aps-td" style="text-align:right;">${inpLote(p)}</td>
                 </tr>`).join('')}</tbody></table></div>
             <div style="padding:8px 14px;font-size:.7rem;color:var(--text-dim);border-top:1px solid var(--border-color);">Edite direto na célula — salva ao sair do campo.${this._produtos.length>200?' Mostrando 200 (use a busca).':''}</div>`;
     },
