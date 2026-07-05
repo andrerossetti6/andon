@@ -1941,6 +1941,75 @@ app.post('/api/aps/sequenciar', auth, async (req, res) => {
         setupTotalMin: setupTotal, setupEddMin: setupEdd, economiaMin: setupEdd - setupTotal });
 });
 
+// ── APS Fase 5 — loop fechado (sequência congelada + DESATUALIZADO) ──
+const APS5_503 = 'Loop fechado não inicializado — rode aps_seq_plano.sql no Supabase.';
+
+// Congela a sequência aprovada (foto). Desativa a anterior. Guarda op_id/posição/prazo
+// + o STATUS de cada OP no momento do congelamento (base p/ detectar divergência depois).
+app.post('/api/aps/seq-plano/congelar', auth, sigsEscrita, async (req, res) => {
+    const itensIn = Array.isArray(req.body?.itens) ? req.body.itens : [];
+    const ids = itensIn.map(i => i.op_id).filter(apsUuid);
+    if (!ids.length) return res.status(400).json({ erro: 'itens com op_id (UUID) obrigatório — sequencie antes de congelar.' });
+    // lê o estado REAL das OPs agora (não confia no que o cliente mandou de status)
+    const { data: opsAgora, error: eO } = await supabase.from('ordem_producao').select('id,numero,status,data_prevista').in('id', ids);
+    if (eO) return erro500(res, eO);
+    const porId = {}; (opsAgora || []).forEach(o => { porId[o.id] = o; });
+    const itens = itensIn.filter(i => porId[i.op_id]).map((i, idx) => ({
+        op_id: i.op_id, numero: porId[i.op_id].numero, posicao: idx + 1,
+        prazo: porId[i.op_id].data_prevista, status: porId[i.op_id].status,
+    }));
+    if (!itens.length) return res.status(400).json({ erro: 'nenhuma OP válida para congelar.' });
+    const tolerancia_dias = Math.max(0, parseInt(req.body?.tolerancia_dias) || 0);
+    await supabase.from('seq_plano').update({ ativo: false }).eq('ativo', true);   // só 1 ativo
+    const { data, error } = await supabase.from('seq_plano').insert({
+        itens, tolerancia_dias, setup_total_min: Number(req.body?.setup_total_min) || null,
+        usuario_id: req.usuario?.id || null, usuario_nome: req.usuario?.nome || null,
+    }).select().single();
+    if (apsErroTabela(error)) return res.status(503).json({ erro: APS5_503 });
+    if (error) return erro500(res, error);
+    res.json({ ok: true, plano: { id: data.id, congelado_em: data.congelado_em, total: itens.length } });
+});
+
+// Plano ativo + análise de DESATUALIZADO (compara a foto com a realidade — sob demanda, nada silencioso)
+app.get('/api/aps/seq-plano', auth, async (_req, res) => {
+    const { data: plano, error } = await supabase.from('seq_plano').select('*').eq('ativo', true).order('congelado_em', { ascending: false }).limit(1).maybeSingle();
+    if (apsErroTabela(error)) return res.status(503).json({ erro: APS5_503 });
+    if (error) return erro500(res, error);
+    if (!plano) return res.json({ plano: null });
+
+    const itens = Array.isArray(plano.itens) ? plano.itens : [];
+    const ids = itens.map(i => i.op_id).filter(apsUuid);
+    const { data: ops } = ids.length ? await supabase.from('ordem_producao').select('id,numero,status,data_prevista').in('id', ids) : { data: [] };
+    const agora = {}; (ops || []).forEach(o => { agora[o.id] = o; });
+    // OPs liberadas HOJE que não estavam na foto = entraram depois
+    const { data: libAgora } = await supabase.from('ordem_producao').select('id,numero').eq('status', 'liberada');
+    const noPlano = new Set(ids);
+
+    const hoje = new Date(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date()) + 'T00:00:00-03:00');
+    const diasAtraso = p => p ? Math.round((hoje - new Date(String(p).slice(0, 10) + 'T00:00:00-03:00')) / 86400000) : -Infinity;
+    const tol = plano.tolerancia_dias || 0;
+
+    const divergencias = [];
+    let concluidas = 0;
+    itens.forEach(it => {
+        const o = agora[it.op_id];
+        if (!o) { divergencias.push({ tipo: 'sumiu', numero: it.numero, detalhe: 'OP não existe mais' }); return; }
+        if (o.status === 'concluida') { concluidas++; return; }
+        if (o.status === 'bloqueada') divergencias.push({ tipo: 'bloqueada', numero: o.numero, detalhe: 'entrou em hold depois de congelar' });
+        else if (o.status === 'cancelada') divergencias.push({ tipo: 'cancelada', numero: o.numero, detalhe: 'cancelada depois de congelar' });
+        else { const at = diasAtraso(o.data_prevista); if (at > tol) divergencias.push({ tipo: 'atrasada', numero: o.numero, detalhe: `${at} dia(s) de atraso (tolerância ${tol})` }); }
+    });
+    const novas = (libAgora || []).filter(o => !noPlano.has(o.id));
+    novas.slice(0, 30).forEach(o => divergencias.push({ tipo: 'nova', numero: o.numero, detalhe: 'liberada depois de congelar — fora da fila' }));
+
+    res.json({
+        plano: { id: plano.id, congelado_em: plano.congelado_em, usuario: plano.usuario_nome, total: itens.length, tolerancia_dias: tol },
+        progresso: { concluidas, restantes: itens.length - concluidas },
+        desatualizado: divergencias.length > 0,
+        divergencias,
+    });
+});
+
 // ── Apontamento (sessão de trabalho) ──────────────────────────
 app.get('/api/mf/apontamentos', auth, async (req, res) => {
     let q = supabase.from('apontamento')

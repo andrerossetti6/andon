@@ -502,8 +502,15 @@ const aps = {
         const r = await api.post('/api/aps/sequenciar', {});
         if (!r?.ok) { out.innerHTML = `<div class="summary-card" style="padding:14px;color:#f06292;font-size:.82rem;">${esc(r?.erro || 'Erro ao sequenciar.')}</div>`; return; }
         if (!r.fila.length) { out.innerHTML = `<div class="summary-card" style="padding:16px;color:var(--text-dim);font-size:.82rem;">${esc((r.avisos||[]).join(' '))}</div>`; return; }
+        this._ultimaFila = r.fila.map((f, i) => ({ op_id: f.id, numero: f.numero, posicao: i + 1, prazo: f.prazo }));
+        this._ultimoSetup = r.setupTotalMin;
         const eco = r.economiaMin || 0;
         out.innerHTML = `
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px;">
+            <span style="font-size:.72rem;color:var(--text-dim);align-self:center;">Aprovou esta ordem?</span>
+            <button class="btn primary" style="font-size:.78rem;" onclick="aps._congelarSequencia()">❄ Congelar sequência</button>
+        </div>`;
+        out.innerHTML += `
         ${(r.avisos||[]).length ? `<div class="summary-card" style="margin-bottom:12px;border-left:3px solid #ffca28;padding:10px 14px;">${r.avisos.map(a=>`<div style="font-size:.74rem;color:#ffca28;">⚠ ${esc(a)}</div>`).join('')}</div>` : ''}
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px;">
             <div class="summary-card" style="border-top:3px solid #26c6da;"><span class="s-label">SETUP DA SEQUÊNCIA OTIMIZADA</span><span class="s-value" style="color:#26c6da;font-size:1.4rem;">${fmt(r.setupTotalMin)} min</span><span class="s-sub">soma das trocas na ordem sugerida</span></div>
@@ -541,6 +548,35 @@ const aps = {
         if (!r?.ok) return toast(r?.erro || 'Erro ao salvar pesos.', 'erro');
         toast('Pesos salvos ✓ — sequencie de novo para ver o efeito.');
     },
+    // ── Fase 5: loop fechado ──
+    async _congelarSequencia() {
+        if (!this._ultimaFila?.length) return toast('Sequencie antes de congelar.', 'aviso');
+        const tol = parseInt(prompt('Tolerância de atraso em dias (acima disso o plano fica "desatualizado"):', '2'));
+        if (isNaN(tol)) return;
+        const r = await api.post('/api/aps/seq-plano/congelar', { itens: this._ultimaFila, setup_total_min: this._ultimoSetup, tolerancia_dias: Math.max(0, tol) });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao congelar.', 'erro');
+        toast(`Sequência congelada — ${r.plano.total} OPs. O sistema vai avisar se divergir.`);
+        this._renderStatusPlano();
+    },
+    async _renderStatusPlano() {
+        const el = $('aps-seq-status'); if (!el) return;
+        const s = await api.get('/api/aps/seq-plano');
+        if (!s || s.erro) { el.innerHTML = s?.erro ? `<div class="summary-card" style="border-left:3px solid #ffca28;padding:10px 14px;font-size:.76rem;color:#ffca28;">⚠ ${esc(s.erro)}</div>` : ''; return; }
+        if (!s.plano) { el.innerHTML = `<div class="summary-card" style="padding:10px 14px;font-size:.76rem;color:var(--text-dim);">Nenhuma sequência congelada. Sequencie e clique <strong>❄ Congelar sequência</strong> para o sistema passar a monitorar divergências.</div>`; return; }
+        const cor = s.desatualizado ? '#f06292' : '#26a69a';
+        const TIPO = { bloqueada:'⛔ bloqueada', cancelada:'✕ cancelada', atrasada:'⏰ atrasada', nova:'➕ nova', sumiu:'❓ sumiu' };
+        el.innerHTML = `
+        <div class="summary-card" style="border-left:3px solid ${cor};">
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+                <div>
+                    <span class="s-label" style="color:${cor};">${s.desatualizado ? '⚠ PLANO DESATUALIZADO' : '✓ PLANO EM DIA'}</span>
+                    <div style="font-size:.74rem;color:var(--text-dim);margin-top:2px;">Congelado ${fmtData(s.plano.congelado_em)} por ${esc(s.plano.usuario||'—')} · ${s.progresso.concluidas}/${s.plano.total} concluídas · tolerância ${s.plano.tolerancia_dias}d</div>
+                </div>
+                ${s.desatualizado ? `<button class="btn primary" style="font-size:.78rem;" onclick="aps._renderSeqInteligente()">🔄 Re-sequenciar</button>` : ''}
+            </div>
+            ${s.divergencias.length ? `<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;">${s.divergencias.slice(0,40).map(d=>`<span style="font-size:.7rem;background:var(--bg-input);border:1px solid ${cor}44;border-radius:5px;padding:2px 8px;color:var(--text-primary);" title="${esc(d.detalhe)}">${TIPO[d.tipo]||d.tipo} ${esc(d.numero)}</span>`).join('')}${s.divergencias.length>40?` <span style="font-size:.7rem;color:var(--text-dim);">+${s.divergencias.length-40}</span>`:''}</div>` : ''}
+        </div>`;
+    },
     _renderSeq() {
         const el = $('aps-pan-seq');
         // fila de despacho: exclui concluída/cancelada E bloqueada (governança: bloqueada não é sequenciada)
@@ -554,6 +590,7 @@ const aps = {
             });
         const atrasadas = fila.filter(o => (diasAte(o.data_prevista) ?? 99) < 0).length;
         el.innerHTML = `
+        <div id="aps-seq-status" style="margin-bottom:16px;"></div>
         <div class="summary-card" style="margin-bottom:16px;border-left:3px solid #7c4dff;">
             <div class="s-label" style="margin-bottom:6px;">🧮 SEQUENCIADOR COM PESOS — EDD × setup × prioridade × SPT (Fase 4)</div>
             <p style="font-size:.74rem;color:var(--text-dim);margin-bottom:10px;">Combina as regras de despacho por peso e agrupa OPs de setup parecido (fio/galga/cor/programa). Só entram OPs <strong>LIBERADAS</strong> (que passaram pelo gate). Mostra o custo total de setup vs EDD puro — você decide com número.</p>
@@ -593,6 +630,7 @@ const aps = {
             if (r?.pesos) Object.entries(r.pesos).forEach(([k, v]) => { const e = $('aps-peso-' + k); if (e) e.value = v; });
             if (r?.aviso) toast(r.aviso, 'aviso');
         });
+        this._renderStatusPlano();   // Fase 5: banner do plano congelado + divergências
     },
 
     // ═══ KANBAN — REPOSIÇÃO MTS (Fase 3) ═══

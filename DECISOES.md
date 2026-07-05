@@ -60,5 +60,42 @@ roteiro (`produto_etapa`), tempos (`tempo_padrao` produto×etapa c/ fallback), `
 **Dívidas:**
 - [ ] Estoque considera só produto acabado importado no SIGS — sem WIP/reservas (carteira MTO não abate).
 - [ ] Automatizar verificação (cron) quando o fluxo estiver rodado manualmente por algumas semanas.
-## Fase 4 — Pesos do sequenciador + granularidade dia/turno (pendente)
-## Fase 5 — Loop fechado (DESATUALIZADO + comparadores) (pendente)
+## Fase 4 — Sequenciador com pesos parametrizáveis (2026-07-05)
+
+**Entregue:** tabela `seq_peso` (edd/setup/prioridade/spt, editável), `POST /api/aps/sequenciar` (greedy multi-regra, sempre dry-run), custo total de setup da sequência **vs EDD puro** (comparador numérico — RF4), avisos de cobertura de dados, checagem de compatibilidade de galga produto×tear (⚠tear), UI na aba Sequenciamento (pesos + cards de comparação + fila com trocas destacadas).
+
+**Decisões:**
+- **Só OPs LIBERADAS entram no sequenciador** — reforça o gate (governança vira valor: quem não passou não é despachado).
+- **Score normalizado por peso:** `(w_edd·urgência + w_prio·prioridade + w_setup·(1−troca/trocaMax) + w_spt·(1−proc/procMax)) / Σw`. Urgência limitada a [0,2] (atrasada ≈ 2), prioridade /9. Heurística **gulosa O(n²)** — suficiente p/ 232 OPs (<50ms); solver exato (OR-Tools) documentado como evolução se a carteira passar de ~2k.
+- **Atributo vazio = troca sem custo** (sem dado, não invento) — isso deixa o custo OTIMISTA com cadastro parcial; o endpoint avisa explicitamente quantas OPs estão sem atributos. Provado em teste: 4 produtos com cores alternadas + 30min/troca → EDD puro 60min, otimizado 0min (agrupou).
+- **Pesos default** (EDD 50 / setup 20 / prioridade 20 / SPT 10) são parâmetros de algoritmo (não dado de fábrica), editáveis; sem a tabela, o endpoint usa defaults com aviso (degrada, não quebra).
+- **Granularidade dia/turno ADIADA** (era do escopo original): projetar início/fim por dia exige tempo-padrão (hoje 0 em tudo) e calendário de turnos por máquina — projeção com zeros seria número inventado. Entra quando o piloto medir os tempos; registrada como dívida.
+
+**Dívidas:**
+- [ ] Projeção dia/turno no gargalo quando tempo_padrao > 0 (usar turnos reais do SIGS).
+- [ ] Persistir/despachar a fila sugerida (hoje é só sugestão — despacho continua no Preactor/MES).
+- [ ] OR-Tools/solver exato se a carteira crescer.
+
+## Fase 5 — Loop fechado (2026-07-05)
+
+**Entregue:** `seq_plano` (foto da sequência aprovada, 1 ativa), `POST /api/aps/seq-plano/congelar` (guarda op_id/posição/prazo + STATUS de cada OP no momento — lê o estado real, não confia no cliente), `GET /api/aps/seq-plano` (análise de DESATUALIZADO sob demanda), UI: botão ❄ Congelar sequência + banner de status com as divergências e botão 🔄 Re-sequenciar.
+
+**Sinais de DESATUALIZADO (dados reais, nada inventado):**
+- OP da foto virou `bloqueada`/`cancelada` depois de congelar (governança realimenta).
+- OP da foto com atraso > `tolerancia_dias` e ainda não concluída (o prazo é o do cadastro/edição).
+- OP `liberada` HOJE que não estava na foto (entrou depois — kanban ou liberação nova).
+- OP da foto que sumiu.
+`desatualizado = divergencias.length > 0`. Progresso = concluídas/total.
+
+**Decisões:**
+- **Re-sequenciar é SOB DEMANDA** (o planejador clica) — o prompt exige "não recálculo automático silencioso". O banner mostra que divergiu; o planejador re-sequencia e re-congela quando decidir.
+- **Quebra de máquina (parada) NÃO entra como sinal** — a sequência do APS é por OP, não por máquina (a alocação fina por tear é o Preactor). Ligar parada→OP exigiria o schedule por recurso; fica como dívida. Os sinais OP-level (bloqueio/atraso/nova) já cobrem o essencial do loop.
+- **Congelar lê o estado real das OPs** (não o status que o cliente mandou) — a foto é fiel ao banco no instante do congelamento.
+- **Estados automáticos** (apontamento→em_producao, fim do roteiro→concluída) já fecham o ciclo desde a Fase 1 e alimentam o "progresso".
+
+**Dívidas:**
+- [ ] Parada/quebra de máquina como sinal (precisa do schedule por recurso — Preactor).
+- [ ] Diff visual lado-a-lado (foto × nova sequência) ao re-sequenciar; hoje mostra a nova + as divergências da antiga.
+
+---
+## MÓDULO PCP COMPLETO — Fases 1-5 entregues e revisadas (23 achados corrigidos). SQLs a rodar: aps_governanca / aps_setup_atributos / aps_mts_kanban / aps_seq_pesos / aps_seq_plano.
