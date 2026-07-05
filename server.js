@@ -1986,7 +1986,8 @@ app.get('/api/aps/seq-plano', auth, async (_req, res) => {
     const noPlano = new Set(ids);
 
     const hoje = new Date(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date()) + 'T00:00:00-03:00');
-    const diasAtraso = p => p ? Math.round((hoje - new Date(String(p).slice(0, 10) + 'T00:00:00-03:00')) / 86400000) : -Infinity;
+    const congDia = new Date(String(plano.congelado_em).slice(0, 10) + 'T00:00:00-03:00');
+    const diasAtraso = (p, ref) => p ? Math.round((ref - new Date(String(p).slice(0, 10) + 'T00:00:00-03:00')) / 86400000) : -Infinity;
     const tol = plano.tolerancia_dias || 0;
 
     const divergencias = [];
@@ -1997,7 +1998,11 @@ app.get('/api/aps/seq-plano', auth, async (_req, res) => {
         if (o.status === 'concluida') { concluidas++; return; }
         if (o.status === 'bloqueada') divergencias.push({ tipo: 'bloqueada', numero: o.numero, detalhe: 'entrou em hold depois de congelar' });
         else if (o.status === 'cancelada') divergencias.push({ tipo: 'cancelada', numero: o.numero, detalhe: 'cancelada depois de congelar' });
-        else { const at = diasAtraso(o.data_prevista); if (at > tol) divergencias.push({ tipo: 'atrasada', numero: o.numero, detalhe: `${at} dia(s) de atraso (tolerância ${tol})` }); }
+        else {
+            // só é DRIFT se o atraso surgiu/piorou APÓS o congelamento (já-atrasada no congelamento não é divergência)
+            const atHoje = diasAtraso(o.data_prevista, hoje), atCong = diasAtraso(o.data_prevista, congDia);
+            if (atHoje > tol && atCong <= tol) divergencias.push({ tipo: 'atrasada', numero: o.numero, detalhe: `${atHoje} dia(s) de atraso (surgiu depois de congelar)` });
+        }
     });
     const novas = (libAgora || []).filter(o => !noPlano.has(o.id));
     novas.slice(0, 30).forEach(o => divergencias.push({ tipo: 'nova', numero: o.numero, detalhe: 'liberada depois de congelar — fora da fila' }));
