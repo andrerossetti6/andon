@@ -613,7 +613,9 @@ const aps = {
         <div id="aps-seq-smart" style="margin-bottom:18px;"></div>
         <div class="summary-card" style="margin-bottom:16px;border-left:3px solid var(--indigo-primary);">
             <div class="s-label" style="margin-bottom:6px;">FILA SIMPLES — regra EDD (menor prazo primeiro) + prioridade manual</div>
-            <p style="font-size:.78rem;color:var(--text-dim);">Ordem de despacho recomendada para reduzir atraso. <strong style="color:${atrasadas?'#f06292':'#26a69a'};">${atrasadas} OP(s) já atrasada(s)</strong> — vão no topo. O <strong>sequenciamento fino por máquina/tear</strong> (Gantt de capacidade finita, com setup e OEE por recurso) está no SIGS › Linha do Tempo (Preactor); este painel dá a fila priorizada da carteira inteira.</p>
+            <p style="font-size:.78rem;color:var(--text-dim);margin-bottom:10px;">Ordem de despacho recomendada para reduzir atraso. <strong style="color:${atrasadas?'#f06292':'#26a69a'};">${atrasadas} OP(s) já atrasada(s)</strong> — vão no topo. Este painel dá a <strong>fila GROSSA</strong> (que OP, em que ordem) da carteira inteira.</p>
+            <p style="font-size:.74rem;color:var(--text-dim);margin-bottom:10px;">O <strong>sequenciamento FINO por máquina/tear</strong> — Gantt de capacidade finita, com setup e OEE por recurso — é a camada seguinte (grosso → fino). Vive no Preactor.</p>
+            <button class="btn secondary" style="font-size:.78rem;" onclick="location.href='/index.html?view=timeline'">↗ Abrir Sequenciamento fino por tear (Preactor)</button>
         </div>
         <div class="summary-card" style="padding:0;overflow:hidden;">
             <div style="max-height:64vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">

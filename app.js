@@ -298,6 +298,10 @@ function mostrarApp() {
     calendario.init();
     pedidos.init();
     disponibilidade.init().catch(() => {});
+    // Onda 5: deep-link por URL (?view=timeline) para o handoff APS → Preactor —
+    // troca de view na hora (os init() já rodaram), sem esperar as cargas de histórico.
+    const _viewParam = new URLSearchParams(location.search).get('view');
+    if (_viewParam) navigateTo(_viewParam);
     const _modulos = ['Vendas','Banco','Cliente','Calendário','Capacidade','Estoque','OP','Costura'];
     Promise.allSettled([
         vendas.carregarHistorico(),
@@ -316,8 +320,9 @@ function mostrarApp() {
             console.warn('Módulos com falha ao carregar:', falhos);
             mostrarToast(`⚠ Erro ao carregar: ${falhos.join(', ')}`, 'erro');
         }
+        // restaura o último view da sessão — só se não veio deep-link por URL (tratado acima).
         const lastView = localStorage.getItem('sin1_lastView');
-        if (lastView) navigateTo(lastView);
+        if (lastView && !_viewParam) navigateTo(lastView);
         // Dashboard e dashboards dependentes atualizados após todos os módulos carregarem
         homeDash.render();
         alertas.verificar();
