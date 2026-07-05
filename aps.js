@@ -6,6 +6,11 @@
 // ═══════════════════════════════════════════════════════════════════════════
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+// seguro DENTRO de string JS em onclick/onchange (escapa \ e ' antes do HTML-escape) — evita XSS por número/código de OP
+const escJS = s => esc(String(s ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'"));
+// data TIMESTAMPTZ (UTC-meia-noite) → dd/mm/aaaa sem escorregar 1 dia pelo fuso (pega só a data + meio-dia local)
+const fmtData = s => s ? new Date(String(s).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
+const fmtDataCurta = s => s ? new Date(String(s).slice(0, 10) + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '—';
 const TOKEN_KEY = 'sin1_token';
 const fmt = n => (Number(n) || 0).toLocaleString('pt-BR');
 const fmt1 = n => (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
@@ -25,6 +30,7 @@ const api = {
     _h() { return { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (localStorage.getItem(TOKEN_KEY) || '') }; },
     async get(url) { try { const r = await fetch(url, { headers: this._h() }); if (r.status === 401) return aps._expirou(); return r.ok ? r.json() : null; } catch { return null; } },
     async post(url, b) { try { const r = await fetch(url, { method: 'POST', headers: this._h(), body: JSON.stringify(b) }); if (r.status === 401) return aps._expirou(); return r.json().catch(() => null); } catch { return null; } },
+    async put(url, b) { try { const r = await fetch(url, { method: 'PUT', headers: this._h(), body: JSON.stringify(b) }); if (r.status === 401) return aps._expirou(); return r.json().catch(() => null); } catch { return null; } },
 };
 
 // Sidebar: colapsar seções (mesmo comportamento do SIGS/MES)
@@ -47,7 +53,8 @@ const STATUS = {
 const DISPOSICOES = ['refazer', 'retrabalhar', 'refugar', 'substituir', 'investigar'];
 const PROC_LABEL = { tecelagem:'Tecelagem', costura_auto:'Costura Automática', costura_manual:'Costura Manual', soldagem:'Soldagem', silicone:'Silicone', passadoria:'Passadoria', embalagem:'Embalagem' };
 
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+// "hoje" no fuso da fábrica (America/Sao_Paulo) — new Date().toISOString() é UTC e vira o dia seguinte das 21h às 24h
+const hojeISO = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
 function diasAte(dataStr) {   // dias do hoje até a data (negativo = atrasado)
     if (!dataStr) return null;
     const d = new Date(String(dataStr).slice(0, 10) + 'T00:00:00');
@@ -131,7 +138,8 @@ const aps = {
 
     async recarregar() {
         toast('Atualizando…', 'aviso');
-        await this._carregar();
+        const ok = await this._carregar();
+        if (ok === false) return toast('Não consegui atualizar — sessão expirada ou servidor fora.', 'erro');
         this.tab(this._tab || 'painel');
         toast('Dados atualizados.');
     },
@@ -200,7 +208,7 @@ const aps = {
                             <td class="aps-td" style="font-weight:700;color:var(--indigo-primary);">${esc(o.numero)}</td>
                             <td class="aps-td">${esc((o.produto?.descricao||o.produto?.codigo||'—')).slice(0,34)}</td>
                             <td class="aps-td" style="text-align:right;">${fmt(o.qtd_planejada)} ${esc(o.unidade||'')}</td>
-                            <td class="aps-td" style="color:${prazoCor};white-space:nowrap;">${new Date(o.data_prevista).toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'})} · ${prazoTxt}</td>
+                            <td class="aps-td" style="color:${prazoCor};white-space:nowrap;">${fmtDataCurta(o.data_prevista)} · ${prazoTxt}</td>
                             <td class="aps-td"><span style="color:${st.cor};font-weight:600;font-size:.74rem;">${st.label}</span></td>
                         </tr>`;
                     }).join('')}</tbody></table>` : `<div style="padding:24px;text-align:center;color:var(--text-dim);">Sem OPs com prazo definido.</div>`}
@@ -322,7 +330,7 @@ const aps = {
             <input id="aps-ov-motivo" class="aps-input" placeholder="por que liberar mesmo assim?" style="margin-bottom:14px;">
             <div style="display:flex;gap:8px;justify-content:flex-end;">
                 <button class="btn secondary" onclick="aps._fecharModal()">Cancelar</button>
-                <button class="btn primary" style="background:#f06292;" onclick="aps._liberarOverride('${esc(id)}')">Liberar MESMO ASSIM</button>
+                <button class="btn primary" style="background:#f06292;" onclick="aps._liberarOverride('${escJS(id)}')">Liberar MESMO ASSIM</button>
             </div>`);
     },
     async _liberarOverride(id) {
@@ -342,7 +350,7 @@ const aps = {
             <input id="aps-blq-motivo" class="aps-input" placeholder="ex: suspeita de defeito no fio / aguardando material" style="margin-bottom:14px;">
             <div style="display:flex;gap:8px;justify-content:flex-end;">
                 <button class="btn secondary" onclick="aps._fecharModal()">Cancelar</button>
-                <button class="btn primary" style="background:#ff5252;" onclick="aps._transicao('${esc(id)}','bloqueada',$('aps-blq-motivo').value)">Bloquear</button>
+                <button class="btn primary" style="background:#ff5252;" onclick="aps._transicao('${escJS(id)}','bloqueada',$('aps-blq-motivo').value)">Bloquear</button>
             </div>`);
     },
     _formDesbloquear(id, numero) {
@@ -354,7 +362,7 @@ const aps = {
             <input id="aps-dsp-motivo" class="aps-input" placeholder="o que foi decidido e por quê" style="margin-bottom:14px;">
             <div style="display:flex;gap:8px;justify-content:flex-end;">
                 <button class="btn secondary" onclick="aps._fecharModal()">Cancelar</button>
-                <button class="btn primary" onclick="aps._desbloquear('${esc(id)}')">Desbloquear</button>
+                <button class="btn primary" onclick="aps._desbloquear('${escJS(id)}')">Desbloquear</button>
             </div>`);
     },
     async _desbloquear(id) {
@@ -389,13 +397,34 @@ const aps = {
     },
     _acoesOp(o) {
         const b = (txt, fn, cor) => `<button onclick="${fn}" title="${esc(txt)}" style="background:transparent;border:1px solid ${cor}55;border-radius:5px;color:${cor};cursor:pointer;font-size:.68rem;padding:2px 8px;margin-right:4px;">${txt}</button>`;
-        const id = esc(o.id), num = esc(o.numero);
+        const id = escJS(o.id), num = escJS(o.numero);   // dentro de onclick JS-string → escJS (evita XSS/quebra por aspa)
+        const editar = b('✎', `aps._formEditar('${id}','${num}')`, '#26c6da');   // prazo/prioridade (não muda status)
         let acts = '';
-        if (o.status === 'planejada')   acts = b('Liberar', `aps._liberar('${id}')`, '#26a69a') + b('⛔', `aps._formBloquear('${id}','${num}')`, '#ff5252') + b('✕', `aps._transicao('${id}','cancelada')`, '#f06292');
-        else if (o.status === 'liberada') acts = b('⛔', `aps._formBloquear('${id}','${num}')`, '#ff5252') + b('↩ planejar', `aps._transicao('${id}','planejada')`, '#8b949e') + b('✕', `aps._transicao('${id}','cancelada')`, '#f06292');
-        else if (o.status === 'em_producao' || o.status === 'pausada') acts = b('⛔', `aps._formBloquear('${id}','${num}')`, '#ff5252');
+        if (o.status === 'planejada')   acts = b('Liberar', `aps._liberar('${id}')`, '#26a69a') + editar + b('⛔', `aps._formBloquear('${id}','${num}')`, '#ff5252') + b('✕', `aps._transicao('${id}','cancelada')`, '#f06292');
+        else if (o.status === 'liberada') acts = editar + b('⛔', `aps._formBloquear('${id}','${num}')`, '#ff5252') + b('↩ planejar', `aps._transicao('${id}','planejada')`, '#8b949e') + b('✕', `aps._transicao('${id}','cancelada')`, '#f06292');
+        else if (o.status === 'em_producao' || o.status === 'pausada') acts = editar + b('⛔', `aps._formBloquear('${id}','${num}')`, '#ff5252');
         else if (o.status === 'bloqueada') acts = b('🔓 Desbloquear', `aps._formDesbloquear('${id}','${num}')`, '#26a69a');
         return acts + b('🕐', `aps._verLog('${id}','${num}')`, '#26c6da');
+    },
+    _formEditar(id, numero) {
+        const o = this._ops.find(x => x.id === id) || {};
+        this._modal(`
+            <div class="s-label" style="margin-bottom:12px;">✎ EDITAR OP ${esc(numero)}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+                <div><span class="aps-label">PRAZO (data prevista)</span><input id="aps-ed-prazo" type="date" class="aps-input" value="${o.data_prevista ? String(o.data_prevista).slice(0,10) : ''}"></div>
+                <div><span class="aps-label">PRIORIDADE (0-9)</span><input id="aps-ed-prio" type="number" min="0" max="9" class="aps-input" value="${Number(o.prioridade)||0}"></div>
+            </div>
+            <p style="font-size:.72rem;color:var(--text-dim);margin-bottom:14px;">Não muda o estado da OP — só prazo e prioridade (útil para dar prazo a um cartão kanban antes de liberar).</p>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button class="btn secondary" onclick="aps._fecharModal()">Cancelar</button>
+                <button class="btn primary" onclick="aps._salvarEditar('${escJS(id)}')">Salvar</button>
+            </div>`);
+    },
+    async _salvarEditar(id) {
+        const r = await api.put(`/api/aps/ops/${id}`, { data_prevista: $('aps-ed-prazo').value || null, prioridade: parseInt($('aps-ed-prio').value) || 0 });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao salvar.', 'erro');
+        this._fecharModal(); toast('OP atualizada ✓');
+        await this._carregar(); this._renderCarteiraTabela();
     },
     _carteiraFiltrada() {
         const q = this._carteiraBusca.trim().toLowerCase();
@@ -436,7 +465,7 @@ const aps = {
                     <td class="aps-td">${esc(o.produto?.codigo||'—')}</td>
                     <td class="aps-td">${esc((o.produto?.descricao||'—')).slice(0,34)}</td>
                     <td class="aps-td" style="text-align:right;white-space:nowrap;">${fmt(o.qtd_planejada)} ${esc(o.unidade||'')}</td>
-                    <td class="aps-td" style="color:${prazoCor};white-space:nowrap;">${o.data_prevista ? new Date(o.data_prevista).toLocaleDateString('pt-BR') : '—'}${atras?` <span style="font-size:.68rem;">(${Math.abs(d)}d)</span>`:''}</td>
+                    <td class="aps-td" style="color:${prazoCor};white-space:nowrap;">${o.data_prevista ? fmtData(o.data_prevista) : '—'}${atras?` <span style="font-size:.68rem;">(${Math.abs(d)}d)</span>`:''}</td>
                     <td class="aps-td" style="color:var(--text-dim);">${esc(o.etapa?.nome||'—')}</td>
                     <td class="aps-td"><span style="color:${st.cor};font-weight:600;font-size:.74rem;">${st.label}</span></td>
                     <td class="aps-td" style="white-space:nowrap;">${this._acoesOp(o)}</td>
@@ -466,10 +495,56 @@ const aps = {
         </div>`;
     },
 
-    // ═══ SEQUENCIAMENTO (fila priorizada por EDD) ═══
+    // ═══ SEQUENCIAMENTO (fila EDD + sequenciador com pesos — Fase 4) ═══
+    async _renderSeqInteligente() {
+        const out = $('aps-seq-smart');
+        out.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Sequenciando…</div>';
+        const r = await api.post('/api/aps/sequenciar', {});
+        if (!r?.ok) { out.innerHTML = `<div class="summary-card" style="padding:14px;color:#f06292;font-size:.82rem;">${esc(r?.erro || 'Erro ao sequenciar.')}</div>`; return; }
+        if (!r.fila.length) { out.innerHTML = `<div class="summary-card" style="padding:16px;color:var(--text-dim);font-size:.82rem;">${esc((r.avisos||[]).join(' '))}</div>`; return; }
+        const eco = r.economiaMin || 0;
+        out.innerHTML = `
+        ${(r.avisos||[]).length ? `<div class="summary-card" style="margin-bottom:12px;border-left:3px solid #ffca28;padding:10px 14px;">${r.avisos.map(a=>`<div style="font-size:.74rem;color:#ffca28;">⚠ ${esc(a)}</div>`).join('')}</div>` : ''}
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:14px;">
+            <div class="summary-card" style="border-top:3px solid #26c6da;"><span class="s-label">SETUP DA SEQUÊNCIA OTIMIZADA</span><span class="s-value" style="color:#26c6da;font-size:1.4rem;">${fmt(r.setupTotalMin)} min</span><span class="s-sub">soma das trocas na ordem sugerida</span></div>
+            <div class="summary-card" style="border-top:3px solid #8b949e;"><span class="s-label">SETUP EM EDD PURO</span><span class="s-value" style="color:#8b949e;font-size:1.4rem;">${fmt(r.setupEddMin)} min</span><span class="s-sub">se sequenciar só por prazo</span></div>
+            <div class="summary-card" style="border-top:3px solid ${eco>0?'#26a69a':'#8b949e'};"><span class="s-label">ECONOMIA</span><span class="s-value" style="color:${eco>0?'#26a69a':'#8b949e'};font-size:1.4rem;">${eco>0?'−':''}${fmt(Math.abs(eco))} min</span><span class="s-sub">${eco>0?'ganho ao agrupar setups':'sem ganho (tempos/atributos vazios?)'}</span></div>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:56vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;">
+                <th class="aps-th" style="text-align:center;">#</th><th class="aps-th">OP</th><th class="aps-th">PRODUTO</th>
+                <th class="aps-th" style="text-align:right;">QTD</th><th class="aps-th">PRAZO</th>
+                <th class="aps-th">FIO·GALGA·COR·PROG</th><th class="aps-th" style="text-align:right;">TROCA</th>
+            </tr></thead><tbody>${r.fila.map((f,i)=>{
+                const d = diasAte(f.prazo);
+                const prazoCor = d==null?'var(--text-dim)':d<0?'#f06292':d<=3?'#ffca28':'var(--text-primary)';
+                return `<tr style="background:${i%2?'var(--bg-input)':'transparent'};">
+                    <td class="aps-td" style="text-align:center;font-weight:700;color:var(--text-dim);">${i+1}</td>
+                    <td class="aps-td" style="font-weight:700;color:var(--indigo-primary);white-space:nowrap;">${esc(f.numero)}${f.prioridade>0?' <span style="color:#ffab76;">★</span>':''}${f.semTearCompativel?' <span title="galga fora dos limites de todos os teares cadastrados" style="color:#ff5252;">⚠tear</span>':''}</td>
+                    <td class="aps-td">${esc((f.descricao||f.codigo||'').slice(0,32))}</td>
+                    <td class="aps-td" style="text-align:right;white-space:nowrap;">${fmt(f.qtd)} ${esc(f.unidade||'')}</td>
+                    <td class="aps-td" style="color:${prazoCor};white-space:nowrap;">${f.prazo?fmtData(f.prazo):'—'}</td>
+                    <td class="aps-td" style="font-size:.7rem;color:var(--text-dim);">${['titulo_fio','galga','cor_base','programa_maquina'].map(k=>{
+                        const v = f[k]; const mudou = (f.mudou||[]).includes(k);
+                        return v ? `<span style="${mudou?'color:#ffca28;font-weight:700;':''}">${esc(String(v).slice(0,10))}</span>` : '·';
+                    }).join(' | ')}</td>
+                    <td class="aps-td" style="text-align:right;font-weight:700;color:${f.setupMin>0?'#ffca28':'#26a69a'};">${f.setupMin>0?'+'+fmt(f.setupMin)+' min':'—'}</td>
+                </tr>`;
+            }).join('')}</tbody></table></div>
+            <div style="padding:8px 14px;font-size:.7rem;color:var(--text-dim);border-top:1px solid var(--border-color);">${r.fila.length} OP(s) LIBERADAS · atributo <span style="color:#ffca28;font-weight:700;">amarelo</span> = troca em relação à OP anterior · fila é SUGESTÃO (nada foi gravado)</div>
+        </div>`;
+    },
+    async _salvarPesos() {
+        const pesos = {};
+        ['edd','setup','prioridade','spt'].forEach(k => { pesos[k] = parseFloat($('aps-peso-'+k)?.value) || 0; });
+        const r = await api.post('/api/aps/seq-pesos', { pesos });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao salvar pesos.', 'erro');
+        toast('Pesos salvos ✓ — sequencie de novo para ver o efeito.');
+    },
     _renderSeq() {
         const el = $('aps-pan-seq');
-        const fila = this._ops.filter(o => o.status !== 'concluida' && o.status !== 'cancelada')
+        // fila de despacho: exclui concluída/cancelada E bloqueada (governança: bloqueada não é sequenciada)
+        const fila = this._ops.filter(o => !['concluida', 'cancelada', 'bloqueada'].includes(o.status))
             .sort((a,b) => {
                 const pa = Number(a.prioridade)||0, pb = Number(b.prioridade)||0;
                 if (pb !== pa) return pb - pa;                 // prioridade manual primeiro
@@ -479,8 +554,18 @@ const aps = {
             });
         const atrasadas = fila.filter(o => (diasAte(o.data_prevista) ?? 99) < 0).length;
         el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:16px;border-left:3px solid #7c4dff;">
+            <div class="s-label" style="margin-bottom:6px;">🧮 SEQUENCIADOR COM PESOS — EDD × setup × prioridade × SPT (Fase 4)</div>
+            <p style="font-size:.74rem;color:var(--text-dim);margin-bottom:10px;">Combina as regras de despacho por peso e agrupa OPs de setup parecido (fio/galga/cor/programa). Só entram OPs <strong>LIBERADAS</strong> (que passaram pelo gate). Mostra o custo total de setup vs EDD puro — você decide com número.</p>
+            <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;" id="aps-pesos-wrap">
+                ${['edd','setup','prioridade','spt'].map(k => `<div><span class="aps-label">${{edd:'PRAZO (EDD)',setup:'MENOS SETUP',prioridade:'PRIORIDADE ★',spt:'MAIS CURTA (SPT)'}[k]}</span><input id="aps-peso-${k}" type="number" min="0" class="aps-input" style="width:92px;text-align:right;" value="0"></div>`).join('')}
+                <button class="btn secondary" style="font-size:.78rem;" onclick="aps._salvarPesos()">💾 Salvar pesos</button>
+                <button class="btn primary" style="font-size:.78rem;" onclick="aps._renderSeqInteligente()">🧮 Sequenciar</button>
+            </div>
+        </div>
+        <div id="aps-seq-smart" style="margin-bottom:18px;"></div>
         <div class="summary-card" style="margin-bottom:16px;border-left:3px solid var(--indigo-primary);">
-            <div class="s-label" style="margin-bottom:6px;">FILA SUGERIDA — regra EDD (menor prazo primeiro) + prioridade manual</div>
+            <div class="s-label" style="margin-bottom:6px;">FILA SIMPLES — regra EDD (menor prazo primeiro) + prioridade manual</div>
             <p style="font-size:.78rem;color:var(--text-dim);">Ordem de despacho recomendada para reduzir atraso. <strong style="color:${atrasadas?'#f06292':'#26a69a'};">${atrasadas} OP(s) já atrasada(s)</strong> — vão no topo. O <strong>sequenciamento fino por máquina/tear</strong> (Gantt de capacidade finita, com setup e OEE por recurso) está no SIGS › Linha do Tempo (Preactor); este painel dá a fila priorizada da carteira inteira.</p>
         </div>
         <div class="summary-card" style="padding:0;overflow:hidden;">
@@ -498,11 +583,16 @@ const aps = {
                     <td class="aps-td" style="font-weight:700;color:var(--indigo-primary);white-space:nowrap;">${esc(o.numero)}${Number(o.prioridade)>0?' <span style="color:#ffab76;">★</span>':''}</td>
                     <td class="aps-td">${esc((o.produto?.descricao||o.produto?.codigo||'—')).slice(0,40)}</td>
                     <td class="aps-td" style="text-align:right;white-space:nowrap;">${fmt(o.qtd_planejada)} ${esc(o.unidade||'')}</td>
-                    <td class="aps-td" style="color:${prazoCor};white-space:nowrap;">${o.data_prevista?new Date(o.data_prevista).toLocaleDateString('pt-BR'):'—'}${atras?` (${Math.abs(d)}d)`:''}</td>
+                    <td class="aps-td" style="color:${prazoCor};white-space:nowrap;">${o.data_prevista?fmtData(o.data_prevista):'—'}${atras?` (${Math.abs(d)}d)`:''}</td>
                     <td class="aps-td"><span style="color:${st.cor};font-weight:600;font-size:.74rem;">${st.label}</span></td>
                 </tr>`;
             }).join('')}</tbody></table></div>
         </div>`;
+        // carrega os pesos atuais nos campos (tabela seq_peso ou defaults do servidor)
+        api.get('/api/aps/seq-pesos').then(r => {
+            if (r?.pesos) Object.entries(r.pesos).forEach(([k, v]) => { const e = $('aps-peso-' + k); if (e) e.value = v; });
+            if (r?.aviso) toast(r.aviso, 'aviso');
+        });
     },
 
     // ═══ KANBAN — REPOSIÇÃO MTS (Fase 3) ═══
@@ -546,7 +636,7 @@ const aps = {
                     <td class="aps-td"><span style="color:${COR[x.situacao]||'#fff'};font-weight:700;font-size:.72rem;">${LBL[x.situacao]||x.situacao}</span></td>
                     <td class="aps-td" style="color:var(--text-dim);font-size:.74rem;">${esc(x.motivo)}</td>
                 </tr>`).join('')}</tbody></table>
-            <div style="padding:8px 14px;font-size:.7rem;color:var(--text-dim);border-top:1px solid var(--border-color);">${r.itens.length} produto(s) MTS · ${r.aRepor} a repor${r.estoqueDe?` · estoque da importação de ${new Date(r.estoqueDe).toLocaleDateString('pt-BR')}`:''}</div>
+            <div style="padding:8px 14px;font-size:.7rem;color:var(--text-dim);border-top:1px solid var(--border-color);">${r.itens.length} produto(s) MTS · ${r.aRepor} a repor${r.estoqueDe?` · estoque da importação de ${fmtData(r.estoqueDe)}`:''}</div>
         </div>`;
         if (!dry) { await this._carregar(); }   // atualiza carteira com as OPs novas
     },
@@ -557,7 +647,7 @@ const aps = {
         const procNome = {}; this._procs.forEach(p => procNome[p.id] = p.nome);
         const rows = [...this._maquinas].sort((a,b) => String(a.id_maquina||'').localeCompare(String(b.id_maquina||''), 'pt-BR', { numeric:true }));
         const ativas = rows.filter(m => String(m.status||'').toLowerCase() !== 'inativo').length;
-        const gInp = (m, campo) => `<input class="aps-input" type="number" step="0.5" style="width:70px;padding:3px 6px;font-size:.74rem;text-align:right;" value="${m[campo] ?? ''}" placeholder="—" onchange="aps._salvarAttrMaquina('${esc(m.id_maquina)}','${campo}',this.value)">`;
+        const gInp = (m, campo) => `<input class="aps-input" type="number" step="0.5" style="width:70px;padding:3px 6px;font-size:.74rem;text-align:right;" value="${m[campo] ?? ''}" placeholder="—" onchange="aps._salvarAttrMaquina('${escJS(m.id_maquina)}','${campo}',this.value)">`;
         el.innerHTML = `
         <div class="summary-card" style="margin-bottom:16px;padding:12px 16px;">
             <span style="font-size:.8rem;color:var(--text-dim);"><strong style="color:var(--text-primary);">${rows.length}</strong> recursos cadastrados · <strong style="color:#26a69a;">${ativas}</strong> ativos · galga mín/máx = restrição física (o sequenciador só aloca produto compatível — Fase 4)</span>
@@ -631,11 +721,11 @@ const aps = {
         const q = this._prodBusca.trim().toLowerCase();
         const rows = this._produtos.filter(p => !q || String(p.codigo||'').toLowerCase().includes(q) || String(p.descricao||'').toLowerCase().includes(q)).slice(0, 200);
         if (!rows.length) { el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-dim);">Nenhum produto.</div>'; return; }
-        const inp = (p, campo) => `<input class="aps-input" style="width:100%;min-width:76px;padding:4px 8px;font-size:.76rem;" value="${esc(p[campo]||'')}" onchange="aps._salvarAttrProduto('${esc(p.codigo)}','${campo}',this.value)">`;
-        const selPol = p => `<select class="aps-input" style="width:76px;padding:4px 6px;font-size:.76rem;" onchange="aps._salvarAttrProduto('${esc(p.codigo)}','politica',this.value)">
+        const inp = (p, campo) => `<input class="aps-input" style="width:100%;min-width:76px;padding:4px 8px;font-size:.76rem;" value="${esc(p[campo]||'')}" onchange="aps._salvarAttrProduto('${escJS(p.codigo)}','${campo}',this.value)">`;
+        const selPol = p => `<select class="aps-input" style="width:76px;padding:4px 6px;font-size:.76rem;" onchange="aps._salvarAttrProduto('${escJS(p.codigo)}','politica',this.value)">
             <option value=""${!p.politica?' selected':''}>—</option>
             ${['MTS','MTO','ATO'].map(v=>`<option value="${v}"${p.politica===v?' selected':''}>${v}</option>`).join('')}</select>`;
-        const inpLote = p => `<input class="aps-input" type="number" min="0" style="width:80px;padding:4px 6px;font-size:.76rem;text-align:right;" value="${p.lote_reposicao ?? ''}" placeholder="—" onchange="aps._salvarAttrProduto('${esc(p.codigo)}','lote_reposicao',this.value)">`;
+        const inpLote = p => `<input class="aps-input" type="number" min="0" style="width:80px;padding:4px 6px;font-size:.76rem;text-align:right;" value="${p.lote_reposicao ?? ''}" placeholder="—" onchange="aps._salvarAttrProduto('${escJS(p.codigo)}','lote_reposicao',this.value)">`;
         el.innerHTML = `<div style="max-height:56vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
             <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;">
                 <th class="aps-th">CÓDIGO</th><th class="aps-th">DESCRIÇÃO</th>
