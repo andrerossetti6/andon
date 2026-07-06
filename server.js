@@ -2439,6 +2439,280 @@ app.get('/api/n1/politica', auth, async (_req, res) => {
     res.json({ itens: r.data || [], regra_f1: 'Sem linha na politica_item = PULL (MTS default provisório). Roteamento ABC-XYZ homologado entra no F2.' });
 });
 
+// ══════════════════ N1 · F2 — PLANEJAMENTO ═══════════════════════════════════
+// Roteamento ABC-XYZ (job mensal → staging → homologação = S&OP leve), EWMA+MAPE
+// por família, netting/prioridade da carteira PUSH e gate de capacidade (Drum).
+const N1_F2_503 = 'Tabelas do F2 não existem — rode n1_f2.sql no Supabase (SQL Editor).';
+const n1CicloAtual = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date()).slice(0, 7);
+
+// ── roteamento ✦ (job mensal): ABC×XYZ → trilho sugerido, com histerese ──────
+// ABC por VOLUME 80/15/5 (valor está zerado na base — quando importar R$, trocar
+// para valor). XYZ por CV: ≤0,5 X · ≤1,0 Y · >1,0 Z; ≥40% meses zero força Z.
+// Item novo (<6m de história) = PUSH. Matriz: {A,B,C}×{X,Y}=PULL · coluna Z=PUSH ·
+// CZ = revisar portfólio. Dessazonalização: NÃO aplicada (dívida documentada).
+app.post('/api/n1/roteamento/rodar', auth, sigsEscrita, async (_req, res) => {
+    if (!n1Lock('roteamento')) return res.status(409).json({ erro: 'Roteamento já está rodando.' });
+    try {
+        const ciclo = n1CicloAtual();
+        let vm;
+        try { vm = await fetchAllSelect('venda_movimento', 'codigo,competencia,qtd'); }
+        catch (e) { return n1ErroTabela(e) ? res.status(503).json({ erro: N1_F1_503 }) : erro500(res, e); }
+        if (!vm?.length) return res.json({ ok: true, avaliados: 0, avisos: ['venda_movimento vazia — rode o ETL.'] });
+        const comps = [...new Set(vm.map(r => String(r.competencia).slice(0, 7)))].sort();
+        const corte12 = comps.slice(-12);                                  // últimos 12 meses p/ ABC
+        const serieDe = {};
+        vm.forEach(r => { const c = String(r.codigo); (serieDe[c] = serieDe[c] || {})[String(r.competencia).slice(0, 7)] = Number(r.qtd) || 0; });
+        // CV vem do parametro_reposicao (motor F1 já calculou na série completa)
+        const { data: params } = await supabase.from('parametro_reposicao').select('codigo,cv');
+        const cvDe = {}; (params || []).forEach(p => { cvDe[p.codigo] = p.cv != null ? Number(p.cv) : null; });
+        const { data: pols } = await supabase.from('politica_item').select('codigo,trilho').eq('ativo', true);
+        const trilhoAtualDe = {}; (pols || []).forEach(p => { trilhoAtualDe[p.codigo] = p.trilho; });
+        // staging do ciclo anterior (histerese: mudança precisa persistir 2 ciclos)
+        const cicloAnt = comps.length ? (() => { const d = new Date(ciclo + '-01T12:00:00'); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })() : null;
+        const { data: stAnt, error: eSt } = await supabase.from('roteamento_staging').select('codigo,trilho_sugerido,ciclos_consecutivos').eq('ciclo', cicloAnt || '');
+        if (n1ErroTabela(eSt)) return res.status(503).json({ erro: N1_F2_503 });
+        const antDe = {}; (stAnt || []).forEach(s => { antDe[s.codigo] = s; });
+
+        // volume 12m por SKU → ABC 80/15/5 acumulado
+        const skus = Object.keys(serieDe);
+        const vol = skus.map(c => ({ c, v: corte12.reduce((s, m) => s + (serieDe[c][m] || 0), 0) })).sort((a, b) => b.v - a.v);
+        const totalVol = vol.reduce((s, x) => s + x.v, 0) || 1;
+        let acum = 0; const abcDe = {};
+        vol.forEach(x => { acum += x.v; abcDe[x.c] = acum / totalVol <= 0.80 ? 'A' : acum / totalVol <= 0.95 ? 'B' : 'C'; });
+
+        const rows = []; let mudancas = 0, portfolio = 0;
+        for (const c of skus) {
+            const meses = serieDe[c];
+            const mesesComVenda = Object.keys(meses).filter(m => meses[m] > 0).sort();
+            const serieCheia = comps.map(m => meses[m] || 0);
+            const zeros = serieCheia.filter(v => v === 0).length;
+            const pctZero = comps.length ? zeros / comps.length * 100 : 100;
+            const primeiro = mesesComVenda[0];
+            const idadeMeses = primeiro ? comps.length - comps.indexOf(primeiro) : 0;
+            const itemNovo = idadeMeses > 0 && idadeMeses < 6;
+            const cv = cvDe[c];
+            let xyz = cv == null ? 'Z' : cv <= 0.5 ? 'X' : cv <= 1.0 ? 'Y' : 'Z';
+            if (pctZero >= 40) xyz = 'Z';                                   // intermitência força Z
+            const abc = abcDe[c] || 'C';
+            const sugerido = itemNovo ? 'PUSH' : (xyz === 'Z' ? 'PUSH' : 'PULL');   // matriz: {A..C}×{X,Y}=PULL · Z=PUSH
+            const atual = trilhoAtualDe[c] || 'PULL';                       // default F1
+            const mudanca = sugerido !== atual;
+            // histerese: se o ciclo anterior sugeriu o MESMO trilho, soma; senão zera em 1
+            const ant = antDe[c];
+            const consec = (ant && ant.trilho_sugerido === sugerido) ? (ant.ciclos_consecutivos || 1) + 1 : 1;
+            if (mudanca) mudancas++;
+            const revisar = abc === 'C' && xyz === 'Z';
+            if (revisar) portfolio++;
+            rows.push({ ciclo, codigo: c, abc, xyz, cv, volume_12m: Math.round(vol.find(x => x.c === c)?.v * 1000) / 1000 || 0,
+                pct_meses_zero: Math.round(pctZero * 10) / 10, item_novo: itemNovo, trilho_atual: atual,
+                trilho_sugerido: sugerido, mudanca, ciclos_consecutivos: consec, revisar_portfolio: revisar, status: 'PENDENTE' });
+        }
+        for (let i = 0; i < rows.length; i += 500) {
+            const { error } = await supabase.from('roteamento_staging').upsert(rows.slice(i, i + 500), { onConflict: 'ciclo,codigo' });
+            if (n1ErroTabela(error)) return res.status(503).json({ erro: N1_F2_503 });
+            if (error) return erro500(res, error);
+        }
+        res.json({ ok: true, ciclo, avaliados: rows.length, mudancas_propostas: mudancas, revisar_portfolio: portfolio,
+            aplicaveis_agora: rows.filter(r => r.mudanca && r.ciclos_consecutivos >= 2).length,
+            avisos: ['ABC por VOLUME (valor zerado na base) · sem dessazonalização — dívidas documentadas.'] });
+    } finally { n1Unlock('roteamento'); }
+});
+
+// staging do ciclo (tela S&OP leve)
+app.get('/api/n1/roteamento', auth, async (req, res) => {
+    const ciclo = /^\d{4}-\d{2}$/.test(req.query.ciclo || '') ? req.query.ciclo : n1CicloAtual();
+    const r = await supabase.from('roteamento_staging').select('*').eq('ciclo', ciclo).order('mudanca', { ascending: false }).order('volume_12m', { ascending: false }).limit(1000);
+    if (n1ErroTabela(r.error)) return res.status(503).json({ erro: N1_F2_503 });
+    if (r.error) return erro500(res, r.error);
+    res.json({ ciclo, itens: r.data || [] });
+});
+
+// homologar (S&OP leve): aplica mudanças com histerese ≥2 ciclos → politica_item + hist
+app.post('/api/n1/roteamento/homologar', auth, sigsEscrita, async (req, res) => {
+    const ciclo = /^\d{4}-\d{2}$/.test(req.body?.ciclo || '') ? req.body.ciclo : n1CicloAtual();
+    const forcarHisterese = !!req.body?.ignorar_histerese;                  // dono pode forçar
+    const { data: st, error: eS } = await supabase.from('roteamento_staging').select('*').eq('ciclo', ciclo).eq('status', 'PENDENTE');
+    if (n1ErroTabela(eS)) return res.status(503).json({ erro: N1_F2_503 });
+    if (eS) return erro500(res, eS);
+    if (!st?.length) return res.status(404).json({ erro: `Nenhum staging PENDENTE no ciclo ${ciclo} — rode o roteamento.` });
+    let aplicadas = 0, seguradas = 0, semMudanca = 0;
+    for (const s of st) {
+        if (!s.mudanca) { semMudanca++; continue; }
+        if (!forcarHisterese && s.ciclos_consecutivos < 2) { seguradas++; continue; }   // histerese 2 ciclos
+        const { error: eP } = await supabase.from('politica_item').upsert({
+            codigo: s.codigo, trilho: s.trilho_sugerido, origem: 'homologado', ciclo,
+            motivo: `ABC-XYZ ${s.abc}${s.xyz}${s.item_novo ? ' (item novo)' : ''}${s.revisar_portfolio ? ' · REVISAR PORTFÓLIO' : ''}`, ativo: true }, { onConflict: 'codigo' });
+        if (eP) return erro500(res, eP);
+        await supabase.from('politica_item_hist').insert({ codigo: s.codigo, trilho_de: s.trilho_atual, trilho_para: s.trilho_sugerido,
+            ciclo, motivo: `ABC-XYZ ${s.abc}${s.xyz}`, usuario: req.usuario?.nome || null });
+        aplicadas++;
+    }
+    await supabase.from('roteamento_staging').update({ status: 'HOMOLOGADO' }).eq('ciclo', ciclo).eq('status', 'PENDENTE');
+    res.json({ ok: true, ciclo, aplicadas, seguradas_histerese: seguradas, sem_mudanca: semMudanca });
+});
+
+// ── previsão EWMA α=0,1 + MAPE por família (segmento) ───────────────────────
+// Uso: S&OP e MAPE-push (KPI). NUNCA lida para item PULL (anti-padrão §8).
+app.post('/api/n1/previsao/rodar', auth, sigsEscrita, async (_req, res) => {
+    if (!n1Lock('previsao')) return res.status(409).json({ erro: 'Previsão já está rodando.' });
+    try {
+        let vRows;
+        try { vRows = await fetchAllSelect('vendas', 'codigo,segmento,meses'); }
+        catch (e) { return erro500(res, e); }
+        const N1_M = N1_MESES;
+        const serieFam = {};                                            // familia → {aaaa-mm: qtd}
+        for (const v of vRows || []) {
+            const fam = String(v.segmento || 'SEM SEGMENTO').trim() || 'SEM SEGMENTO';
+            if (!v.meses) continue;
+            for (const [k, q] of Object.entries(v.meses)) {
+                const m = k.match(/^([a-z]{3})_(\d{4})$/); if (!m || !(m[1] in N1_M)) continue;
+                const comp = `${m[2]}-${String(N1_M[m[1]]).padStart(2, '0')}`;
+                (serieFam[fam] = serieFam[fam] || {})[comp] = (serieFam[fam][comp] || 0) + (Number(q) || 0);
+            }
+        }
+        const todasComps = [...new Set(Object.values(serieFam).flatMap(s => Object.keys(s)))].sort();
+        if (!todasComps.length) return res.json({ ok: true, familias: 0, avisos: ['Sem série mensal nas vendas.'] });
+        const prox = (() => { const d = new Date(todasComps[todasComps.length - 1] + '-01T12:00:00'); d.setMonth(d.getMonth() + 1); return d.toISOString().slice(0, 10); })();
+        const ALPHA = 0.1; const rows = [];
+        for (const [fam, meses] of Object.entries(serieFam)) {
+            const serie = todasComps.map(c => meses[c] || 0);           // zeros incluídos
+            let ewma = serie[0]; let mapeSum = 0, mapeN = 0;
+            for (let i = 1; i < serie.length; i++) {
+                if (serie[i] > 0) { mapeSum += Math.abs(serie[i] - ewma) / serie[i]; mapeN++; }   // erro 1-passo-à-frente
+                ewma = ALPHA * serie[i] + (1 - ALPHA) * ewma;
+            }
+            rows.push({ familia: fam, competencia: prox, previsao: Math.round(ewma * 1000) / 1000,
+                mape_pct: mapeN ? Math.round(mapeSum / mapeN * 1000) / 10 : null, meses_serie: serie.length });
+        }
+        for (let i = 0; i < rows.length; i += 500) {
+            const { error } = await supabase.from('previsao_familia').upsert(rows.slice(i, i + 500), { onConflict: 'familia,competencia' });
+            if (n1ErroTabela(error)) return res.status(503).json({ erro: N1_F2_503 });
+            if (error) return erro500(res, error);
+        }
+        res.json({ ok: true, familias: rows.length, competencia: prox, alpha: ALPHA });
+    } finally { n1Unlock('previsao'); }
+});
+app.get('/api/n1/previsao', auth, async (_req, res) => {
+    const r = await supabase.from('previsao_familia').select('*').order('competencia', { ascending: false }).order('previsao', { ascending: false }).limit(200);
+    if (n1ErroTabela(r.error)) return res.status(503).json({ erro: N1_F2_503 });
+    if (r.error) return erro500(res, r.error);
+    res.json(r.data || []);
+});
+
+// ── netting/carteira PUSH: OPs abertas de SKUs PUSH, prioridade pela folga ───
+// A carteira firme desta fábrica são as OPs do ERP (importar-ops). Para trilho
+// PUSH: folga = prazo − hoje − LT; folga ≤ 0 dentro do LT → prio alta (70–95),
+// folga > LT → prio baixa (10–35), mapeada p/ 0–9 da OP. Não cria ordem (a OP
+// já existe); quando houver tabela de pedidos firmes, o netting passa a gerar.
+app.get('/api/n1/netting', auth, async (_req, res) => {
+    const { data: pols, error: eP } = await supabase.from('politica_item').select('codigo,trilho').eq('ativo', true).eq('trilho', 'PUSH');
+    if (n1ErroTabela(eP)) return res.status(503).json({ erro: N1_F1_503 });
+    if (eP) return erro500(res, eP);
+    const pushSet = new Set((pols || []).map(p => p.codigo));
+    if (!pushSet.size) return res.json({ itens: [], avisos: ['Nenhum SKU com trilho PUSH homologado — rode o roteamento e homologue (S&OP leve).'] });
+    let ops;
+    try { ops = await fetchAllSelect('ordem_producao', 'id,numero,qtd_planejada,data_prevista,prioridade,status, produto:produto_id(codigo,descricao)', q => q.in('status', ['planejada', 'liberada', 'em_producao', 'pausada'])); }
+    catch (e) { return erro500(res, e); }
+    const { data: params } = await supabase.from('parametro_reposicao').select('codigo,lt_dias');
+    const ltDe = {}; (params || []).forEach(p => { ltDe[p.codigo] = Number(p.lt_dias) || 30; });
+    const hoje = new Date(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date()) + 'T00:00:00-03:00');
+    const itens = (ops || []).filter(o => pushSet.has(String(o.produto?.codigo || '').toUpperCase())).map(o => {
+        const cod = String(o.produto?.codigo || '').toUpperCase();
+        const lt = ltDe[cod] || 30;
+        const dias = o.data_prevista ? Math.round((new Date(String(o.data_prevista).slice(0, 10) + 'T00:00:00-03:00') - hoje) / 86400000) : null;
+        const folga = dias == null ? null : dias - lt;
+        // spec §5: folga ≤ LT → 70–95 (quanto menor a folga, maior) · folga > LT → 10–35
+        let prio = 10;
+        if (folga != null) prio = folga <= 0 ? 95 : folga <= lt ? 70 + 25 * (1 - folga / lt) : Math.max(10, 35 - (folga - lt) / 10);
+        return { op_id: o.id, numero: o.numero, codigo: cod, descricao: o.produto?.descricao, qtd: o.qtd_planejada,
+            prazo: o.data_prevista, status: o.status, lt_dias: lt, dias_ate_prazo: dias, folga_dias: folga,
+            prio_sugerida: Math.round(prio * 10) / 10, prio_op: Math.min(9, Math.round(prio / 100 * 9)), prio_atual: o.prioridade };
+    }).sort((a, b) => b.prio_sugerida - a.prio_sugerida);
+    res.json({ itens, avisos: [] });
+});
+// aplica a prioridade PUSH sugerida nas OPs (N1 é a evolução do APS — mesmo dono N3)
+app.post('/api/n1/netting/aplicar', auth, sigsEscrita, async (req, res) => {
+    const itens = Array.isArray(req.body?.itens) ? req.body.itens.filter(i => apsUuid(i.op_id)) : [];
+    if (!itens.length) return res.status(400).json({ erro: 'itens [{op_id, prio_op}] obrigatório' });
+    let aplicadas = 0;
+    for (const i of itens) {
+        const p = Math.max(0, Math.min(9, Number(i.prio_op) || 0));
+        const { error } = await supabase.from('ordem_producao').update({ prioridade: p }).eq('id', i.op_id);
+        if (!error) aplicadas++;
+    }
+    res.json({ ok: true, aplicadas });
+});
+
+// ── gate de capacidade (Drum ≤ 90%): carga das ordens vs capacidade ──────────
+// Carga = Σ qtd × tempo_padrao do roteiro, por processo (etapa→processo do TOC).
+// Sem tempo-padrão (F0 pendente) → gate DESLIGADO com aviso (não inventa número).
+app.post('/api/n1/gate/capacidade', auth, sigsEscrita, async (req, res) => {
+    if (!n1Lock('gate')) return res.status(409).json({ erro: 'Gate já está rodando.' });
+    try {
+        const diasJanela = Math.min(Math.max(Number(req.body?.dias) || 22, 1), 66);
+        const [etR, tpR, peR, capR] = await Promise.all([
+            supabase.from('etapa_processo').select('id,nome').eq('ativo', true),
+            supabase.from('tempo_padrao').select('etapa_id,produto_id,seg_por_unidade'),
+            supabase.from('produto_etapa').select('produto_id,etapa_id'),
+            supabase.from('capacidade_config').select('processo,maquinas,horas_dia,oee'),
+        ]);
+        if (etR.error) return erro500(res, etR.error);
+        const procDeEtapa = {}; (etR.data || []).forEach(e => { const p = TOC_ETAPA_PROC[_norm(e.nome)]; if (p) procDeEtapa[e.id] = p; });
+        const temTempo = (tpR.data || []).some(t => Number(t.seg_por_unidade) > 0);
+        if (!temTempo) {
+            const { error: eIns } = await supabase.from('carga_gargalo').insert({ processo: '—', carga_min: 0, cap_min: 0, utilizacao: null, drum_ok: null, detalhe: { aviso: 'sem tempo-padrão' } });
+            if (n1ErroTabela(eIns)) return res.status(503).json({ erro: N1_F2_503 });
+            return res.json({ ok: true, drum_ok: null, avisos: ['GATE DESLIGADO: tempo_padrao vazia (F0 pendente) — sem tempo não há carga; aprova por padrão até a fábrica cronometrar.'] });
+        }
+        // carga: OPs ativas + sugeridas pendentes/aprovadas
+        let ops, sugs, prods;
+        try {
+            [ops, sugs, prods] = await Promise.all([
+                fetchAllSelect('ordem_producao', 'produto_id,qtd_planejada', q => q.in('status', ['planejada', 'liberada', 'em_producao', 'pausada'])),
+                fetchAllSelect('ordem_sugerida', 'codigo,qtd', q => q.in('status', ['PENDENTE', 'APROVADA'])),
+                fetchAllSelect('produto', 'id,codigo'),
+            ]);
+        } catch (e) { return erro500(res, e); }
+        const idDeCod = {}; (prods || []).forEach(p => { if (p.codigo) idDeCod[String(p.codigo).toUpperCase()] = p.id; });
+        const rotDe = {}; (peR.data || []).forEach(x => { (rotDe[x.produto_id] = rotDe[x.produto_id] || []).push(x.etapa_id); });
+        const tempoDe = (pid, eid) => {
+            const esp = (tpR.data || []).find(t => t.etapa_id === eid && t.produto_id === pid);
+            const ger = (tpR.data || []).find(t => t.etapa_id === eid && t.produto_id === null);
+            return Number(esp?.seg_por_unidade) || Number(ger?.seg_por_unidade) || 0;
+        };
+        const cargaProc = {};
+        const soma = (pid, qtd) => {
+            const rot = rotDe[pid] || (etR.data || []).map(e => e.id);   // sem roteiro = todas
+            rot.forEach(eid => { const proc = procDeEtapa[eid]; if (!proc) return;
+                cargaProc[proc] = (cargaProc[proc] || 0) + tempoDe(pid, eid) * qtd / 60; });
+        };
+        (ops || []).forEach(o => soma(o.produto_id, Number(o.qtd_planejada) || 0));
+        (sugs || []).forEach(s => { const pid = idDeCod[String(s.codigo).toUpperCase()]; if (pid) soma(pid, Number(s.qtd) || 0); });
+        const capDe = {}; (capR.data || []).forEach(c => { capDe[c.processo] = (Number(c.maquinas) || 0) * (Number(c.horas_dia) || 0) * 60 * diasJanela * (Math.min(Number(c.oee) || 100, 100) / 100); });
+        const agora = new Date().toISOString(); const linhas = []; let pior = null;
+        for (const proc of Object.keys({ ...capDe, ...cargaProc })) {
+            const carga = cargaProc[proc] || 0, cap90 = (capDe[proc] || 0) * 0.90;
+            const util = cap90 > 0 ? Math.round(carga / cap90 * 1000) / 10 : null;
+            const ok = util == null ? null : util <= 100;
+            linhas.push({ avaliacao_em: agora, processo: proc, carga_min: Math.round(carga * 10) / 10, cap_min: Math.round(cap90 * 10) / 10, utilizacao: util, drum_ok: ok, detalhe: { dias: diasJanela } });
+            if (util != null && (!pior || util > pior.utilizacao)) pior = { processo: proc, utilizacao: util };
+        }
+        const { error: eIns } = await supabase.from('carga_gargalo').insert(linhas);
+        if (n1ErroTabela(eIns)) return res.status(503).json({ erro: N1_F2_503 });
+        if (eIns) return erro500(res, eIns);
+        res.json({ ok: true, drum_ok: !pior || pior.utilizacao <= 100, gargalo: pior, processos: linhas.length, dias: diasJanela,
+            avisos: pior && pior.utilizacao > 100 ? [`Drum ESTOURADO em ${pior.processo} (${pior.utilizacao}% do teto de 90%) — rejanele ou escale ao S&OP.`] : [] });
+    } finally { n1Unlock('gate'); }
+});
+app.get('/api/n1/gate', auth, async (_req, res) => {
+    const { data: ult, error } = await supabase.from('carga_gargalo').select('avaliacao_em').order('avaliacao_em', { ascending: false }).limit(1).maybeSingle();
+    if (n1ErroTabela(error)) return res.status(503).json({ erro: N1_F2_503 });
+    if (error) return erro500(res, error);
+    if (!ult) return res.json({ avaliacao: null, linhas: [] });
+    const { data } = await supabase.from('carga_gargalo').select('*').eq('avaliacao_em', ult.avaliacao_em).order('utilizacao', { ascending: false, nullsFirst: false });
+    res.json({ avaliacao: ult.avaliacao_em, linhas: data || [] });
+});
+
 // ── Apontamento (sessão de trabalho) ──────────────────────────
 app.get('/api/mf/apontamentos', auth, async (req, res) => {
     let q = supabase.from('apontamento')

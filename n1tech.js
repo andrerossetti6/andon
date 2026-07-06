@@ -118,9 +118,73 @@ const n1 = {
         });
         document.querySelectorAll('[data-n1tab]').forEach(li => li.classList.toggle('active', li.dataset.n1tab === nome));
         const R = { painel:'_renderPainel', roteiros:'_renderRoteiros', tcad:'_renderTempos', setup:'_renderSetup', bom:'_renderBom',
-            pulmoes:'_renderPulmoes', sugeridas:'_renderSugeridas', fila:'_renderFila', pwa:'_renderPwa', kpi:'_renderKpi', dbm:'_renderDbm', politica:'_renderPolitica' };
+            pulmoes:'_renderPulmoes', sugeridas:'_renderSugeridas', fila:'_renderFila', pwa:'_renderPwa', kpi:'_renderKpi', dbm:'_renderDbm',
+            politica:'_renderPolitica', netting:'_renderNetting', gargalo:'_renderGargalo' };
         if (R[nome]) this[R[nome]]();
         else this._placeholder(nome);
+    },
+
+    // ═══ F2 — NETTING PUSH (carteira firme = OPs do ERP, prio pela folga) ═══
+    async _renderNetting() {
+        const el = $('n1-pan-netting'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando carteira PUSH…</div>';
+        const [d, prev] = await Promise.all([this._getOu503('/api/n1/netting', el), api.get('/api/n1/previsao').catch(() => null)]);
+        if (!d) return;
+        this._nettingItens = d.itens || [];
+        const linhas = this._nettingItens.map(i => `<tr>
+            <td class="n1-td" style="font-weight:800;color:${i.prio_sugerida >= 70 ? '#f06292' : '#26c6da'};">${fmt1(i.prio_sugerida)}</td>
+            <td class="n1-td" style="font-weight:700;color:var(--indigo-primary);">${esc(i.numero)}</td>
+            <td class="n1-td">${esc(i.codigo)} <span style="color:var(--text-dim);font-size:.72rem;">${esc((i.descricao || '').slice(0, 26))}</span></td>
+            <td class="n1-td" style="text-align:right;">${fmt(i.qtd)}</td>
+            <td class="n1-td">${i.prazo ? fmtData(i.prazo) : '—'}</td>
+            <td class="n1-td" style="text-align:right;color:${(i.folga_dias ?? 99) <= 0 ? '#f06292' : 'var(--text-dim)'};font-weight:${(i.folga_dias ?? 99) <= 0 ? 800 : 400};">${i.folga_dias ?? '—'}d</td>
+            <td class="n1-td" style="text-align:right;">${i.prio_atual ?? 0} → <strong>${i.prio_op}</strong></td>
+        </tr>`).join('');
+        const prevRows = Array.isArray(prev) ? prev.slice(0, 8) : [];
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;border-left:3px solid #26c6da;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <div style="flex:1;"><div class="s-label" style="margin:0 0 4px;">② CARTEIRA PUSH — prioridade pela folga (prazo − hoje − LT)</div>
+            <p style="font-size:.74rem;color:var(--text-dim);margin:0;">Carteira firme = OPs do ERP para SKUs <strong>PUSH</strong> (homologados). Folga ≤ LT → prio 70–95; folga > LT → 10–35. ${(d.avisos || []).map(esc).join(' ')}</p></div>
+            ${this._nettingItens.length ? `<button class="btn primary" style="font-size:.74rem;" onclick="n1._nettingAplicar()">✓ Aplicar prioridades (${this._nettingItens.length})</button>` : ''}
+        </div>
+        ${prevRows.length ? `<div class="summary-card" style="margin-bottom:12px;">
+            <div class="s-label" style="margin-bottom:6px;">📈 PREVISÃO POR FAMÍLIA — EWMA α=0,1 (próximo mês) + MAPE</div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">${prevRows.map(p => `<div style="border:1px solid var(--border-color);border-radius:8px;padding:8px 12px;min-width:130px;">
+                <div style="font-size:.68rem;color:var(--text-dim);">${esc(String(p.familia).slice(0, 18))}</div>
+                <div style="font-size:1.1rem;font-weight:800;">${fmt(Math.round(p.previsao))}</div>
+                <div style="font-size:.64rem;color:${p.mape_pct > 50 ? '#f06292' : 'var(--text-dim)'};">MAPE ${p.mape_pct != null ? fmt1(p.mape_pct) + '%' : '—'}</div>
+            </div>`).join('')}</div>
+        </div>` : `<div class="summary-card" style="margin-bottom:12px;"><button class="btn secondary" style="font-size:.74rem;" onclick="n1._acao('Previsão EWMA','/api/n1/previsao/rodar',null,'netting')">📈 Rodar previsão por família (EWMA+MAPE)</button></div>`}
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:52vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th">PRIO 0-100</th><th class="n1-th">OP</th><th class="n1-th">SKU</th><th class="n1-th" style="text-align:right;">QTD</th><th class="n1-th">PRAZO</th><th class="n1-th" style="text-align:right;">FOLGA</th><th class="n1-th" style="text-align:right;">PRIO OP</th></tr></thead>
+            <tbody>${linhas || '<tr><td class="n1-td" colspan="7" style="text-align:center;color:var(--text-dim);padding:20px;">Nenhuma OP de SKU PUSH — homologue trilhos PUSH no S&OP (aba Política).</td></tr>'}</tbody></table></div></div>`;
+    },
+    async _nettingAplicar() {
+        if (!confirm(`Aplicar a prioridade sugerida em ${(this._nettingItens || []).length} OP(s) PUSH?`)) return;
+        const r = await api.post('/api/n1/netting/aplicar', { itens: (this._nettingItens || []).map(i => ({ op_id: i.op_id, prio_op: i.prio_op })) });
+        if (!r?.ok) return toast(r?.erro || 'Erro.', 'erro');
+        toast(`✓ ${r.aplicadas} prioridade(s) aplicadas.`);
+        this._renderNetting();
+    },
+
+    // ═══ F2 — GATE DE CAPACIDADE (Drum ≤ 90%) ═══
+    async _renderGargalo() {
+        const el = $('n1-pan-gargalo'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando gate…</div>';
+        const d = await this._getOu503('/api/n1/gate', el, 'O gate de capacidade grava em carga_gargalo (n1_f2.sql).'); if (!d) return;
+        const linhas = (d.linhas || []).map(l => {
+            const cor = l.drum_ok == null ? '#8b949e' : l.drum_ok ? '#26a69a' : '#f06292';
+            return `<div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);">
+                <div style="width:150px;font-size:.82rem;font-weight:600;">${esc(l.processo)}</div>
+                <div style="flex:1;height:10px;background:var(--bg-input);border-radius:5px;overflow:hidden;"><div style="width:${Math.min(100, (l.utilizacao || 0) / 1.5)}%;height:100%;background:${cor};"></div></div>
+                <div style="width:70px;text-align:right;font-weight:800;color:${cor};">${l.utilizacao != null ? fmt1(l.utilizacao) + '%' : '—'}</div>
+                <div style="width:150px;text-align:right;font-size:.7rem;color:var(--text-dim);">${fmt(Math.round(l.carga_min / 60))}h / ${fmt(Math.round(l.cap_min / 60))}h (90%)</div>
+            </div>`; }).join('');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <div style="flex:1;"><div class="s-label" style="margin:0 0 4px;">③ GATE ÚNICO — Drum ≤ 90% da capacidade</div>
+            <p style="font-size:.74rem;color:var(--text-dim);margin:0;">Carga = OPs ativas + sugeridas pendentes/aprovadas × tempo-padrão do roteiro. ${d.avaliacao ? 'Última avaliação: ' + new Date(d.avaliacao).toLocaleString('pt-BR') : 'Nunca avaliado.'}</p></div>
+            <button class="btn primary" style="font-size:.74rem;" onclick="n1._acao('Gate de capacidade','/api/n1/gate/capacidade',{dias:22},'gargalo')">⚖ Avaliar agora (janela 22 d.u.)</button>
+        </div>
+        <div class="summary-card">${linhas || '<div style="color:var(--text-dim);font-size:.8rem;padding:8px;">Nenhuma avaliação — clique em Avaliar. Sem tempo-padrão (F0), o gate fica desligado e aprova com aviso.</div>'}</div>`;
     },
 
     // ═══ F1 — AÇÕES DO LAÇO (ETL → motor → varredura → sequenciar → fechamento) ═
@@ -299,24 +363,45 @@ const n1 = {
             <tbody>${linhas || '<tr><td class="n1-td" colspan="5" style="text-align:center;color:var(--text-dim);padding:20px;">Nenhum contador ativo — os contadores andam com o fechamento noturno.</td></tr>'}</tbody></table></div></div>`;
     },
 
-    // ── ⑦ Política (trilho) ──
+    // ── ⑦ Política + S&OP leve (roteamento ABC-XYZ → staging → homologar) ──
     async _renderPolitica() {
-        const el = $('n1-pan-politica'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando política…</div>';
-        const d = await this._getOu503('/api/n1/politica', el); if (!d) return;
-        const linhas = (d.itens || []).map(p => `<tr>
-            <td class="n1-td" style="font-weight:700;color:var(--indigo-primary);">${esc(p.codigo)}</td>
-            <td class="n1-td"><span style="font-size:.68rem;font-weight:700;padding:1px 8px;border-radius:5px;background:${p.trilho === 'PULL' ? '#26a69a22' : '#26c6da22'};color:${p.trilho === 'PULL' ? '#26a69a' : '#26c6da'};">${esc(p.trilho)}</span></td>
-            <td class="n1-td" style="color:var(--text-dim);">${esc(p.origem)}</td>
-            <td class="n1-td" style="color:var(--text-dim);font-size:.74rem;">${esc(p.motivo || '')}</td>
+        const el = $('n1-pan-politica'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando ciclo…</div>';
+        const rot = await this._getOu503('/api/n1/roteamento', el, 'O roteamento grava em roteamento_staging (n1_f2.sql).'); if (!rot) return;
+        const st = rot.itens || [];
+        const mudancas = st.filter(s => s.mudanca);
+        const aplicaveis = mudancas.filter(s => s.ciclos_consecutivos >= 2);
+        const portfolio = st.filter(s => s.revisar_portfolio);
+        const pend = st.some(s => s.status === 'PENDENTE');
+        const chip = (t, cor) => `<span style="font-size:.64rem;font-weight:700;padding:1px 7px;border-radius:5px;background:${cor}22;color:${cor};border:1px solid ${cor}55;">${t}</span>`;
+        const linhas = st.filter(s => s.mudanca || s.revisar_portfolio).slice(0, 200).map(s => `<tr>
+            <td class="n1-td" style="font-weight:700;color:var(--indigo-primary);">${esc(s.codigo)}</td>
+            <td class="n1-td" style="text-align:center;font-weight:800;">${esc(s.abc)}${esc(s.xyz)}</td>
+            <td class="n1-td" style="text-align:right;color:var(--text-dim);">${fmt(s.volume_12m)}</td>
+            <td class="n1-td" style="text-align:right;color:var(--text-dim);">${s.cv != null ? fmt1(s.cv) : '—'}</td>
+            <td class="n1-td" style="text-align:right;color:${s.pct_meses_zero >= 40 ? '#f06292' : 'var(--text-dim)'};">${fmt1(s.pct_meses_zero)}%</td>
+            <td class="n1-td">${esc(s.trilho_atual || '—')} → <strong style="color:${s.trilho_sugerido === 'PULL' ? '#26a69a' : '#26c6da'};">${esc(s.trilho_sugerido)}</strong>${s.item_novo ? ' ' + chip('novo', '#ffab76') : ''}${s.revisar_portfolio ? ' ' + chip('CZ · revisar', '#f06292') : ''}</td>
+            <td class="n1-td" style="text-align:center;">${s.ciclos_consecutivos >= 2 ? chip('aplica ✓', '#26a69a') : chip(`histerese ${s.ciclos_consecutivos}/2`, '#8b949e')}</td>
         </tr>`).join('');
         el.innerHTML = `
-        <div class="summary-card" style="margin-bottom:12px;border-left:3px solid #7c4dff;">
-            <div class="s-label" style="margin-bottom:4px;">⑦ POLÍTICA — trilho PULL/PUSH (única fonte de verdade)</div>
-            <p style="font-size:.76rem;color:var(--text-dim);">${esc(d.regra_f1 || '')}</p>
+        <div class="summary-card" style="margin-bottom:12px;border-left:3px solid #7c4dff;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <div style="flex:1;"><div class="s-label" style="margin:0 0 4px;">⑦ S&OP LEVE — ciclo ${esc(rot.ciclo)} · roteamento ABC-XYZ</div>
+            <p style="font-size:.74rem;color:var(--text-dim);margin:0;">${st.length ? `${st.length} SKUs no staging · <strong>${mudancas.length}</strong> mudanças propostas · <strong style="color:#26a69a;">${aplicaveis.length}</strong> passam a histerese (2 ciclos) · <strong style="color:#f06292;">${portfolio.length}</strong> CZ (revisar portfólio)` : 'Ciclo ainda não rodado.'} ABC por <strong>volume</strong> (valor zerado na base) · X: CV≤0,5 · Y: ≤1,0 · Z: >1,0 ou ≥40% meses zero · item novo (<6m) = PUSH.</p></div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <button class="btn secondary" style="font-size:.72rem;" onclick="n1._acao('Roteamento','/api/n1/roteamento/rodar',null,'politica')">🔄 Rodar roteamento (mensal)</button>
+                ${pend && st.length ? `<button class="btn primary" style="font-size:.72rem;" onclick="n1._homologar('${escJS(rot.ciclo)}')">✓ Homologar ciclo (${aplicaveis.length} aplicáveis)</button>` : ''}
+            </div>
         </div>
-        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:58vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
-            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th">SKU</th><th class="n1-th">TRILHO</th><th class="n1-th">ORIGEM</th><th class="n1-th">MOTIVO</th></tr></thead>
-            <tbody>${linhas || '<tr><td class="n1-td" colspan="4" style="text-align:center;color:var(--text-dim);padding:20px;">Nenhuma exceção cadastrada — todos os SKUs seguem o default F1 (PULL). O roteamento ABC-XYZ entra no F2.</td></tr>'}</tbody></table></div></div>`;
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:56vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th">SKU</th><th class="n1-th" style="text-align:center;">ABC-XYZ</th><th class="n1-th" style="text-align:right;">VOL 12M</th><th class="n1-th" style="text-align:right;">CV</th><th class="n1-th" style="text-align:right;">MESES ZERO</th><th class="n1-th">TRILHO</th><th class="n1-th" style="text-align:center;">HISTERESE</th></tr></thead>
+            <tbody>${linhas || `<tr><td class="n1-td" colspan="7" style="text-align:center;color:var(--text-dim);padding:20px;">${st.length ? 'Nenhuma mudança de trilho proposta neste ciclo — política estável ✓' : 'Rode o roteamento para classificar a carteira.'}</td></tr>`}</tbody></table></div>
+            ${st.length ? `<div style="padding:8px 14px;font-size:.7rem;color:var(--text-dim);border-top:1px solid var(--border-color);">Mostrando só mudanças e CZ. Homologar aplica os que passam a histerese em politica_item (com histórico) e fecha o ciclo.</div>` : ''}</div>`;
+    },
+    async _homologar(ciclo) {
+        if (!confirm(`Homologar o ciclo ${ciclo}?\n\nAplica as mudanças de trilho que passaram a histerese (2 ciclos) em politica_item, com histórico. Mudanças de 1 ciclo ficam seguradas para o mês que vem.`)) return;
+        const r = await api.post('/api/n1/roteamento/homologar', { ciclo });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao homologar.', 'erro');
+        toast(`✓ Ciclo ${ciclo}: ${r.aplicadas} aplicadas · ${r.seguradas_histerese} seguradas (histerese) · ${r.sem_mudanca} sem mudança.`);
+        this._renderPolitica();
     },
 
     // ═══ F0 — DADOS MESTRES (auditoria read-only p/ o gate F0→F1) ═══════════
