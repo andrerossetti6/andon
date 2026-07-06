@@ -1707,7 +1707,8 @@ const vendas = {
 
         const monthOrigCols = new Set(this.monthCols.map(mc => mc.originalCol));
         const KNOWN_NORM = new Set(['codigo', 'descricao', 'modelo', 'segmento', 'tamanho', 'marca',
-            'quantidade', 'qtd', 'qty', 'qtde', 'valor', 'valorrs', 'valortotal', 'valorr']);
+            'quantidade', 'qtd', 'qty', 'qtde', 'valor', 'valorrs', 'valortotal', 'valorr',
+            'faturamento', 'fat', 'receita', 'valorfaturado', 'vlrtotal', 'vlr']);
         this.extraCols = allHeaders.filter(h =>
             !monthOrigCols.has(h) && !KNOWN_NORM.has(this.normalizeKey(h))
         );
@@ -1736,7 +1737,7 @@ const vendas = {
                 _extras: extras,
                 ...mData,
                 quantidade: toNum(get(row, 'quantidade', 'qtd', 'qty', 'qtde')),
-                valor:      toNum(get(row, 'valor', 'valorrs', 'valortotal', 'valorr'))
+                valor:      toNum(get(row, 'valor', 'valorrs', 'valortotal', 'valorr', 'faturamento', 'fat', 'receita', 'valorfaturado', 'vlrtotal', 'vlr'))
             };
         });
 
