@@ -2437,17 +2437,86 @@ app.post('/api/n1/fechamento', auth, sigsEscrita, async (_req, res) => {
             const { error } = await supabase.from('parametro_reposicao').update(upd).eq('id', p.id);
             if (error) return erro500(res, error);
         }
-        // tempo_real_roteiro: precisa de apontamentos com duração — degrada com aviso enquanto não há
-        const { count: nApont } = await supabase.from('apontamento').select('*', { count: 'exact', head: true });
-        if (!nApont) avisos.push('Sem apontamentos — tempo_real_roteiro e latência ficam para quando o chão apontar.');
+        // ⑥a/⑥c — o realizado corrige o plano: tempo_real_roteiro, latência e aderência.
+        // Tudo sobre os apontamentos DO DIA; sem apontamento, os KPIs ficam null (não inventa).
         const dia = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+        const iniDia = new Date(dia + 'T00:00:00-03:00').toISOString();
+        const { data: aps } = await supabase.from('apontamento')
+            .select('op_id,maquina_id,datahora_inicio,datahora_fim,qtd_boa,qtd_refugo,qtd_retrabalho,criado_em')
+            .gte('datahora_inicio', iniDia).order('datahora_inicio');
+        let latenciaMed = null, aderencia = null, temposGravados = 0, alertasTempo = 0;
+        if (aps?.length) {
+            // latência (min): ocorrido (fim; sessão aberta usa início) → criado no sistema. Mediana.
+            const lats = aps.map(a => { const oc = a.datahora_fim || a.datahora_inicio;
+                return (new Date(a.criado_em) - new Date(oc)) / 60000; }).filter(v => isFinite(v) && v >= 0).sort((a, b) => a - b);
+            if (lats.length) latenciaMed = Math.round(lats[Math.floor(lats.length / 2)] * 10) / 10;
+
+            // aderência (%): ordem real dos apontamentos × posição na última fila publicada.
+            // Métrica: % dos pares adjacentes (1º toque por OP) na ordem crescente da fila.
+            const { data: vMax } = await supabase.from('fila_maquina').select('versao').order('versao', { ascending: false }).limit(1).maybeSingle();
+            if (vMax) {
+                const { data: fila } = await supabase.from('fila_maquina').select('op_id,posicao').eq('versao', vMax.versao);
+                const posDeOp = {}; (fila || []).forEach(f => { if (f.op_id) posDeOp[f.op_id] = f.posicao; });
+                const seq = []; const vistos = new Set();
+                aps.forEach(a => { if (!vistos.has(a.op_id) && posDeOp[a.op_id] != null) { vistos.add(a.op_id); seq.push(posDeOp[a.op_id]); } });
+                if (seq.length >= 2) {
+                    let okPares = 0;
+                    for (let i = 1; i < seq.length; i++) if (seq[i] > seq[i - 1]) okPares++;
+                    aderencia = Math.round(okPares / (seq.length - 1) * 1000) / 10;
+                }
+            }
+
+            // tempo_real_roteiro: duração/qtd por (produto, etapa da máquina). Desvio >15% vs
+            // tempo_padrao por ≥3 fechamentos distintos (aprox. semanas com apontamento) → alerta.
+            const opIds = [...new Set(aps.map(a => a.op_id))];
+            const maqIds = [...new Set(aps.map(a => a.maquina_id))];
+            const [{ data: opsRows }, { data: maqs }, { data: tps }] = await Promise.all([
+                supabase.from('ordem_producao').select('id,produto_id').in('id', opIds),
+                supabase.from('maquina').select('id,etapa_id').in('id', maqIds),
+                supabase.from('tempo_padrao').select('etapa_id,produto_id,seg_por_unidade'),
+            ]);
+            const prodDeOp = {}; (opsRows || []).forEach(o => { prodDeOp[o.id] = o.produto_id; });
+            const etapaDeMaq = {}; (maqs || []).forEach(m => { etapaDeMaq[m.id] = m.etapa_id; });
+            const medidas = {};   // produto|etapa → {seg: [..]}
+            aps.forEach(a => {
+                if (!a.datahora_fim) return;                                    // só sessão fechada mede
+                const qtd = (Number(a.qtd_boa) || 0) + (Number(a.qtd_refugo) || 0) + (Number(a.qtd_retrabalho) || 0);
+                const durSeg = (new Date(a.datahora_fim) - new Date(a.datahora_inicio)) / 1000;
+                const pid = prodDeOp[a.op_id], eid = etapaDeMaq[a.maquina_id];
+                if (!pid || !eid || qtd <= 0 || durSeg <= 0) return;
+                (medidas[pid + '|' + eid] = medidas[pid + '|' + eid] || []).push(durSeg / qtd);
+            });
+            for (const [k, arr] of Object.entries(medidas)) {
+                const [pid, eid] = k.split('|');
+                const segMedio = arr.reduce((s, v) => s + v, 0) / arr.length;
+                const pad = (tps || []).find(t => t.etapa_id === eid && t.produto_id === pid) || (tps || []).find(t => t.etapa_id === eid && t.produto_id === null);
+                const desvio = pad && Number(pad.seg_por_unidade) > 0 ? Math.round((segMedio / Number(pad.seg_por_unidade) - 1) * 1000) / 10 : null;
+                const { data: ex } = await supabase.from('tempo_real_roteiro').select('id,seg_por_unidade,amostras,semanas_desvio,atualizado_em').eq('produto_id', pid).eq('etapa_id', eid).maybeSingle();
+                // média móvel ponderada pelas amostras; contador de desvio anda no máx 1×/dia
+                const n0 = ex?.amostras || 0;
+                const segNovo = n0 > 0 ? (Number(ex.seg_por_unidade) * n0 + segMedio * arr.length) / (n0 + arr.length) : segMedio;
+                const desvioNovo = pad && Number(pad.seg_por_unidade) > 0 ? Math.round((segNovo / Number(pad.seg_por_unidade) - 1) * 1000) / 10 : null;
+                const jaHoje = ex?.atualizado_em && String(ex.atualizado_em).slice(0, 10) === dia;
+                const sem = desvioNovo != null && Math.abs(desvioNovo) > 15
+                    ? (jaHoje ? (ex?.semanas_desvio || 0) : (ex?.semanas_desvio || 0) + 1)
+                    : 0;
+                const alerta = sem >= 3;                                        // desvio persistente → corrigir dado mestre (F0)
+                if (alerta) alertasTempo++;
+                const row = { produto_id: pid, etapa_id: eid, seg_por_unidade: Math.round(segNovo * 1000) / 1000,
+                    amostras: n0 + arr.length, desvio_pct: desvioNovo, semanas_desvio: sem, alerta, atualizado_em: new Date().toISOString() };
+                const { error: eT } = await supabase.from('tempo_real_roteiro').upsert(row, { onConflict: 'produto_id,etapa_id' });
+                if (!eT) temposGravados++;
+            }
+        } else avisos.push('Sem apontamentos hoje — aderência/latência/tempo-real ficam null (não inventa número).');
         const kpi = { dia, rupturas, penetracao_media: pens.length ? Math.round(pens.reduce((s, v) => s + v, 0) / pens.length * 10) / 10 : null,
-            aderencia_pct: null, latencia_apont_min: null,
-            detalhe: { pulmoes: (params || []).length, ajustes_up: ajustesUp, ajustes_down: ajustesDown } };
+            aderencia_pct: aderencia, latencia_apont_min: latenciaMed,
+            detalhe: { pulmoes: (params || []).length, ajustes_up: ajustesUp, ajustes_down: ajustesDown,
+                apontamentos: (aps || []).length, tempos_medidos: temposGravados, alertas_tempo: alertasTempo } };
         const { error: eK } = await supabase.from('kpi_diario').upsert(kpi, { onConflict: 'dia' });
         if (n1ErroTabela(eK)) return res.status(503).json({ erro: N1_F1_503 });
         if (eK) return erro500(res, eK);
-        res.json({ ok: true, dia, rupturas, ajustes_up: ajustesUp, ajustes_down: ajustesDown, pulmoes: (params || []).length, avisos });
+        res.json({ ok: true, dia, rupturas, ajustes_up: ajustesUp, ajustes_down: ajustesDown, pulmoes: (params || []).length,
+            aderencia_pct: aderencia, latencia_apont_min: latenciaMed, tempos_medidos: temposGravados, alertas_tempo: alertasTempo, avisos });
     } finally { n1Unlock('fechamento'); }
 });
 
