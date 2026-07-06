@@ -117,9 +117,111 @@ const n1 = {
             const pan = $('n1-pan-' + t); if (pan) pan.style.display = t === nome ? 'block' : 'none';
         });
         document.querySelectorAll('[data-n1tab]').forEach(li => li.classList.toggle('active', li.dataset.n1tab === nome));
-        const R = { painel:'_renderPainel' };
+        const R = { painel:'_renderPainel', roteiros:'_renderRoteiros', tcad:'_renderTempos', setup:'_renderSetup', bom:'_renderBom' };
         if (R[nome]) this[R[nome]]();
         else this._placeholder(nome);
+    },
+
+    // ═══ F0 — DADOS MESTRES (auditoria read-only p/ o gate F0→F1) ═══════════
+    async _f0(force) {
+        if (this._f0data && !force) return this._f0data;
+        this._f0data = await api.get('/api/n1/f0-auditoria');
+        return this._f0data;
+    },
+    _f0GateCard(r) {
+        const c = r.cobertura_pct, cor = c >= 90 ? '#26a69a' : c >= 60 ? '#ffca28' : '#f06292';
+        const kpi = (v, lb, cr) => `<div style="flex:1;min-width:120px;"><div style="font-size:1.5rem;font-weight:800;color:${cr};">${v}</div><div style="font-size:.62rem;color:var(--text-dim);letter-spacing:.04em;">${lb}</div></div>`;
+        return `<div class="summary-card" style="margin-bottom:14px;border-left:3px solid ${cor};">
+            <div class="s-label" style="margin-bottom:10px;">🎯 GATE F0 → F1 — SKUs prontos = roteiro definido + tempo-padrão em TODAS as etapas do roteiro</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;">
+                ${kpi(c + '%', 'COBERTURA (prontos/total)', cor)}
+                ${kpi(fmt(r.prontos) + ' / ' + fmt(r.total), 'SKUs PRONTOS', '#26a69a')}
+                ${kpi(fmt(r.sem_roteiro), 'SEM ROTEIRO PRÓPRIO', r.sem_roteiro ? '#ffca28' : '#26a69a')}
+                ${kpi(fmt(r.sem_tempo), 'COM ETAPA SEM TEMPO', r.sem_tempo ? '#f06292' : '#26a69a')}
+                ${kpi(fmt(r.etapas_ativas), 'ETAPAS ATIVAS', '#8b949e')}
+            </div>
+            <div style="font-size:.7rem;color:var(--text-dim);margin-top:8px;">O spec pede top-20 SKUs auditados com desvio tempo cadastrado × cronometrado &lt;20% — o desvio entra no F1 (fechamento mede o tempo real). Aqui está a prontidão de cadastro.</div>
+        </div>`;
+    },
+    async _renderRoteiros() {
+        const el = $('n1-pan-roteiros'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Auditando roteiros…</div>';
+        const d = await this._f0(); if (!d?.resumo) { el.innerHTML = '<div class="summary-card" style="color:#f06292;padding:16px;">Não consegui auditar (sessão/servidor).</div>'; return; }
+        const linhas = d.itens.map(i => `<tr>
+            <td class="n1-td" style="font-weight:700;color:var(--indigo-primary);">${esc(i.codigo)}</td>
+            <td class="n1-td">${esc((i.descricao || '').slice(0, 42))}</td>
+            <td class="n1-td" style="text-align:center;">${i.roteiro_proprio ? '<span style="color:#26a69a;">próprio</span>' : '<span style="color:#ffca28;" title="sem produto_etapa — assume todas as etapas ativas">todas (padrão)</span>'}</td>
+            <td class="n1-td" style="text-align:center;">${i.etapas}</td>
+            <td class="n1-td" style="text-align:center;">${i.pronto ? '<span style="color:#26a69a;font-weight:700;">✓ pronto</span>' : '<span style="color:#f06292;">incompleto</span>'}</td>
+        </tr>`).join('');
+        el.innerHTML = this._f0GateCard(d.resumo) + `
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:60vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;">
+                <th class="n1-th">SKU</th><th class="n1-th">DESCRIÇÃO</th><th class="n1-th" style="text-align:center;">ROTEIRO</th><th class="n1-th" style="text-align:center;">ETAPAS</th><th class="n1-th" style="text-align:center;">PRONTIDÃO</th>
+            </tr></thead><tbody>${linhas || '<tr><td class="n1-td" colspan="5" style="text-align:center;color:var(--text-dim);padding:20px;">Nenhum produto ativo.</td></tr>'}</tbody></table></div>
+            ${d.truncado ? `<div style="padding:8px 14px;font-size:.7rem;color:var(--text-dim);border-top:1px solid var(--border-color);">+${d.truncado} SKUs além do limite.</div>` : ''}
+        </div>`;
+    },
+    async _renderTempos() {
+        const el = $('n1-pan-tcad'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Auditando tempos-padrão…</div>';
+        const d = await this._f0(); if (!d?.resumo) { el.innerHTML = '<div class="summary-card" style="color:#f06292;padding:16px;">Não consegui auditar.</div>'; return; }
+        // foco: SKUs com etapa sem tempo (o que trava o gate + a liberação da OP no APS)
+        const incompletos = d.itens.filter(i => i.tempos_faltando.length);
+        const linhas = incompletos.map(i => `<tr>
+            <td class="n1-td" style="font-weight:700;color:var(--indigo-primary);">${esc(i.codigo)}</td>
+            <td class="n1-td">${esc((i.descricao || '').slice(0, 36))}</td>
+            <td class="n1-td" style="color:#f06292;font-size:.74rem;">${i.tempos_faltando.map(esc).join(', ')}</td>
+        </tr>`).join('');
+        el.innerHTML = this._f0GateCard(d.resumo) + `
+        <div class="summary-card" style="margin-bottom:12px;">
+            <div class="s-label" style="margin-bottom:4px;">⏱ ONDE FALTA TEMPO-PADRÃO</div>
+            <p style="font-size:.76rem;color:var(--text-dim);">O tempo-padrão é dono do MES (cronoanálise). Cada etapa do roteiro precisa de <code>tempo_padrao</code> (específico do SKU ou genérico da etapa). Sem ele, a OP não passa no gate. <strong style="color:${incompletos.length ? '#f06292' : '#26a69a'};">${incompletos.length} SKU(s)</strong> com buraco.</p>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:56vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th">SKU</th><th class="n1-th">DESCRIÇÃO</th><th class="n1-th">ETAPAS SEM TEMPO</th></tr></thead>
+            <tbody>${linhas || '<tr><td class="n1-td" colspan="3" style="text-align:center;color:#26a69a;padding:20px;">✓ Todos os SKUs auditados têm tempo em todas as etapas do roteiro.</td></tr>'}</tbody></table></div></div>`;
+    },
+    async _renderSetup() {
+        const el = $('n1-pan-setup'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando matriz de setup…</div>';
+        const m = await api.get('/api/setup-matrix');
+        if (!Array.isArray(m)) { el.innerHTML = '<div class="summary-card" style="color:#f06292;padding:16px;">Matriz de setup indisponível.</div>'; return; }
+        const linhas = m.map(x => `<tr>
+            <td class="n1-td">${esc(x.processo)}</td><td class="n1-td">${esc(x.familia_de)}</td>
+            <td class="n1-td" style="color:var(--text-dim);">→ ${esc(x.familia_para)}</td>
+            <td class="n1-td" style="text-align:right;font-weight:700;color:${Number(x.minutos) > 0 ? '#ffca28' : '#26a69a'};">${fmt(x.minutos)} min</td>
+        </tr>`).join('');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;border-left:3px solid #26c6da;">
+            <div class="s-label" style="margin-bottom:4px;">🔧 MATRIZ DE SETUP (troca família → família por processo)</div>
+            <p style="font-size:.76rem;color:var(--text-dim);">Base da heurística de sequência do APS (④). <strong>${m.length}</strong> transição(ões) cadastrada(s). Compartilhada com o APS — dado mestre único.</p>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:60vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th">PROCESSO</th><th class="n1-th">DE</th><th class="n1-th">PARA</th><th class="n1-th" style="text-align:right;">MINUTOS</th></tr></thead>
+            <tbody>${linhas || '<tr><td class="n1-td" colspan="4" style="text-align:center;color:var(--text-dim);padding:20px;">Matriz vazia — cadastre no SIGS › Preactor (Setup Matrix).</td></tr>'}</tbody></table></div></div>`;
+    },
+    async _renderBom() {
+        const el = $('n1-pan-bom'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando BOM…</div>';
+        const r = await fetch('/api/n1/bom', { headers: api._h() });
+        if (r.status === 503) { const d = await r.json().catch(() => ({}));
+            el.innerHTML = `<div class="summary-card" style="border-left:3px solid #ffab76;">
+                <div class="s-label" style="margin-bottom:6px;">📋 BOM — lista técnica (consumo de fio/MP por SKU)</div>
+                <p style="font-size:.82rem;color:#ffab76;margin-bottom:8px;">${esc(d.erro || 'Tabela BOM não existe ainda.')}</p>
+                <p style="font-size:.76rem;color:var(--text-dim);">Rode <code>n1_f0.sql</code> no Supabase (SQL Editor) para criar a tabela. Ela habilita o check de fio no gate (③) e o desacople híbrido no semiacabado.</p></div>`;
+            return; }
+        const bom = r.ok ? await r.json().catch(() => []) : [];
+        const linhas = (bom || []).map(x => `<tr>
+            <td class="n1-td" style="font-weight:700;color:var(--indigo-primary);">${esc(x.produto?.codigo || x.produto_id)}</td>
+            <td class="n1-td">${esc(x.produto?.descricao || '')}</td>
+            <td class="n1-td">${esc(x.material_codigo)}${x.material_descricao ? ` · ${esc(x.material_descricao)}` : ''}</td>
+            <td class="n1-td" style="text-align:right;">${fmt1(x.qtd_por_unidade)} ${esc(x.unidade)}</td>
+        </tr>`).join('');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;border-left:3px solid #26a69a;">
+            <div class="s-label" style="margin-bottom:4px;">📋 BOM — lista técnica (consumo de fio/MP por SKU)</div>
+            <p style="font-size:.76rem;color:var(--text-dim);"><strong>${(bom || []).length}</strong> linha(s). Popular via ETL do ERP (F1 ①) ou cadastro. Sem BOM, o check de fio do gate fica desligado para o SKU.</p>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:60vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th">SKU</th><th class="n1-th">DESCRIÇÃO</th><th class="n1-th">MATERIAL (fio/MP)</th><th class="n1-th" style="text-align:right;">CONSUMO/UN</th></tr></thead>
+            <tbody>${linhas || '<tr><td class="n1-td" colspan="4" style="text-align:center;color:var(--text-dim);padding:20px;">BOM vazia — nenhuma linha cadastrada ainda.</td></tr>'}</tbody></table></div></div>`;
     },
 
     // ═══ PAINEL DO LAÇO — desenha o fluxo ⓪→⑦ do spec ═══════════════════════

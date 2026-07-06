@@ -2046,6 +2046,79 @@ app.get('/api/aps/seq-plano', auth, async (_req, res) => {
     });
 });
 
+// ══════════════════════════════════════════════════════════════════════════
+// N1TECH — Planejamento & Sequenciamento (PP + TOC-pull + APS)  ·  4º sistema
+// Decisão do dono: N1Tech é a EVOLUÇÃO do APS (aposenta o APS ao alcançar
+// paridade). Dados mestres (produto/roteiro/tempo/setup) são compartilhados e
+// SÓ LIDOS aqui. Tabelas de fluxo próprias do spec entram por fase.
+// Build por gates: F0 (dados mestres) → F1 (laço PULL) → F2 (planejamento).
+// ══════════════════════════════════════════════════════════════════════════
+
+// ── F0: auditoria de dados mestres (roteiro + tempo-padrão por SKU) ──────────
+// Read-only. Alimenta o gate F0→F1 (SKUs prontos = roteiro definido + todas as
+// etapas do roteiro com tempo-padrão). Reusa a massa do MES; nada é duplicado.
+app.get('/api/n1/f0-auditoria', auth, async (req, res) => {
+    const limite = Math.min(Math.max(Number(req.query.limite) || 200, 1), 1000);
+    const [prodR, etapasR, peR, tpR] = await Promise.all([
+        supabase.from('produto').select('id,codigo,descricao,ativo').eq('ativo', true),
+        supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).order('ordem'),
+        supabase.from('produto_etapa').select('produto_id,etapa_id'),
+        supabase.from('tempo_padrao').select('etapa_id,produto_id,seg_por_unidade'),
+    ]);
+    if (prodR.error) return erro500(res, prodR.error);
+    const todas = etapasR.data || [];
+    // roteiro por produto (produto_etapa) — sem linhas = usa todas as etapas (compatível com roteiroDoProduto)
+    const rotDe = {}; (peR.data || []).forEach(x => { (rotDe[x.produto_id] = rotDe[x.produto_id] || new Set()).add(x.etapa_id); });
+    // tempo-padrão: set de etapas com tempo genérico + mapa (produto,etapa)→seg
+    const tGeral = new Set(); const tEspec = new Set();
+    (tpR.data || []).forEach(t => { if (!(Number(t.seg_por_unidade) > 0)) return;
+        if (t.produto_id) tEspec.add(t.produto_id + '|' + t.etapa_id); else tGeral.add(t.etapa_id); });
+    const temTempo = (pid, eid) => tEspec.has(pid + '|' + eid) || tGeral.has(eid);
+
+    let prontos = 0, semRoteiro = 0, semTempo = 0;
+    const itens = (prodR.data || []).map(p => {
+        const temRoteiroProprio = !!rotDe[p.id]?.size;
+        const rot = temRoteiroProprio ? todas.filter(e => rotDe[p.id].has(e.id)) : todas;
+        const faltando = rot.filter(e => !temTempo(p.id, e.id)).map(e => e.nome);
+        const pronto = rot.length > 0 && faltando.length === 0;
+        if (!temRoteiroProprio) semRoteiro++;
+        if (faltando.length) semTempo++;
+        if (pronto) prontos++;
+        return { produto_id: p.id, codigo: p.codigo, descricao: p.descricao,
+            etapas: rot.length, roteiro_proprio: temRoteiroProprio, tempos_faltando: faltando, pronto };
+    });
+    // ordena: incompletos primeiro (o que precisa de atenção no gate), depois por código
+    itens.sort((a, b) => (a.pronto - b.pronto) || String(a.codigo).localeCompare(String(b.codigo), undefined, { numeric: true }));
+    const total = itens.length;
+    res.json({
+        resumo: { total, prontos, sem_roteiro: semRoteiro, sem_tempo: semTempo,
+            cobertura_pct: total ? Math.round(prontos / total * 100) : 0,
+            etapas_ativas: todas.length },
+        itens: itens.slice(0, limite),
+        truncado: total > limite ? total - limite : 0,
+    });
+});
+
+// ── F0: BOM (lista técnica — consumo de fio/MP por SKU). Tabela própria do N1. ─
+// Habilita o check de fio no gate (③) e o desacople híbrido no semiacabado.
+// Degrada limpo (503 com instrução) enquanto n1_f0.sql não foi rodado.
+const N1_BOM_503 = 'BOM não inicializada — rode n1_f0.sql no Supabase (SQL Editor).';
+app.get('/api/n1/bom', auth, async (_req, res) => {
+    const r = await supabase.from('bom').select('id,produto_id,material_codigo,material_descricao,qtd_por_unidade,unidade,ativo, produto:produto_id(codigo,descricao)').eq('ativo', true).limit(2000);
+    if (r.error) { if (/schema cache|does not exist|relation/i.test(r.error.message || '')) return res.status(503).json({ erro: N1_BOM_503 }); return erro500(res, r.error); }
+    res.json(r.data || []);
+});
+app.post('/api/n1/bom', auth, sigsEscrita, async (req, res) => {
+    const b = req.body || {};
+    if (!b.produto_id || !b.material_codigo) return res.status(400).json({ erro: 'produto_id e material_codigo obrigatórios' });
+    const row = { produto_id: b.produto_id, material_codigo: String(b.material_codigo).trim(),
+        material_descricao: b.material_descricao || null, qtd_por_unidade: Number(b.qtd_por_unidade) || 0,
+        unidade: ['kg', 'm', 'pc', 'g'].includes(b.unidade) ? b.unidade : 'kg' };
+    const r = await supabase.from('bom').insert(row).select().single();
+    if (r.error) { if (/schema cache|does not exist|relation/i.test(r.error.message || '')) return res.status(503).json({ erro: N1_BOM_503 }); return erro500(res, r.error); }
+    res.json({ ok: true, bom: r.data });
+});
+
 // ── Apontamento (sessão de trabalho) ──────────────────────────
 app.get('/api/mf/apontamentos', auth, async (req, res) => {
     let q = supabase.from('apontamento')
