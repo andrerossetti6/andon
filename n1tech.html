@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>N1Tech | Planejamento & Sequenciamento</title>
+    <meta name="description" content="N1Tech — Reposição TOC (pull) + Sequenciamento + Gate único · Malha Forte">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <meta name="theme-color" content="#0D1117">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+</head>
+<body class="sin1-layout">
+
+    <!-- ── Login (mesmo markup/tema do SIGS/MES/APS) ── -->
+    <div id="view-login" class="login-screen" style="display:none;">
+        <div class="login-card">
+            <div class="login-logo">
+                <div class="logo-icon"></div>
+                <div>
+                    <span class="brand">SIN<sub>1</sub></span>
+                    <span class="subtext">Gestão Stoll</span>
+                </div>
+            </div>
+            <h2 class="login-title">Entrar na plataforma</h2>
+            <div id="login-status" style="color:#8b949e;font-size:0.85rem;margin-bottom:12px;text-align:center;">Conectando ao servidor...</div>
+            <div id="login-erro" class="login-erro" style="display:none;"></div>
+            <div id="login-form-wrap" style="display:none;">
+            <form id="login-form" autocomplete="on">
+                <div class="input-group">
+                    <label>Email</label>
+                    <input type="email" id="login-email" placeholder="seu@email.com.br" required autocomplete="email">
+                </div>
+                <div class="input-group">
+                    <label>Senha</label>
+                    <input type="password" id="login-senha" placeholder="••••••••" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn primary login-btn" id="login-submit">Entrar</button>
+            </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Sidebar do N1Tech (blocos = fluxo do spec ①→⑦) ── -->
+    <aside class="sidebar" id="app-sidebar" style="display:none;">
+        <div class="sidebar-top">
+            <div class="logo">
+                <div class="logo-icon"></div>
+                <div class="logo-text">
+                    <span class="brand">N1<sub>Tech</sub></span>
+                    <span class="subtext">Planejamento &amp; Sequenciamento</span>
+                </div>
+            </div>
+
+            <nav class="nav-section" id="nav-section-laco">
+                <h3 class="nav-section-header" data-key="n1-laco" onclick="toggleNavSection(this)">
+                    LAÇO <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-painel" class="active" data-n1tab="painel" onclick="n1.tab('painel')"><div class="item-content">Painel do Laço</div></li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section" id="nav-section-pull">
+                <h3 class="nav-section-header" data-key="n1-pull" onclick="toggleNavSection(this)">
+                    ② REPOSIÇÃO · PULL <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-pulmoes"  data-n1tab="pulmoes"  onclick="n1.tab('pulmoes')"><div class="item-content">Pulmões TOC (DBM)</div></li>
+                    <li id="nav-sugeridas" data-n1tab="sugeridas" onclick="n1.tab('sugeridas')"><div class="item-content">Ordens Sugeridas</div></li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section" id="nav-section-push">
+                <h3 class="nav-section-header" data-key="n1-push" onclick="toggleNavSection(this)">
+                    ② CARTEIRA · PUSH <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-netting" data-n1tab="netting" onclick="n1.tab('netting')"><div class="item-content">Netting MTO</div></li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section" id="nav-section-gate">
+                <h3 class="nav-section-header" data-key="n1-gate" onclick="toggleNavSection(this)">
+                    ③ GATE ÚNICO <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-gargalo" data-n1tab="gargalo" onclick="n1.tab('gargalo')"><div class="item-content">Gargalo (Drum / RCCP)</div></li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section" id="nav-section-aps">
+                <h3 class="nav-section-header" data-key="n1-aps" onclick="toggleNavSection(this)">
+                    ④ SEQUÊNCIA · APS <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-fila" data-n1tab="fila" onclick="n1.tab('fila')"><div class="item-content">Fila da Máquina</div></li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section" id="nav-section-chao">
+                <h3 class="nav-section-header" data-key="n1-chao" onclick="toggleNavSection(this)">
+                    ⑤ CHÃO · PWA <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-pwa"   data-n1tab="pwa"   onclick="n1.tab('pwa')"><div class="item-content">Fila com Cor (PWA)</div></li>
+                    <li id="nav-apont" data-n1tab="apont" onclick="n1.tab('apont')"><div class="item-content">Apontamento</div></li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section" id="nav-section-fech">
+                <h3 class="nav-section-header" data-key="n1-fech" onclick="toggleNavSection(this)">
+                    ⑥ FECHAMENTO <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-kpi"    data-n1tab="kpi"    onclick="n1.tab('kpi')"><div class="item-content">KPIs Diários</div></li>
+                    <li id="nav-dbm"    data-n1tab="dbm"    onclick="n1.tab('dbm')"><div class="item-content">Ajustes de Pulmão (DBM)</div></li>
+                    <li id="nav-tempos" data-n1tab="tempos" onclick="n1.tab('tempos')"><div class="item-content">Tempos Reais</div></li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section" id="nav-section-sop">
+                <h3 class="nav-section-header" data-key="n1-sop" onclick="toggleNavSection(this)">
+                    ⑦ S&OP LEVE <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-politica" data-n1tab="politica" onclick="n1.tab('politica')"><div class="item-content">Política (Trilho PULL/PUSH)</div></li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section" id="nav-section-mestres">
+                <h3 class="nav-section-header" data-key="n1-mestres" onclick="toggleNavSection(this)">
+                    ⓪ DADOS MESTRES · F0 <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-roteiros" data-n1tab="roteiros" onclick="n1.tab('roteiros')"><div class="item-content">Roteiros</div></li>
+                    <li id="nav-tcad"     data-n1tab="tcad"     onclick="n1.tab('tcad')"><div class="item-content">Tempos-padrão</div></li>
+                    <li id="nav-setup"    data-n1tab="setup"    onclick="n1.tab('setup')"><div class="item-content">Setup Matrix</div></li>
+                    <li id="nav-bom"      data-n1tab="bom"      onclick="n1.tab('bom')"><div class="item-content">BOM</div></li>
+                </ul>
+            </nav>
+
+            <nav class="nav-section" id="nav-section-links">
+                <h3 class="nav-section-header" data-key="n1-links" onclick="toggleNavSection(this)">
+                    OUTROS SISTEMAS <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li onclick="location.href='/index.html'"><div class="item-content">↗ SIGS / Gestão Stoll</div></li>
+                    <li onclick="location.href='/aps.html'"><div class="item-content">↗ APS</div></li>
+                    <li onclick="location.href='/mes.html'"><div class="item-content">↗ MES Malha Forte</div></li>
+                </ul>
+            </nav>
+        </div>
+
+        <div class="sidebar-bottom">
+            <div class="user-profile">
+                <div class="avatar">N1</div>
+                <div class="user-info">
+                    <span class="name" id="n1-user-nome">—</span>
+                    <span class="role">Planejador</span>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ── Conteúdo N1Tech ── -->
+    <main class="content" id="view-n1" style="display:none;flex-direction:column;gap:18px;padding:28px 32px;overflow-y:auto;">
+        <header class="page-header">
+            <div class="page-header-text">
+                <h1 class="page-title">N1Tech — <span>Planejamento &amp; Sequenciamento</span></h1>
+                <p class="page-subtitle">Reposição puxada (TOC/DBM) · Carteira empurrada · Gate único · Realizado corrige o plano</p>
+            </div>
+            <div class="page-header-actions" style="display:flex;align-items:center;gap:12px;">
+                <span id="n1-fase" style="font-size:.72rem;font-weight:700;padding:4px 10px;border-radius:6px;background:#7c4dff22;color:#b39dff;border:1px solid #7c4dff55;">Fase: shell</span>
+                <span id="n1-user" style="font-size:.78rem;color:var(--text-dim);"></span>
+                <button class="btn secondary" onclick="n1.sair()" style="font-size:.78rem;">Sair</button>
+            </div>
+        </header>
+
+        <div id="n1-pan-painel"    style="display:none;"></div>
+        <div id="n1-pan-pulmoes"   style="display:none;"></div>
+        <div id="n1-pan-sugeridas" style="display:none;"></div>
+        <div id="n1-pan-netting"   style="display:none;"></div>
+        <div id="n1-pan-gargalo"   style="display:none;"></div>
+        <div id="n1-pan-fila"      style="display:none;"></div>
+        <div id="n1-pan-pwa"       style="display:none;"></div>
+        <div id="n1-pan-apont"     style="display:none;"></div>
+        <div id="n1-pan-kpi"       style="display:none;"></div>
+        <div id="n1-pan-dbm"       style="display:none;"></div>
+        <div id="n1-pan-tempos"    style="display:none;"></div>
+        <div id="n1-pan-politica"  style="display:none;"></div>
+        <div id="n1-pan-roteiros"  style="display:none;"></div>
+        <div id="n1-pan-tcad"      style="display:none;"></div>
+        <div id="n1-pan-setup"     style="display:none;"></div>
+        <div id="n1-pan-bom"       style="display:none;"></div>
+    </main>
+
+    <style>
+        .n1-input{width:100%;padding:9px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.84rem;box-sizing:border-box;}
+        .n1-label{font-size:.7rem;color:var(--text-dim);display:block;margin-bottom:4px;letter-spacing:.05em;}
+        .n1-th{padding:9px 12px;text-align:left;color:var(--text-dim);font-size:.68rem;letter-spacing:.06em;border-bottom:2px solid var(--border-color);}
+        .n1-td{padding:8px 12px;font-size:.82rem;border-bottom:1px solid rgba(255,255,255,.04);}
+        .btn{min-height:44px;}
+    </style>
+
+    <script src="n1tech.js"></script>
+</body>
+</html>
