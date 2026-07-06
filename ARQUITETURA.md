@@ -26,3 +26,23 @@ capacidade mora em UM sistema (o dono natural pela camada ISA-95/MESA-11). Sem r
 
 ## Homônimos (não são conflito — só nome)
 - **"Kanban"**: APS = reposição MTS (cria OP). MES = board de WIP (fluxo). Coisas diferentes.
+
+## N1Tech — 4º sistema (2026-07-06)
+**Planejamento & Sequenciamento (PP + TOC-pull + APS)**, `n1tech.html`/`n1tech.js`, API `/api/n1/*`.
+**Decisão do dono: N1Tech é a EVOLUÇÃO do APS** — tabelas de fluxo próprias do spec
+(venda_movimento, estoque_posicao, politica_item, parametro_reposicao, ordem_sugerida,
+fila_maquina, kpi_diario, tempo_real_roteiro, roteamento_staging, previsao_familia,
+carga_gargalo, bom); o ledger é o `op_state_log` COMPARTILHADO (reforçado append-only
+por trigger); dados mestres (produto/roteiro/tempo_padrao/setup_matrix) só LIDOS.
+O APS será aposentado quando o N1Tech alcançar paridade (gate/governança de OP ainda
+moram no APS). Princípios do spec: comunicação por tabela; 1 SKU = 1 trilho (PULL/PUSH);
+séries com zeros; duas frequências (job diário × varredura 15min); PWA não calcula.
+Fases: F0 auditoria ✓ · F1 laço PULL ✓ (ETL→motor→varredura→aprovar c/ check-fio→OP
+n1pull→fila versionada→fechamento DBM) · F2 planejamento ✓ (ABC-XYZ+histerese 2 ciclos,
+homologação S&OP c/ hist, EWMA α=0,1+MAPE por família, netting PUSH por folga, gate
+Drum ≤90% — desligado sem tempo-padrão) · F3 (Preactor solver plugável) SÓ após
+aderência >85%. Agendador no server: varredura 15min · diário 05:00 · fechamento 23:30 ·
+roteamento dia 01 06:00 (America/Sao_Paulo, self-call com token de sistema, lock por job).
+Dívidas documentadas: ABC por volume (vendas.valor zerado), sem dessazonalização,
+netting não cria ordem (não há tabela de pedidos firmes), gate Drum inerte até
+cronoanálise (F0 de dado, não de código).

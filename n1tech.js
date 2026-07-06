@@ -546,9 +546,17 @@ const n1 = {
             ${seta}
             ${bloco('⑦','S&OP Leve (mensal)','Homologa politica_item (trilho PULL/PUSH por ABC-XYZ). Imutável entre ciclos. Recebe os KPIs de volta.','F2',[['politica','Política (Trilho)']])}
         </div>
-        <div class="summary-card" style="margin-top:16px;">
-            <div class="s-label" style="margin-bottom:6px;">⚠ DECISÃO DE ARQUITETURA PENDENTE</div>
-            <p style="font-size:.78rem;color:var(--text-dim);">O spec do N1Tech recria peças que já existem no APS/SIGS/MES (ledger, sequência, kanban/pulmão, TOC, heijunka). Antes das migrations (F0/F1) é preciso decidir se o N1Tech <strong>reusa</strong> as tabelas existentes ou cria as suas <strong>próprias</strong> (spec ao pé da letra). Ver conversa.</p>
+        <div class="summary-card" style="margin-top:16px;border-left:3px solid #26a69a;">
+            <div class="s-label" style="margin-bottom:6px;">⏰ AUTOMAÇÃO — o laço roda sozinho (America/São_Paulo)</div>
+            <p style="font-size:.78rem;color:var(--text-dim);">
+                <strong>Varredura do gatilho</strong> a cada 15 min · <strong>ETL + motor diário</strong> às 05:00 ·
+                <strong>Fechamento (DBM + KPIs)</strong> às 23:30 · <strong>Roteamento + previsão</strong> todo dia 01 às 06:00.
+                Os botões nas telas continuam funcionando para rodar na hora. Cada job tem trava (não roda 2× ao mesmo tempo).
+            </p>
+        </div>
+        <div class="summary-card" style="margin-top:12px;">
+            <div class="s-label" style="margin-bottom:6px;">DECISÃO DE ARQUITETURA (registrada)</div>
+            <p style="font-size:.78rem;color:var(--text-dim);">N1Tech é a <strong>evolução do APS</strong>: tabelas de fluxo próprias do spec; o ledger é o <code>op_state_log</code> compartilhado (append-only por trigger); dados mestres (roteiro/tempo/setup/BOM) só lidos. O APS será aposentado quando o N1Tech alcançar paridade.</p>
         </div>`;
     },
 

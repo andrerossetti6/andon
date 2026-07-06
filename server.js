@@ -4518,4 +4518,29 @@ app.listen(PORT, () => {
             .then(() => console.log(`[keep-alive] ping OK`))
             .catch(e => console.log(`[keep-alive] ping falhou: ${e.message}`));
     }, 10 * 60 * 1000);
+
+    // ── N1TECH — AGENDADOR (spec §2.6: duas frequências; §7: lock por job) ────
+    // Roda os jobs do laço sozinho, via self-call HTTP com token de sistema
+    // (mesma porta de entrada dos botões — nenhuma lógica duplicada). Cada job
+    // já tem lock (n1Lock) e degrada com 503 se as tabelas não existirem.
+    const n1Token = () => jwt.sign({ id: 'n1-agendador', email: 'sistema@n1', nome: 'Agendador N1', perfil: 'sistema' }, process.env.JWT_SECRET, { expiresIn: '10m' });
+    const n1Job = (nome, metodo, rota, body) => fetch(`${selfUrl}${rota}`, {
+        method: metodo, headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + n1Token() },
+        body: body ? JSON.stringify(body) : '{}',
+    }).then(r => r.json().then(j => console.log(`[n1:${nome}]`, r.status, JSON.stringify(j).slice(0, 180))))
+      .catch(e => console.log(`[n1:${nome}] falhou:`, e.message));
+    const n1HoraSP = () => { const p = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', day: '2-digit' }).formatToParts(new Date()); const g = t => p.find(x => x.type === t)?.value; return { hm: `${g('hour')}:${g('minute')}`, dia: g('day') }; };
+    let n1UltimoDiario = '', n1UltimoFech = '', n1UltimoRot = '';
+    // varredura do gatilho: a cada 15 min (leve — posição vs zona)
+    setInterval(() => n1Job('varredura', 'POST', '/api/n1/varredura'), 15 * 60 * 1000);
+    // relógio por minuto: diário 05:00 (ETL→motor), fechamento 23:30, roteamento dia 01 06:00
+    setInterval(async () => {
+        const { hm, dia } = n1HoraSP(); const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+        if (hm === '05:00' && n1UltimoDiario !== hoje) { n1UltimoDiario = hoje;
+            await n1Job('etl', 'POST', '/api/n1/etl/sync'); await n1Job('motor', 'POST', '/api/n1/motor/diario'); await n1Job('varredura', 'POST', '/api/n1/varredura'); }
+        if (hm === '23:30' && n1UltimoFech !== hoje) { n1UltimoFech = hoje; await n1Job('fechamento', 'POST', '/api/n1/fechamento'); }
+        if (dia === '01' && hm === '06:00' && n1UltimoRot !== hoje) { n1UltimoRot = hoje;
+            await n1Job('roteamento', 'POST', '/api/n1/roteamento/rodar'); await n1Job('previsao', 'POST', '/api/n1/previsao/rodar'); }
+    }, 60 * 1000);
+    console.log('⏰ N1Tech agendado: varredura 15min · diário 05:00 · fechamento 23:30 · roteamento dia 01 06:00 (America/Sao_Paulo)');
 });
