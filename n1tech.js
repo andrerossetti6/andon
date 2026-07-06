@@ -117,9 +117,206 @@ const n1 = {
             const pan = $('n1-pan-' + t); if (pan) pan.style.display = t === nome ? 'block' : 'none';
         });
         document.querySelectorAll('[data-n1tab]').forEach(li => li.classList.toggle('active', li.dataset.n1tab === nome));
-        const R = { painel:'_renderPainel', roteiros:'_renderRoteiros', tcad:'_renderTempos', setup:'_renderSetup', bom:'_renderBom' };
+        const R = { painel:'_renderPainel', roteiros:'_renderRoteiros', tcad:'_renderTempos', setup:'_renderSetup', bom:'_renderBom',
+            pulmoes:'_renderPulmoes', sugeridas:'_renderSugeridas', fila:'_renderFila', pwa:'_renderPwa', kpi:'_renderKpi', dbm:'_renderDbm', politica:'_renderPolitica' };
         if (R[nome]) this[R[nome]]();
         else this._placeholder(nome);
+    },
+
+    // ═══ F1 — AÇÕES DO LAÇO (ETL → motor → varredura → sequenciar → fechamento) ═
+    async _acao(nome, url, body, depois) {
+        toast(nome + '…', 'aviso');
+        const r = await api.post(url, body || {});
+        if (!r?.ok) return toast(r?.erro || `Erro em ${nome}.`, 'erro');
+        toast(`✓ ${nome}: ${Object.entries(r).filter(([k, v]) => k !== 'ok' && k !== 'avisos' && typeof v !== 'object').map(([k, v]) => `${k} ${v}`).join(' · ')}`);
+        (r.avisos || []).forEach(a => setTimeout(() => toast('⚠ ' + a, 'aviso'), 1500));
+        if (depois) this.tab(depois);
+    },
+    _f1Falta(el, extra) {
+        el.innerHTML = `<div class="summary-card" style="border-left:3px solid #ffab76;">
+            <div class="s-label" style="margin-bottom:6px;">F1 ainda não inicializado</div>
+            <p style="font-size:.82rem;color:#ffab76;">Rode <code>n1_f1.sql</code> no Supabase (SQL Editor) para criar as tabelas do laço (venda_movimento, estoque_posicao, parametro_reposicao, ordem_sugerida, fila_maquina, kpi_diario…).</p>
+            ${extra ? `<p style="font-size:.76rem;color:var(--text-dim);margin-top:6px;">${extra}</p>` : ''}</div>`;
+    },
+    async _getOu503(url, el, extra) {
+        const r = await fetch(url, { headers: api._h() });
+        if (r.status === 503) { this._f1Falta(el, extra); return null; }
+        if (r.status === 401) { n1._expirou(); return null; }
+        return r.ok ? r.json().catch(() => null) : null;
+    },
+
+    // ── ② Pulmões TOC — posição vs 3 zonas ──
+    async _renderPulmoes() {
+        const el = $('n1-pan-pulmoes'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando pulmões…</div>';
+        const d = await this._getOu503('/api/n1/pulmoes', el); if (!d) return;
+        const CORES = { PRETO:'#e0e0e0', VERMELHO:'#f06292', AMARELO:'#ffca28', VERDE:'#26a69a', SEM_PULMAO:'#8b949e' };
+        const r = d.resumo || {};
+        const kpi = (v, lb, cr) => `<div style="flex:1;min-width:100px;"><div style="font-size:1.5rem;font-weight:800;color:${cr};">${fmt(v)}</div><div style="font-size:.62rem;color:var(--text-dim);">${lb}</div></div>`;
+        const linhas = (d.itens || []).slice(0, 300).map(i => {
+            const cor = CORES[i.cor] || '#8b949e';
+            const pen = i.penetracao_pct != null ? i.penetracao_pct : 0;
+            return `<tr>
+                <td class="n1-td" style="font-weight:700;color:var(--indigo-primary);">${esc(i.codigo)}</td>
+                <td class="n1-td"><span style="font-size:.66rem;font-weight:700;padding:1px 8px;border-radius:5px;background:${cor}22;color:${cor};border:1px solid ${cor}55;">${i.cor === 'SEM_PULMAO' ? 'sem pulmão' : i.cor}</span></td>
+                <td class="n1-td" style="min-width:140px;"><div style="height:8px;background:var(--bg-input);border-radius:4px;overflow:hidden;"><div style="width:${Math.min(100, pen)}%;height:100%;background:${cor};"></div></div></td>
+                <td class="n1-td" style="text-align:right;">${fmt(i.posicao)}</td>
+                <td class="n1-td" style="text-align:right;color:var(--text-dim);">${fmt(i.disponivel)} + ${fmt(i.wip)} wip</td>
+                <td class="n1-td" style="text-align:right;font-weight:700;">${fmt(i.pulmao)}</td>
+                <td class="n1-td" style="text-align:right;color:var(--text-dim);">${fmt1(i.mu_mensal)}/mês</td>
+                <td class="n1-td" style="text-align:right;color:var(--text-dim);">${i.lt_dias}d</td>
+            </tr>`; }).join('');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+            ${kpi(r.preto || 0, 'PRETO (ruptura)', CORES.PRETO)}${kpi(r.vermelho || 0, 'VERMELHO', CORES.VERMELHO)}${kpi(r.amarelo || 0, 'AMARELO', CORES.AMARELO)}${kpi(r.verde || 0, 'VERDE', CORES.VERDE)}
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <button class="btn secondary" style="font-size:.72rem;" onclick="n1._acao('ETL','/api/n1/etl/sync',null,'pulmoes')">① Sincronizar ETL</button>
+                <button class="btn secondary" style="font-size:.72rem;" onclick="n1._acao('Motor diário','/api/n1/motor/diario',{},'pulmoes')">② Motor diário (μ/σ + pulmão)</button>
+                <button class="btn primary" style="font-size:.72rem;" onclick="n1._acao('Varredura','/api/n1/varredura',null,'sugeridas')">② Varredura → gera sugeridas</button>
+            </div>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:58vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th">SKU</th><th class="n1-th">ZONA</th><th class="n1-th">PENETRAÇÃO</th><th class="n1-th" style="text-align:right;">POSIÇÃO</th><th class="n1-th" style="text-align:right;">DISP+WIP</th><th class="n1-th" style="text-align:right;">PULMÃO</th><th class="n1-th" style="text-align:right;">μ</th><th class="n1-th" style="text-align:right;">LT</th></tr></thead>
+            <tbody>${linhas || '<tr><td class="n1-td" colspan="8" style="text-align:center;color:var(--text-dim);padding:20px;">Nenhum pulmão — rode ① ETL e ② Motor diário.</td></tr>'}</tbody></table></div>
+            <div style="padding:8px 14px;font-size:.7rem;color:var(--text-dim);border-top:1px solid var(--border-color);">posição = disponível − reservado + WIP · pulmão de 3 zonas iguais · penetração 0% = pulmão cheio</div></div>`;
+    },
+
+    // ── ② Ordens sugeridas → ③ aprovar (check fio) vira OP n1pull ──
+    async _renderSugeridas() {
+        const el = $('n1-pan-sugeridas'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando sugeridas…</div>';
+        const d = await this._getOu503('/api/n1/sugeridas?status=PENDENTE', el); if (!d) return;
+        const CORES = { PRETO:'#e0e0e0', VERMELHO:'#f06292', AMARELO:'#ffca28' };
+        const linhas = (d || []).map(s => `<tr>
+            <td class="n1-td" style="font-weight:800;color:${Number(s.prioridade) >= 70 ? '#f06292' : '#ffca28'};">${fmt1(s.prioridade)}</td>
+            <td class="n1-td" style="font-weight:700;color:var(--indigo-primary);">${esc(s.codigo)}</td>
+            <td class="n1-td"><span style="font-size:.66rem;font-weight:700;padding:1px 8px;border-radius:5px;background:${CORES[s.zona_origem]}22;color:${CORES[s.zona_origem]};border:1px solid ${CORES[s.zona_origem]}55;">${esc(s.zona_origem)}</span></td>
+            <td class="n1-td" style="text-align:right;font-weight:700;">${fmt(s.qtd)}</td>
+            <td class="n1-td" style="color:var(--text-dim);font-size:.74rem;">${esc(s.motivo || '')}</td>
+            <td class="n1-td"><button class="btn primary" style="font-size:.7rem;min-height:auto;padding:5px 12px;" onclick="n1._aprovar('${escJS(s.id)}')">✓ Aprovar → OP</button></td>
+        </tr>`).join('');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;border-left:3px solid #7c4dff;">
+            <div class="s-label" style="margin-bottom:4px;">② → ③ ORDENS SUGERIDAS (prio 0–100, geradas pela varredura)</div>
+            <p style="font-size:.76rem;color:var(--text-dim);"><strong>${(d || []).length}</strong> pendente(s). Aprovar roda o <strong>check de fio</strong> (BOM × estoque) e cria a OP (origem <code>n1pull</code>, nasce planejada, no ledger). O gate de capacidade (Drum ≤90%) entra no F2.</p>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:58vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th">PRIO</th><th class="n1-th">SKU</th><th class="n1-th">ZONA</th><th class="n1-th" style="text-align:right;">QTD (enche pulmão)</th><th class="n1-th">MOTIVO</th><th class="n1-th"></th></tr></thead>
+            <tbody>${linhas || '<tr><td class="n1-td" colspan="6" style="text-align:center;color:var(--text-dim);padding:20px;">Nenhuma pendente — rode a Varredura em Pulmões.</td></tr>'}</tbody></table></div></div>`;
+    },
+    async _aprovar(id) {
+        if (!confirm('Aprovar esta reposição?\n\nRoda o check de fio (BOM × estoque) e cria a OP no ledger (origem n1pull).')) return;
+        const r = await api.post(`/api/n1/sugeridas/${id}/aprovar`, {});
+        if (!r?.ok) return toast(r?.erro || 'Erro ao aprovar.', 'erro');
+        toast(`✓ OP ${r.op?.numero} criada (planejada — libere pelo gate do APS).`);
+        (r.avisos || []).forEach(a => setTimeout(() => toast('⚠ ' + a, 'aviso'), 1500));
+        this._renderSugeridas();
+    },
+
+    // ── ④ Fila da máquina (versionada) ──
+    async _renderFila() {
+        const el = $('n1-pan-fila'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando fila…</div>';
+        const d = await this._getOu503('/api/n1/fila', el); if (!d) return;
+        const CORES = { PRETO:'#e0e0e0', VERMELHO:'#f06292', AMARELO:'#ffca28', VERDE:'#26a69a' };
+        const linhas = (d.itens || []).map(i => `<tr>
+            <td class="n1-td" style="text-align:center;font-weight:800;color:var(--text-dim);">${i.posicao}</td>
+            <td class="n1-td" style="font-weight:700;color:var(--indigo-primary);">${esc(i.numero || '')}</td>
+            <td class="n1-td">${esc(i.codigo || '')}</td>
+            <td class="n1-td" style="text-align:right;">${fmt(i.qtd)}</td>
+            <td class="n1-td">${i.cor_pulmao ? `<span style="font-size:.66rem;font-weight:700;padding:1px 8px;border-radius:5px;background:${CORES[i.cor_pulmao]}22;color:${CORES[i.cor_pulmao]};border:1px solid ${CORES[i.cor_pulmao]}55;">${i.cor_pulmao}</span>` : '<span style="color:var(--text-dim);font-size:.7rem;">—</span>'}</td>
+        </tr>`).join('');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <div style="flex:1;"><div class="s-label" style="margin:0 0 4px;">④ FILA DA MÁQUINA ${d.versao ? `· versão ${d.versao}` : ''}</div>
+            <p style="font-size:.74rem;color:var(--text-dim);margin:0;">Prioridade DESC, cega à origem (pull e push na mesma régua). Versionada — o PWA consome a última.</p></div>
+            <button class="btn primary" style="font-size:.74rem;" onclick="n1._acao('Sequenciar','/api/n1/sequenciar',null,'fila')">🧮 Sequenciar (nova versão)</button>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:58vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th" style="text-align:center;">#</th><th class="n1-th">OP</th><th class="n1-th">SKU</th><th class="n1-th" style="text-align:right;">QTD</th><th class="n1-th">COR DO PULMÃO</th></tr></thead>
+            <tbody>${linhas || '<tr><td class="n1-td" colspan="5" style="text-align:center;color:var(--text-dim);padding:20px;">Sem fila — sequencie (precisa de OPs liberadas).</td></tr>'}</tbody></table></div></div>`;
+    },
+
+    // ── ⑤ PWA (operador): mesma fila, cartões grandes ──
+    async _renderPwa() {
+        const el = $('n1-pan-pwa'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando…</div>';
+        const d = await this._getOu503('/api/n1/fila', el); if (!d) return;
+        const CORES = { PRETO:'#e0e0e0', VERMELHO:'#f06292', AMARELO:'#ffca28', VERDE:'#26a69a' };
+        const cards = (d.itens || []).slice(0, 30).map(i => { const cor = CORES[i.cor_pulmao] || '#8b949e';
+            return `<div style="border:1px solid ${cor}55;border-left:6px solid ${cor};border-radius:10px;padding:14px 16px;background:var(--bg-card);display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                <div><div style="font-size:1.05rem;font-weight:800;">${i.posicao}º · ${esc(i.numero || '')}</div>
+                <div style="font-size:.78rem;color:var(--text-dim);">${esc(i.codigo || '')} · ${fmt(i.qtd)} pç</div></div>
+                <div style="font-size:.7rem;font-weight:800;color:${cor};">${i.cor_pulmao || ''}</div>
+            </div>`; }).join('');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;">
+            <div class="s-label" style="margin:0 0 4px;">⑤ FILA COM COR — visão do operador ${d.versao ? `· v${d.versao}` : ''}</div>
+            <p style="font-size:.74rem;color:var(--text-dim);margin:0;">O PWA não calcula (§2.8) — consome a última versão. O apontamento continua no MES (captura única).
+            <a href="/mes.html" style="color:#7c4dff;">Abrir MES → Apontamento</a></p>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;max-width:680px;">${cards || '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Sem fila publicada.</div>'}</div>`;
+    },
+
+    // ── ⑥ KPIs ──
+    async _renderKpi() {
+        const el = $('n1-pan-kpi'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando KPIs…</div>';
+        const d = await this._getOu503('/api/n1/kpis', el); if (!d) return;
+        const linhas = (d || []).map(k => `<tr>
+            <td class="n1-td" style="font-weight:700;">${fmtData(k.dia)}</td>
+            <td class="n1-td" style="text-align:right;color:${k.rupturas ? '#f06292' : '#26a69a'};font-weight:700;">${k.rupturas ?? '—'}</td>
+            <td class="n1-td" style="text-align:right;">${k.penetracao_media != null ? fmt1(k.penetracao_media) + '%' : '—'}</td>
+            <td class="n1-td" style="text-align:right;">${k.aderencia_pct != null ? fmt1(k.aderencia_pct) + '%' : '—'}</td>
+            <td class="n1-td" style="text-align:right;">${k.latencia_apont_min != null ? fmt1(k.latencia_apont_min) + ' min' : '—'}</td>
+            <td class="n1-td" style="color:var(--text-dim);font-size:.72rem;">${esc(JSON.stringify(k.detalhe || {}))}</td>
+        </tr>`).join('');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <div style="flex:1;"><div class="s-label" style="margin:0 0 4px;">⑥ KPIs DIÁRIOS (fechamento noturno)</div>
+            <p style="font-size:.74rem;color:var(--text-dim);margin:0;">Rupturas · penetração média dos pulmões · aderência (quando a fila for usada) · latência de apontamento. Alimentam o S&OP (⑦).</p></div>
+            <button class="btn primary" style="font-size:.74rem;" onclick="n1._acao('Fechamento','/api/n1/fechamento',null,'kpi')">🌙 Rodar fechamento agora</button>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:58vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th">DIA</th><th class="n1-th" style="text-align:right;">RUPTURAS</th><th class="n1-th" style="text-align:right;">PENETRAÇÃO MÉDIA</th><th class="n1-th" style="text-align:right;">ADERÊNCIA</th><th class="n1-th" style="text-align:right;">LATÊNCIA APONT.</th><th class="n1-th">DETALHE</th></tr></thead>
+            <tbody>${linhas || '<tr><td class="n1-td" colspan="6" style="text-align:center;color:var(--text-dim);padding:20px;">Nenhum fechamento rodado ainda.</td></tr>'}</tbody></table></div></div>`;
+    },
+
+    // ── ⑥ DBM — contadores e ajustes de pulmão ──
+    async _renderDbm() {
+        const el = $('n1-pan-dbm'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando DBM…</div>';
+        const d = await this._getOu503('/api/n1/pulmoes', el); if (!d) return;
+        const comMov = (d.itens || []).filter(i => i.dias_vermelho > 0 || i.dias_verde > 0 || i.ultimo_ajuste_em);
+        const linhas = comMov.map(i => `<tr>
+            <td class="n1-td" style="font-weight:700;color:var(--indigo-primary);">${esc(i.codigo)}</td>
+            <td class="n1-td" style="text-align:right;color:${i.dias_vermelho >= 3 ? '#f06292' : 'var(--text-dim)'};font-weight:${i.dias_vermelho >= 3 ? 800 : 400};">${i.dias_vermelho}</td>
+            <td class="n1-td" style="text-align:right;color:var(--text-dim);">${i.dias_verde}</td>
+            <td class="n1-td" style="text-align:right;font-weight:700;">${fmt(i.pulmao)}</td>
+            <td class="n1-td" style="color:var(--text-dim);">${i.ultimo_ajuste_em ? fmtData(i.ultimo_ajuste_em) : 'nunca'}</td>
+        </tr>`).join('');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;border-left:3px solid #26c6da;">
+            <div class="s-label" style="margin-bottom:4px;">⑥ DBM — Dynamic Buffer Management</div>
+            <p style="font-size:.76rem;color:var(--text-dim);">Regra: <strong>×1,33</strong> se ≥5 dias consecutivos no vermelho · <strong>×0,67</strong> se ≥2×LT no verde · máx 1 ajuste por LT. Os contadores andam a cada fechamento noturno. ${comMov.length} SKU(s) com contador ativo.</p>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:56vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th">SKU</th><th class="n1-th" style="text-align:right;">DIAS VERMELHO</th><th class="n1-th" style="text-align:right;">DIAS VERDE</th><th class="n1-th" style="text-align:right;">PULMÃO</th><th class="n1-th">ÚLTIMO AJUSTE</th></tr></thead>
+            <tbody>${linhas || '<tr><td class="n1-td" colspan="5" style="text-align:center;color:var(--text-dim);padding:20px;">Nenhum contador ativo — os contadores andam com o fechamento noturno.</td></tr>'}</tbody></table></div></div>`;
+    },
+
+    // ── ⑦ Política (trilho) ──
+    async _renderPolitica() {
+        const el = $('n1-pan-politica'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando política…</div>';
+        const d = await this._getOu503('/api/n1/politica', el); if (!d) return;
+        const linhas = (d.itens || []).map(p => `<tr>
+            <td class="n1-td" style="font-weight:700;color:var(--indigo-primary);">${esc(p.codigo)}</td>
+            <td class="n1-td"><span style="font-size:.68rem;font-weight:700;padding:1px 8px;border-radius:5px;background:${p.trilho === 'PULL' ? '#26a69a22' : '#26c6da22'};color:${p.trilho === 'PULL' ? '#26a69a' : '#26c6da'};">${esc(p.trilho)}</span></td>
+            <td class="n1-td" style="color:var(--text-dim);">${esc(p.origem)}</td>
+            <td class="n1-td" style="color:var(--text-dim);font-size:.74rem;">${esc(p.motivo || '')}</td>
+        </tr>`).join('');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;border-left:3px solid #7c4dff;">
+            <div class="s-label" style="margin-bottom:4px;">⑦ POLÍTICA — trilho PULL/PUSH (única fonte de verdade)</div>
+            <p style="font-size:.76rem;color:var(--text-dim);">${esc(d.regra_f1 || '')}</p>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:58vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th">SKU</th><th class="n1-th">TRILHO</th><th class="n1-th">ORIGEM</th><th class="n1-th">MOTIVO</th></tr></thead>
+            <tbody>${linhas || '<tr><td class="n1-td" colspan="4" style="text-align:center;color:var(--text-dim);padding:20px;">Nenhuma exceção cadastrada — todos os SKUs seguem o default F1 (PULL). O roteamento ABC-XYZ entra no F2.</td></tr>'}</tbody></table></div></div>`;
     },
 
     // ═══ F0 — DADOS MESTRES (auditoria read-only p/ o gate F0→F1) ═══════════

@@ -2119,6 +2119,326 @@ app.post('/api/n1/bom', auth, sigsEscrita, async (req, res) => {
     res.json({ ok: true, bom: r.data });
 });
 
+// ══════════════════ N1 · F1 — LAÇO MÍNIMO (PULL) ═════════════════════════════
+// Comunicação por TABELA (spec §2.1): ETL → venda_movimento/estoque_posicao;
+// motor → parametro_reposicao/ordem_sugerida; APS → fila_maquina; fechamento →
+// kpi_diario/tempo_real_roteiro/DBM. Degrada com 503+instrução até n1_f1.sql.
+const N1_F1_503 = 'Tabelas do F1 não existem — rode n1_f1.sql no Supabase (SQL Editor).';
+const n1ErroTabela = e => e && /schema cache|does not exist|relation/i.test(e.message || '');
+const N1_MESES = { jan:1, fev:2, mar:3, abr:4, mai:5, jun:6, jul:7, ago:8, set:9, out:10, nov:11, dez:12 };
+// lock simples por job (spec §7: job não roda 2× concorrente)
+const n1Locks = {};
+function n1Lock(nome) { if (n1Locks[nome]) return false; n1Locks[nome] = Date.now(); return true; }
+function n1Unlock(nome) { delete n1Locks[nome]; }
+
+// ── ① ETL: vendas(meses JSONB) → venda_movimento · estoque+WIP → estoque_posicao ─
+app.post('/api/n1/etl/sync', auth, sigsEscrita, async (_req, res) => {
+    if (!n1Lock('etl')) return res.status(409).json({ erro: 'ETL já está rodando.' });
+    try {
+        const avisos = [];
+        // vendas → venda_movimento (série mensal por SKU; a fonte já traz zeros)
+        let vendasRows;
+        try { vendasRows = await fetchAllSelect('vendas', 'codigo,meses'); }
+        catch (e) { return erro500(res, e); }
+        const porMes = {};   // codigo|aaaa-mm-01 → qtd (somada entre importações)
+        for (const v of vendasRows || []) {
+            const cod = String(v.codigo || '').trim().toUpperCase(); if (!cod || !v.meses) continue;
+            for (const [k, q] of Object.entries(v.meses)) {
+                const m = k.match(/^([a-z]{3})_(\d{4})$/); if (!m || !(m[1] in N1_MESES)) continue;  // ignora chave sem ano (ex.: 'mar')
+                const comp = `${m[2]}-${String(N1_MESES[m[1]]).padStart(2, '0')}-01`;
+                const key = cod + '|' + comp;
+                porMes[key] = (porMes[key] || 0) + (Number(q) || 0);
+            }
+        }
+        const vmRows = Object.entries(porMes).map(([k, qtd]) => { const [codigo, competencia] = k.split('|'); return { codigo, competencia, qtd }; });
+        for (let i = 0; i < vmRows.length; i += 500) {
+            const { error } = await supabase.from('venda_movimento').upsert(vmRows.slice(i, i + 500), { onConflict: 'codigo,competencia' });
+            if (n1ErroTabela(error)) return res.status(503).json({ erro: N1_F1_503 });
+            if (error) return erro500(res, error);
+        }
+        // estoque → disponível · OPs ativas → WIP (posição = disp − res + wip é GENERATED)
+        let estRows, opsAtivas, prods;
+        try {
+            [estRows, opsAtivas, prods] = await Promise.all([
+                fetchAllSelect('estoque', 'codigo,quantidade'),
+                fetchAllSelect('ordem_producao', 'produto_id,qtd_planejada,status', q => q.in('status', ['planejada', 'liberada', 'em_producao', 'pausada'])),
+                fetchAllSelect('produto', 'id,codigo'),
+            ]);
+        } catch (e) { return erro500(res, e); }
+        const codDe = {}; (prods || []).forEach(p => { if (p.codigo) codDe[p.id] = String(p.codigo).trim().toUpperCase(); });
+        const wipDe = {}; (opsAtivas || []).forEach(o => { const c = codDe[o.produto_id]; if (c) wipDe[c] = (wipDe[c] || 0) + (Number(o.qtd_planejada) || 0); });
+        const dispDe = {}; (estRows || []).forEach(e => { const c = String(e.codigo || '').trim().toUpperCase(); if (c) dispDe[c] = (dispDe[c] || 0) + (Number(e.quantidade) || 0); });
+        const todos = [...new Set([...Object.keys(dispDe), ...Object.keys(wipDe)])];
+        const epRows = todos.map(c => ({ codigo: c, disponivel: dispDe[c] || 0, reservado: 0, wip: wipDe[c] || 0, atualizado_em: new Date().toISOString() }));
+        for (let i = 0; i < epRows.length; i += 500) {
+            const { error } = await supabase.from('estoque_posicao').upsert(epRows.slice(i, i + 500), { onConflict: 'codigo' });
+            if (n1ErroTabela(error)) return res.status(503).json({ erro: N1_F1_503 });
+            if (error) return erro500(res, error);
+        }
+        if (!vmRows.length) avisos.push('Nenhum movimento de venda com mês/ano reconhecível.');
+        res.json({ ok: true, movimentos: vmRows.length, skus_vendas: new Set(vmRows.map(r => r.codigo)).size, posicoes: epRows.length, com_wip: Object.keys(wipDe).length, avisos });
+    } finally { n1Unlock('etl'); }
+});
+
+// ── ② motor DIÁRIO: μ/σ (série completa com zeros) + pulmão inicial μ×LT (3 zonas) ─
+app.post('/api/n1/motor/diario', auth, sigsEscrita, async (req, res) => {
+    if (!n1Lock('motor')) return res.status(409).json({ erro: 'Motor já está rodando.' });
+    try {
+        const ltDefault = Math.min(Math.max(Number(req.body?.lt_dias) || 30, 1), 180);
+        let vm;
+        try { vm = await fetchAllSelect('venda_movimento', 'codigo,competencia,qtd'); }
+        catch (e) { return n1ErroTabela(e) ? res.status(503).json({ erro: N1_F1_503 }) : erro500(res, e); }
+        if (!vm?.length) return res.json({ ok: true, skus: 0, avisos: ['venda_movimento vazia — rode o ETL primeiro.'] });
+        // trilho: politica_item homologada > provisório (F1: tudo PULL — MTS default; MTO/PUSH entra no F2)
+        const { data: pols } = await supabase.from('politica_item').select('codigo,trilho').eq('ativo', true);
+        const trilhoDe = {}; (pols || []).forEach(p => { trilhoDe[p.codigo] = p.trilho; });
+        // série completa por SKU: do 1º ao último mês GLOBAL (zeros onde não vendeu — princípio §2.7)
+        const comps = [...new Set(vm.map(r => String(r.competencia).slice(0, 7)))].sort();
+        const serieDe = {};
+        vm.forEach(r => { const c = String(r.codigo); (serieDe[c] = serieDe[c] || {})[String(r.competencia).slice(0, 7)] = Number(r.qtd) || 0; });
+        const { data: params } = await supabase.from('parametro_reposicao').select('codigo,pulmao,ultimo_ajuste_em');
+        const pulmaoAtual = {}; (params || []).forEach(p => { pulmaoAtual[p.codigo] = p; });
+        const rows = []; let pushSkip = 0;
+        for (const [codigo, meses] of Object.entries(serieDe)) {
+            if ((trilhoDe[codigo] || 'PULL') === 'PUSH') { pushSkip++; continue; }   // exclusividade de trilho (§2.2)
+            const serie = comps.map(c => meses[c] || 0);                              // zeros incluídos
+            const n = serie.length; if (!n) continue;
+            const mu = serie.reduce((s, v) => s + v, 0) / n;
+            const sigma = Math.sqrt(serie.reduce((s, v) => s + (v - mu) ** 2, 0) / n);
+            const cv = mu > 0 ? sigma / mu : null;
+            const ex = pulmaoAtual[codigo];
+            // pulmão inicial = μ_diária × LT (3 zonas iguais via coluna GENERATED). DBM (⑥) ajusta depois;
+            // o job diário NÃO reescreve pulmão existente (duas frequências, §2.6).
+            const pulmaoIni = Math.ceil((mu / 30) * ltDefault);
+            rows.push({ codigo, mu_mensal: Math.round(mu * 1000) / 1000, sigma_mensal: Math.round(sigma * 1000) / 1000,
+                cv: cv != null ? Math.round(cv * 10000) / 10000 : null, lt_dias: ltDefault,
+                pulmao: ex ? ex.pulmao : pulmaoIni, ativo: true });
+        }
+        for (let i = 0; i < rows.length; i += 500) {
+            const { error } = await supabase.from('parametro_reposicao').upsert(rows.slice(i, i + 500), { onConflict: 'codigo' });
+            if (n1ErroTabela(error)) return res.status(503).json({ erro: N1_F1_503 });
+            if (error) return erro500(res, error);
+        }
+        const comPulmao = rows.filter(r => Number(r.pulmao) > 0).length;
+        res.json({ ok: true, skus: rows.length, com_pulmao: comPulmao, sem_demanda: rows.length - comPulmao, push_ignorados: pushSkip, meses_serie: comps.length, lt_dias: ltDefault });
+    } finally { n1Unlock('motor'); }
+});
+
+// ── ② VARREDURA: posição vs zonas → ordem_sugerida (prio 0–100, spec §5) ─────
+app.post('/api/n1/varredura', auth, sigsEscrita, async (_req, res) => {
+    if (!n1Lock('varredura')) return res.status(409).json({ erro: 'Varredura já está rodando.' });
+    try {
+        let params, poss;
+        try {
+            [params, poss] = await Promise.all([
+                fetchAllSelect('parametro_reposicao', 'codigo,pulmao,zona,dias_vermelho', q => q.eq('ativo', true).gt('pulmao', 0)),
+                fetchAllSelect('estoque_posicao', 'codigo,posicao'),
+            ]);
+        } catch (e) { return n1ErroTabela(e) ? res.status(503).json({ erro: N1_F1_503 }) : erro500(res, e); }
+        const posDe = {}; (poss || []).forEach(p => { posDe[p.codigo] = Number(p.posicao) || 0; });
+        const { data: pendentes } = await supabase.from('ordem_sugerida').select('codigo').eq('status', 'PENDENTE');
+        const jaPend = new Set((pendentes || []).map(x => x.codigo));
+        let geradas = 0, jaExistiam = 0, verdes = 0;
+        for (const p of params || []) {
+            const pos = posDe[p.codigo] ?? 0, pulmao = Number(p.pulmao), zona = pulmao / 3;
+            const pen = Math.max(0, Math.min(1, 1 - pos / pulmao));   // penetração no pulmão (0=cheio, 1=zerado)
+            let zonaCor = null, prio = 0;
+            if (pos <= 0) { zonaCor = 'PRETO'; prio = 95 + 5 * Math.min(1, -pos / (pulmao || 1)); }
+            else if (pos <= zona) { zonaCor = 'VERMELHO'; const pz = 1 - pos / zona; prio = 70 + 25 * pz; }
+            else if (pos <= 2 * zona) { zonaCor = 'AMARELO'; const pz = 1 - (pos - zona) / zona; prio = 35 + 35 * pz; }
+            else { verdes++; continue; }                              // VERDE não gera (§5)
+            if (jaPend.has(p.codigo)) { jaExistiam++; continue; }     // 1 PENDENTE por SKU
+            const { error } = await supabase.from('ordem_sugerida').insert({
+                codigo: p.codigo, qtd: Math.ceil(pulmao - Math.max(0, pos)),  // enche o pulmão
+                prioridade: Math.round(Math.min(100, prio) * 10) / 10, zona_origem: zonaCor,
+                penetracao: Math.round(pen * 10000) / 10000, motivo: `posição ${pos} / pulmão ${pulmao}` });
+            if (error && error.code === '23505') { jaExistiam++; continue; }  // corrida: UNIQUE parcial segurou
+            if (n1ErroTabela(error)) return res.status(503).json({ erro: N1_F1_503 });
+            if (error) return erro500(res, error);
+            geradas++;
+        }
+        res.json({ ok: true, geradas, ja_pendentes: jaExistiam, no_verde: verdes, avaliados: (params || []).length });
+    } finally { n1Unlock('varredura'); }
+});
+
+// ── ② leitura: pulmões com posição/zona/penetração (tela + PWA cor) ──────────
+app.get('/api/n1/pulmoes', auth, async (_req, res) => {
+    let params, poss;
+    try {
+        [params, poss] = await Promise.all([
+            fetchAllSelect('parametro_reposicao', '*', q => q.eq('ativo', true)),
+            fetchAllSelect('estoque_posicao', 'codigo,disponivel,reservado,wip,posicao'),
+        ]);
+    } catch (e) { return n1ErroTabela(e) ? res.status(503).json({ erro: N1_F1_503 }) : erro500(res, e); }
+    const posDe = {}; (poss || []).forEach(p => { posDe[p.codigo] = p; });
+    const itens = (params || []).map(p => {
+        const ep = posDe[p.codigo] || {}; const pos = Number(ep.posicao) || 0, pulmao = Number(p.pulmao) || 0, zona = pulmao / 3;
+        const cor = pulmao <= 0 ? 'SEM_PULMAO' : pos <= 0 ? 'PRETO' : pos <= zona ? 'VERMELHO' : pos <= 2 * zona ? 'AMARELO' : 'VERDE';
+        return { codigo: p.codigo, mu_mensal: p.mu_mensal, sigma_mensal: p.sigma_mensal, cv: p.cv, lt_dias: p.lt_dias,
+            pulmao, disponivel: Number(ep.disponivel) || 0, wip: Number(ep.wip) || 0, posicao: pos, cor,
+            penetracao_pct: pulmao > 0 ? Math.round(Math.max(0, Math.min(1, 1 - pos / pulmao)) * 100) : null,
+            dias_vermelho: p.dias_vermelho, dias_verde: p.dias_verde, ultimo_ajuste_em: p.ultimo_ajuste_em };
+    }).sort((a, b) => (b.penetracao_pct || 0) - (a.penetracao_pct || 0));
+    res.json({ itens, resumo: { total: itens.length,
+        preto: itens.filter(i => i.cor === 'PRETO').length, vermelho: itens.filter(i => i.cor === 'VERMELHO').length,
+        amarelo: itens.filter(i => i.cor === 'AMARELO').length, verde: itens.filter(i => i.cor === 'VERDE').length } });
+});
+
+// ── ② leitura: ordens sugeridas pendentes ────────────────────────────────────
+app.get('/api/n1/sugeridas', auth, async (req, res) => {
+    const st = ['PENDENTE', 'APROVADA', 'REJEITADA', 'CONVERTIDA'].includes(req.query.status) ? req.query.status : 'PENDENTE';
+    const r = await supabase.from('ordem_sugerida').select('*').eq('status', st).order('prioridade', { ascending: false }).limit(500);
+    if (n1ErroTabela(r.error)) return res.status(503).json({ erro: N1_F1_503 });
+    if (r.error) return erro500(res, r.error);
+    res.json(r.data || []);
+});
+
+// ── ③ GATE (F1 parcial): check de fio via BOM × estoque + conversão em OP ────
+// Aprova a sugerida → cria ordem_producao (origem n1pull, nasce planejada, LEDGER)
+// e marca CONVERTIDA. Gate de capacidade (Drum) completo entra no F2.
+app.post('/api/n1/sugeridas/:id/aprovar', auth, sigsEscrita, async (req, res) => {
+    const { data: sug, error: eS } = await supabase.from('ordem_sugerida').select('*').eq('id', req.params.id).maybeSingle();
+    if (n1ErroTabela(eS)) return res.status(503).json({ erro: N1_F1_503 });
+    if (eS) return erro500(res, eS);
+    if (!sug) return res.status(404).json({ erro: 'Sugerida não encontrada.' });
+    if (sug.status !== 'PENDENTE') return res.status(409).json({ erro: `Sugerida já está ${sug.status}.` });
+    const { data: prod } = await supabase.from('produto').select('id,codigo,unidade_medida').ilike('codigo', sug.codigo).maybeSingle();
+    if (!prod) return res.status(422).json({ erro: `Produto ${sug.codigo} não cadastrado.` });
+    // check de fio (parcial): BOM do produto × estoque do material — sem BOM, aviso e segue
+    const avisos = [];
+    const { data: bomRows, error: eB } = await supabase.from('bom').select('material_codigo,qtd_por_unidade,unidade').eq('produto_id', prod.id).eq('ativo', true);
+    if (!eB && bomRows?.length) {
+        const necess = bomRows.map(b => ({ mat: String(b.material_codigo).toUpperCase(), qtd: (Number(b.qtd_por_unidade) || 0) * Number(sug.qtd) }));
+        const { data: estMat } = await supabase.from('estoque_posicao').select('codigo,disponivel').in('codigo', necess.map(x => x.mat));
+        const dispMat = {}; (estMat || []).forEach(e => { dispMat[e.codigo] = Number(e.disponivel) || 0; });
+        const falta = necess.filter(x => (dispMat[x.mat] || 0) < x.qtd);
+        if (falta.length) return res.status(422).json({ erro: `Fio insuficiente: ${falta.map(f => `${f.mat} (precisa ${Math.ceil(f.qtd)}, tem ${Math.floor(dispMat[f.mat] || 0)})`).join(' · ')}`, check_fio: false });
+    } else avisos.push('BOM vazia para o SKU — check de fio desligado (cadastre em Dados Mestres › BOM).');
+    // CAS na sugerida antes de criar a OP (evita corrida de duplo-aprovar)
+    const { data: trava, error: eT } = await supabase.from('ordem_sugerida').update({ status: 'APROVADA' }).eq('id', sug.id).eq('status', 'PENDENTE').select('id').maybeSingle();
+    if (eT) return erro500(res, eT);
+    if (!trava) return res.status(409).json({ erro: 'Sugerida já foi aprovada por outra pessoa.' });
+    const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    const numero = `N1-${sug.codigo}-${hoje.slice(2).replace(/-/g, '')}`;   // determinístico por SKU+dia
+    const prazo = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+    const { data: op, error: eO } = await supabase.from('ordem_producao').insert({
+        numero, produto_id: prod.id, qtd_planejada: Number(sug.qtd), unidade: prod.unidade_medida || 'pc',
+        status: 'planejada', origem: 'n1pull', data_abertura: new Date().toISOString(), data_prevista: prazo,
+        prioridade: Math.min(9, Math.round(Number(sug.prioridade) / 100 * 9)) }).select('id,numero').single();
+    if (eO) {
+        await supabase.from('ordem_sugerida').update({ status: 'PENDENTE' }).eq('id', sug.id);   // desfaz a trava
+        if (eO.code === '23505') return res.status(409).json({ erro: `Já existe OP ${numero} (criada hoje para este SKU).` });
+        return erro500(res, eO);
+    }
+    await apsLog(op.id, null, 'planejada', { origem: 'n1pull', motivo: `Reposição do pulmão (${sug.zona_origem}, prio ${sug.prioridade})`, usuario: req.usuario });
+    await supabase.from('ordem_sugerida').update({ status: 'CONVERTIDA', op_id: op.id }).eq('id', sug.id);
+    res.json({ ok: true, op, avisos });
+});
+
+// ── ④ APS heurístico F1: prio DESC, cego à origem → fila_maquina versionada ──
+app.post('/api/n1/sequenciar', auth, sigsEscrita, async (_req, res) => {
+    if (!n1Lock('seq')) return res.status(409).json({ erro: 'Sequenciamento já está rodando.' });
+    try {
+        // fila = OPs liberadas + em produção (o chão vê o que fazer agora), prio DESC → prazo ASC
+        let ops;
+        try { ops = await fetchAllSelect('ordem_producao', 'id,numero,prioridade,data_prevista,qtd_planejada,status,origem, produto:produto_id(codigo,descricao)', q => q.in('status', ['liberada', 'em_producao'])); }
+        catch (e) { return erro500(res, e); }
+        if (!ops?.length) return res.json({ ok: true, itens: 0, avisos: ['Nenhuma OP liberada/em produção — libere pelo gate do APS.'] });
+        ops.sort((a, b) => (Number(b.prioridade) || 0) - (Number(a.prioridade) || 0) ||
+            String(a.data_prevista || '9999').localeCompare(String(b.data_prevista || '9999')));
+        // cor do pulmão por SKU (Rope: o chão enxerga a urgência da reposição)
+        let corDe = {};
+        try {
+            const [params, poss] = await Promise.all([
+                fetchAllSelect('parametro_reposicao', 'codigo,pulmao', q => q.eq('ativo', true).gt('pulmao', 0)),
+                fetchAllSelect('estoque_posicao', 'codigo,posicao')]);
+            const posDe = {}; (poss || []).forEach(p => { posDe[p.codigo] = Number(p.posicao) || 0; });
+            (params || []).forEach(p => { const pos = posDe[p.codigo] ?? 0, z = Number(p.pulmao) / 3;
+                corDe[p.codigo] = pos <= 0 ? 'PRETO' : pos <= z ? 'VERMELHO' : pos <= 2 * z ? 'AMARELO' : 'VERDE'; });
+        } catch { /* sem tabelas F1 ainda — fila sai sem cor */ }
+        const { data: vMax, error: eV } = await supabase.from('fila_maquina').select('versao').order('versao', { ascending: false }).limit(1).maybeSingle();
+        if (n1ErroTabela(eV)) return res.status(503).json({ erro: N1_F1_503 });
+        const versao = (vMax?.versao || 0) + 1;
+        const rows = ops.map((o, i) => ({ versao, processo: 'geral', posicao: i + 1, op_id: o.id, numero: o.numero,
+            codigo: o.produto?.codigo || null, qtd: Number(o.qtd_planejada) || 0, cor_pulmao: corDe[String(o.produto?.codigo || '').toUpperCase()] || null }));
+        for (let i = 0; i < rows.length; i += 500) {
+            const { error } = await supabase.from('fila_maquina').insert(rows.slice(i, i + 500));
+            if (n1ErroTabela(error)) return res.status(503).json({ erro: N1_F1_503 });
+            if (error) return erro500(res, error);
+        }
+        res.json({ ok: true, versao, itens: rows.length });
+    } finally { n1Unlock('seq'); }
+});
+
+// ── ④/⑤ leitura: última versão da fila (PWA consome, não calcula — §2.8) ────
+app.get('/api/n1/fila', auth, async (_req, res) => {
+    const { data: vMax, error: eV } = await supabase.from('fila_maquina').select('versao').order('versao', { ascending: false }).limit(1).maybeSingle();
+    if (n1ErroTabela(eV)) return res.status(503).json({ erro: N1_F1_503 });
+    if (eV) return erro500(res, eV);
+    if (!vMax) return res.json({ versao: null, itens: [] });
+    const { data, error } = await supabase.from('fila_maquina').select('*').eq('versao', vMax.versao).order('posicao');
+    if (error) return erro500(res, error);
+    res.json({ versao: vMax.versao, itens: data || [] });
+});
+
+// ── ⑥ FECHAMENTO noturno: DBM (contadores + ajuste) + KPIs do dia ────────────
+app.post('/api/n1/fechamento', auth, sigsEscrita, async (_req, res) => {
+    if (!n1Lock('fechamento')) return res.status(409).json({ erro: 'Fechamento já está rodando.' });
+    try {
+        const avisos = [];
+        let params, poss;
+        try {
+            [params, poss] = await Promise.all([
+                fetchAllSelect('parametro_reposicao', '*', q => q.eq('ativo', true).gt('pulmao', 0)),
+                fetchAllSelect('estoque_posicao', 'codigo,posicao')]);
+        } catch (e) { return n1ErroTabela(e) ? res.status(503).json({ erro: N1_F1_503 }) : erro500(res, e); }
+        const posDe = {}; (poss || []).forEach(p => { posDe[p.codigo] = Number(p.posicao) || 0; });
+        let ajustesUp = 0, ajustesDown = 0, rupturas = 0; const pens = [];
+        for (const p of params || []) {
+            const pos = posDe[p.codigo] ?? 0, pulmao = Number(p.pulmao), zona = pulmao / 3;
+            if (pos <= 0) rupturas++;
+            pens.push(Math.max(0, Math.min(1, 1 - pos / pulmao)) * 100);
+            const noVermelho = pos <= zona, noVerde = pos > 2 * zona;
+            const dv = noVermelho ? (p.dias_vermelho || 0) + 1 : 0;
+            const dg = noVerde ? (p.dias_verde || 0) + 1 : 0;
+            const upd = { dias_vermelho: dv, dias_verde: dg };
+            // DBM (spec §3⑥b): ×1,33 se ≥5 dias vermelho · ×0,67 se ≥ 2×LT dias no verde · máx 1 ajuste/LT
+            const podeAjustar = !p.ultimo_ajuste_em || (Date.now() - new Date(p.ultimo_ajuste_em).getTime()) / 86400000 >= (p.lt_dias || 30);
+            if (podeAjustar && dv >= 5) { upd.pulmao = Math.ceil(pulmao * 1.33); upd.dias_vermelho = 0; upd.ultimo_ajuste_em = new Date().toISOString(); ajustesUp++; }
+            else if (podeAjustar && dg >= 2 * (p.lt_dias || 30)) { upd.pulmao = Math.max(1, Math.floor(pulmao * 0.67)); upd.dias_verde = 0; upd.ultimo_ajuste_em = new Date().toISOString(); ajustesDown++; }
+            const { error } = await supabase.from('parametro_reposicao').update(upd).eq('id', p.id);
+            if (error) return erro500(res, error);
+        }
+        // tempo_real_roteiro: precisa de apontamentos com duração — degrada com aviso enquanto não há
+        const { count: nApont } = await supabase.from('apontamento').select('*', { count: 'exact', head: true });
+        if (!nApont) avisos.push('Sem apontamentos — tempo_real_roteiro e latência ficam para quando o chão apontar.');
+        const dia = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+        const kpi = { dia, rupturas, penetracao_media: pens.length ? Math.round(pens.reduce((s, v) => s + v, 0) / pens.length * 10) / 10 : null,
+            aderencia_pct: null, latencia_apont_min: null,
+            detalhe: { pulmoes: (params || []).length, ajustes_up: ajustesUp, ajustes_down: ajustesDown } };
+        const { error: eK } = await supabase.from('kpi_diario').upsert(kpi, { onConflict: 'dia' });
+        if (n1ErroTabela(eK)) return res.status(503).json({ erro: N1_F1_503 });
+        if (eK) return erro500(res, eK);
+        res.json({ ok: true, dia, rupturas, ajustes_up: ajustesUp, ajustes_down: ajustesDown, pulmoes: (params || []).length, avisos });
+    } finally { n1Unlock('fechamento'); }
+});
+
+// ── ⑥ leitura: KPIs ──────────────────────────────────────────────────────────
+app.get('/api/n1/kpis', auth, async (_req, res) => {
+    const r = await supabase.from('kpi_diario').select('*').order('dia', { ascending: false }).limit(30);
+    if (n1ErroTabela(r.error)) return res.status(503).json({ erro: N1_F1_503 });
+    if (r.error) return erro500(res, r.error);
+    res.json(r.data || []);
+});
+
+// ── ⑦ leitura: política (trilho) — F1 provisório: sem linha = PULL ───────────
+app.get('/api/n1/politica', auth, async (_req, res) => {
+    const r = await supabase.from('politica_item').select('*').eq('ativo', true).order('codigo').limit(1000);
+    if (n1ErroTabela(r.error)) return res.status(503).json({ erro: N1_F1_503 });
+    if (r.error) return erro500(res, r.error);
+    res.json({ itens: r.data || [], regra_f1: 'Sem linha na politica_item = PULL (MTS default provisório). Roteamento ABC-XYZ homologado entra no F2.' });
+});
+
 // ── Apontamento (sessão de trabalho) ──────────────────────────
 app.get('/api/mf/apontamentos', auth, async (req, res) => {
     let q = supabase.from('apontamento')
