@@ -2465,6 +2465,13 @@ app.post('/api/n1/roteamento/rodar', auth, sigsEscrita, async (_req, res) => {
         // CV vem do parametro_reposicao (motor F1 já calculou na série completa)
         const { data: params } = await supabase.from('parametro_reposicao').select('codigo,cv');
         const cvDe = {}; (params || []).forEach(p => { cvDe[p.codigo] = p.cv != null ? Number(p.cv) : null; });
+        // ABC por VALOR quando a importação de Vendas trouxer R$ (colunas Valor/Valor R$/
+        // Valor Total no SIGS); sem valor na base, cai para VOLUME. Upgrade automático.
+        let valorDe = {}; let temValor = false;
+        try {
+            const vRows = await fetchAllSelect('vendas', 'codigo,valor', q => q.gt('valor', 0));
+            (vRows || []).forEach(v => { const c = String(v.codigo || '').trim().toUpperCase(); if (c) { valorDe[c] = (valorDe[c] || 0) + (Number(v.valor) || 0); temValor = true; } });
+        } catch { /* sem coluna/tabela — segue por volume */ }
         const { data: pols } = await supabase.from('politica_item').select('codigo,trilho').eq('ativo', true);
         const trilhoAtualDe = {}; (pols || []).forEach(p => { trilhoAtualDe[p.codigo] = p.trilho; });
         // staging do ciclo anterior (histerese: mudança precisa persistir 2 ciclos)
@@ -2473,9 +2480,12 @@ app.post('/api/n1/roteamento/rodar', auth, sigsEscrita, async (_req, res) => {
         if (n1ErroTabela(eSt)) return res.status(503).json({ erro: N1_F2_503 });
         const antDe = {}; (stAnt || []).forEach(s => { antDe[s.codigo] = s; });
 
-        // volume 12m por SKU → ABC 80/15/5 acumulado
+        // base do ABC 80/15/5: VALOR (R$ importado) se existir; senão VOLUME 12m
         const skus = Object.keys(serieDe);
-        const vol = skus.map(c => ({ c, v: corte12.reduce((s, m) => s + (serieDe[c][m] || 0), 0) })).sort((a, b) => b.v - a.v);
+        const vol = skus.map(c => ({ c,
+            v: temValor ? (valorDe[c] || 0) : corte12.reduce((s, m) => s + (serieDe[c][m] || 0), 0),
+            vol12: corte12.reduce((s, m) => s + (serieDe[c][m] || 0), 0),
+        })).sort((a, b) => b.v - a.v);
         const totalVol = vol.reduce((s, x) => s + x.v, 0) || 1;
         let acum = 0; const abcDe = {};
         vol.forEach(x => { acum += x.v; abcDe[x.c] = acum / totalVol <= 0.80 ? 'A' : acum / totalVol <= 0.95 ? 'B' : 'C'; });
@@ -2503,7 +2513,7 @@ app.post('/api/n1/roteamento/rodar', auth, sigsEscrita, async (_req, res) => {
             if (mudanca) mudancas++;
             const revisar = abc === 'C' && xyz === 'Z';
             if (revisar) portfolio++;
-            rows.push({ ciclo, codigo: c, abc, xyz, cv, volume_12m: Math.round(vol.find(x => x.c === c)?.v * 1000) / 1000 || 0,
+            rows.push({ ciclo, codigo: c, abc, xyz, cv, volume_12m: Math.round((vol.find(x => x.c === c)?.vol12 || 0) * 1000) / 1000,
                 pct_meses_zero: Math.round(pctZero * 10) / 10, item_novo: itemNovo, trilho_atual: atual,
                 trilho_sugerido: sugerido, mudanca, ciclos_consecutivos: consec, revisar_portfolio: revisar, status: 'PENDENTE' });
         }
@@ -2514,7 +2524,8 @@ app.post('/api/n1/roteamento/rodar', auth, sigsEscrita, async (_req, res) => {
         }
         res.json({ ok: true, ciclo, avaliados: rows.length, mudancas_propostas: mudancas, revisar_portfolio: portfolio,
             aplicaveis_agora: rows.filter(r => r.mudanca && r.ciclos_consecutivos >= 2).length,
-            avisos: ['ABC por VOLUME (valor zerado na base) · sem dessazonalização — dívidas documentadas.'] });
+            criterio_abc: temValor ? 'valor (R$)' : 'volume',
+            avisos: [temValor ? 'ABC por VALOR (R$ das Vendas importadas).' : 'ABC por VOLUME — importe Vendas com coluna "Valor" no SIGS para ABC por R$ (upgrade automático).', 'Sem dessazonalização — dívida documentada.'] });
     } finally { n1Unlock('roteamento'); }
 });
 
