@@ -499,11 +499,46 @@ const n1 = {
         el.innerHTML = `
         <div class="summary-card" style="margin-bottom:12px;border-left:3px solid #26a69a;">
             <div class="s-label" style="margin-bottom:4px;">📋 BOM — lista técnica (consumo de fio/MP por SKU)</div>
-            <p style="font-size:.76rem;color:var(--text-dim);"><strong>${(bom || []).length}</strong> linha(s). Popular via ETL do ERP (F1 ①) ou cadastro. Sem BOM, o check de fio do gate fica desligado para o SKU.</p>
+            <p style="font-size:.76rem;color:var(--text-dim);"><strong>${(bom || []).length}</strong> linha(s). Sem BOM, o check de fio do gate fica desligado para o SKU.</p>
         </div>
-        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:60vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
+        <div class="summary-card" style="margin-bottom:12px;">
+            <div class="s-label" style="margin-bottom:6px;">⬆ IMPORTAR (colar do Excel)</div>
+            <p style="font-size:.72rem;color:var(--text-dim);margin-bottom:8px;">Cole linhas com colunas separadas por TAB ou ponto-e-vírgula, na ordem: <code>código do produto · código do fio/MP · descrição do material · consumo por unidade · unidade (kg/g/m/pc)</code>. Uma linha por material.</p>
+            <textarea id="n1-bom-cola" class="n1-input" rows="5" placeholder="12002&#9;FIO-PA-70&#9;Poliamida 70&#9;0,035&#9;kg&#10;12002&#9;ELAST-45&#9;Elastano 45&#9;0,008&#9;kg"></textarea>
+            <div style="display:flex;gap:8px;margin-top:8px;">
+                <button class="btn secondary" style="font-size:.74rem;" onclick="n1._bomPreview()">🔍 Pré-visualizar</button>
+                <button class="btn primary" style="font-size:.74rem;" onclick="n1._bomImportar()">✓ Importar</button>
+            </div>
+            <div id="n1-bom-prev" style="margin-top:8px;font-size:.76rem;color:var(--text-dim);"></div>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:48vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
             <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th">SKU</th><th class="n1-th">DESCRIÇÃO</th><th class="n1-th">MATERIAL (fio/MP)</th><th class="n1-th" style="text-align:right;">CONSUMO/UN</th></tr></thead>
             <tbody>${linhas || '<tr><td class="n1-td" colspan="4" style="text-align:center;color:var(--text-dim);padding:20px;">BOM vazia — nenhuma linha cadastrada ainda.</td></tr>'}</tbody></table></div></div>`;
+    },
+    _bomParse() {
+        const txt = $('n1-bom-cola')?.value || '';
+        return txt.split(/\n/).map(l => l.trim()).filter(Boolean).map(l => {
+            const p = l.split(/\t|;/).map(x => x.trim());
+            return { codigo: p[0], material_codigo: p[1], material_descricao: p[2] || '',
+                qtd_por_unidade: parseFloat(String(p[3] || '0').replace(',', '.')) || 0, unidade: (p[4] || 'kg').toLowerCase() };
+        }).filter(x => x.codigo && x.material_codigo);
+    },
+    async _bomPreview() {
+        const linhas = this._bomParse();
+        if (!linhas.length) return toast('Nada reconhecido — confira o formato (TAB ou ;).', 'erro');
+        const r = await api.post('/api/n1/bom/bulk', { linhas, confirmar: false });
+        if (!r?.ok) return toast(r?.erro || 'Erro no preview.', 'erro');
+        $('n1-bom-prev').innerHTML = `<span style="color:#26a69a;">${r.validas} linha(s) válidas</span>` +
+            (r.sem_produto_total ? ` · <span style="color:#f06292;">${r.sem_produto_total} código(s) sem produto cadastrado: ${r.sem_produto.map(esc).join(', ')}${r.sem_produto_total > 30 ? '…' : ''}</span>` : ' · todos os códigos casam ✓');
+    },
+    async _bomImportar() {
+        const linhas = this._bomParse();
+        if (!linhas.length) return toast('Nada reconhecido — confira o formato.', 'erro');
+        if (!confirm(`Importar ${linhas.length} linha(s) de BOM? (upsert por produto+material — reimportar atualiza)`)) return;
+        const r = await api.post('/api/n1/bom/bulk', { linhas, confirmar: true });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao importar.', 'erro');
+        toast(`✓ BOM: ${r.gravadas} gravada(s)${r.sem_produto_total ? ` · ${r.sem_produto_total} sem produto (ignoradas)` : ''}.`);
+        this._renderBom();
     },
 
     // ═══ PAINEL DO LAÇO — desenha o fluxo ⓪→⑦ do spec ═══════════════════════

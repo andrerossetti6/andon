@@ -2118,6 +2118,34 @@ app.post('/api/n1/bom', auth, sigsEscrita, async (req, res) => {
     if (r.error) { if (/schema cache|does not exist|relation/i.test(r.error.message || '')) return res.status(503).json({ erro: N1_BOM_503 }); return erro500(res, r.error); }
     res.json({ ok: true, bom: r.data });
 });
+// import em massa da BOM (colado do Excel na tela): resolve produto por código,
+// upsert por (produto, material). Dry-run com preview quando confirmar=false.
+app.post('/api/n1/bom/bulk', auth, sigsEscrita, async (req, res) => {
+    const linhas = Array.isArray(req.body?.linhas) ? req.body.linhas : [];
+    const confirmar = !!req.body?.confirmar;
+    if (!linhas.length) return res.status(400).json({ erro: 'linhas [] obrigatório' });
+    let prods;
+    try { prods = await fetchAllSelect('produto', 'id,codigo'); } catch (e) { return erro500(res, e); }
+    const idDe = {}; (prods || []).forEach(p => { if (p.codigo) idDe[String(p.codigo).trim().toUpperCase()] = p.id; });
+    const validas = [], semProduto = [];
+    for (const l of linhas.slice(0, 3000)) {
+        const cod = String(l.codigo || '').trim().toUpperCase();
+        const mat = String(l.material_codigo || '').trim();
+        if (!cod || !mat) continue;
+        const pid = idDe[cod];
+        if (!pid) { semProduto.push(cod); continue; }
+        validas.push({ produto_id: pid, material_codigo: mat.toUpperCase(), material_descricao: String(l.material_descricao || '').trim() || null,
+            qtd_por_unidade: Number(l.qtd_por_unidade) || 0, unidade: ['kg', 'g', 'm', 'pc'].includes(l.unidade) ? l.unidade : 'kg', ativo: true });
+    }
+    if (!confirmar) return res.json({ ok: true, preview: true, validas: validas.length, sem_produto: [...new Set(semProduto)].slice(0, 30), sem_produto_total: new Set(semProduto).size });
+    let gravadas = 0;
+    for (let i = 0; i < validas.length; i += 500) {
+        const { error } = await supabase.from('bom').upsert(validas.slice(i, i + 500), { onConflict: 'produto_id,material_codigo' });
+        if (error) { if (/schema cache|does not exist|relation/i.test(error.message || '')) return res.status(503).json({ erro: N1_BOM_503 }); return erro500(res, error); }
+        gravadas += Math.min(500, validas.length - i);
+    }
+    res.json({ ok: true, gravadas, sem_produto_total: new Set(semProduto).size });
+});
 
 // ══════════════════ N1 · F1 — LAÇO MÍNIMO (PULL) ═════════════════════════════
 // Comunicação por TABELA (spec §2.1): ETL → venda_movimento/estoque_posicao;
