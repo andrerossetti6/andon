@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guia Integrado | Do Apontamento à Decisão</title>
+    <meta name="description" content="Guia do fluxo integrado SIGS · APS · MES · N1Tech — como apontar, onde a informação vai, como consultar e interpretar">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <meta name="theme-color" content="#0D1117">
+    <style>
+        body{display:block;overflow-y:auto;padding:0;}
+        .g-wrap{max-width:1000px;margin:0 auto;padding:36px 24px 80px;}
+        .g-hero{margin-bottom:28px;}
+        .g-hero h1{font-family:'Outfit',sans-serif;font-size:1.9rem;margin:0 0 6px;}
+        .g-hero h1 span{color:var(--indigo-primary);}
+        .g-hero p{color:var(--text-dim);font-size:.9rem;margin:0;}
+        .g-sec{margin:34px 0 14px;font-family:'Outfit',sans-serif;font-size:1.15rem;font-weight:700;letter-spacing:.02em;display:flex;align-items:center;gap:10px;}
+        .g-sec .n{background:var(--indigo-primary);color:#fff;border-radius:8px;width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;font-size:.95rem;}
+        .g-card{background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;padding:18px 20px;margin-bottom:14px;}
+        .g-card h3{margin:0 0 8px;font-size:.95rem;}
+        .g-card p, .g-card li{font-size:.84rem;color:var(--text-dim);line-height:1.55;}
+        .g-card strong{color:var(--text-primary);}
+        .g-passo{display:flex;gap:14px;align-items:flex-start;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05);}
+        .g-passo:last-child{border-bottom:none;}
+        .g-passo .pn{min-width:26px;height:26px;border-radius:50%;background:#26a69a22;color:#26a69a;border:1px solid #26a69a55;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.8rem;}
+        .g-passo div{flex:1;}
+        .g-passo b{display:block;font-size:.86rem;margin-bottom:2px;}
+        .g-passo span{font-size:.78rem;color:var(--text-dim);line-height:1.5;display:block;}
+        table.g-t{width:100%;border-collapse:collapse;font-size:.8rem;}
+        .g-t th{text-align:left;color:var(--text-dim);font-size:.66rem;letter-spacing:.06em;padding:8px 10px;border-bottom:2px solid var(--border-color);}
+        .g-t td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:top;color:var(--text-dim);}
+        .g-t td:first-child{color:var(--text-primary);font-weight:600;white-space:nowrap;}
+        .chip{display:inline-block;font-size:.64rem;font-weight:700;padding:1px 8px;border-radius:5px;margin-right:4px;}
+        .fluxo{font-family:ui-monospace,Menlo,monospace;font-size:.76rem;line-height:1.9;background:var(--bg-input);border:1px solid var(--border-color);border-radius:10px;padding:16px 18px;overflow-x:auto;white-space:pre;color:var(--text-dim);}
+        .fluxo b{color:var(--text-primary);}
+        .g-links{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;}
+        .g-links a{text-decoration:none;font-size:.8rem;padding:8px 14px;border:1px solid var(--border-color);border-radius:8px;color:var(--text-primary);background:var(--bg-input);}
+        .g-links a:hover{border-color:var(--indigo-primary);}
+        .cor{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:middle;}
+    </style>
+</head>
+<body class="sin1-layout">
+<div class="g-wrap">
+
+    <div class="g-hero">
+        <h1>Guia Integrado — <span>do Apontamento à Decisão</span></h1>
+        <p>Como apontar no chão, para onde cada informação vai, onde consultar e como interpretar — nos 4 sistemas integrados.</p>
+        <div class="g-links">
+            <a href="/index.html">📊 SIGS (planejamento)</a>
+            <a href="/aps.html">🗂 APS (programação)</a>
+            <a href="/mes.html">🏭 MES (chão de fábrica)</a>
+            <a href="/n1tech.html">🔁 N1Tech (reposição puxada)</a>
+        </div>
+    </div>
+
+    <!-- ═══════════ 0. O MAPA ═══════════ -->
+    <div class="g-sec"><span class="n">0</span> O mapa — quem faz o quê</div>
+    <div class="g-card">
+        <div class="fluxo"><b>SIGS</b>   (decide O QUE e QUANTO)   previsão · política de estoque · S&amp;OP · TOC · Preactor
+   ↓ plano
+<b>APS / N1Tech</b> (decide QUANDO e EM QUE ORDEM)   gate de liberação · prioridade · sequência · pulmões TOC
+   ↓ fila
+<b>MES</b>    (EXECUTA e MEDE)   apontamento · qualidade (NC) · paradas · Andon · OEE
+   ↓ realizado (apontamento)
+<b>volta para cima:</b> o medido corrige pulmões, tempos-padrão, gargalo e o próximo plano — todo dia, sozinho.</div>
+        <p style="margin-top:10px;">Regra de ouro: <strong>cada informação nasce em um lugar só</strong>. O apontamento nasce no MES — todos os outros sistemas apenas <em>leem</em> o que o chão apontou. Por isso apontar bem é o que alimenta o conjunto inteiro.</p>
+    </div>
+
+    <!-- ═══════════ 1. COMO APONTAR ═══════════ -->
+    <div class="g-sec"><span class="n">1</span> Como apontar (operador · MES › Apontamento)</div>
+    <div class="g-card">
+        <div class="g-passo"><span class="pn">1</span><div><b>Abra o MES e entre na aba “Apontamento”</b><span>No tablet ou computador: <code>mes.html</code> → menu EXECUÇÃO → Apontamento. Funciona <strong>offline</strong>: se a rede cair, o registro fica na fila do aparelho e sobe sozinho quando voltar.</span></div></div>
+        <div class="g-passo"><span class="pn">2</span><div><b>Preencha a NOVA SESSÃO — 4 campos</b><span><strong>OP</strong> (a tela já mostra só as OPs da etapa da sua máquina; “ver todas” expande) · <strong>Máquina</strong> · <strong>Operador</strong> (o aparelho lembra o último) · <strong>Turno</strong> (vem automático pelo horário). A <strong>etapa do fluxo</strong> preenche sozinha se a máquina estiver vinculada (⚙ “Vincular máquinas às etapas” — configure uma vez).</span></div></div>
+        <div class="g-passo"><span class="pn">3</span><div><b>▶ Iniciar Sessão</b><span>A sessão aberta aparece no topo. Ela é a “raiz”: tudo que acontecer (produção, defeito, parada, chamado) pendura nela. <em>Dica: modo quiosque fixa a máquina do tablet — o operador só escolhe a OP.</em></span></div></div>
+        <div class="g-passo"><span class="pn">4</span><div><b>Lance a produção na sessão</b><span><strong>Qtd boa</strong> · <strong>refugo</strong> · <strong>retrabalho</strong>. Lance ao longo do turno ou no fim — mas quanto antes lançar, melhor a “latência” (tempo entre o fato e o registro), que é medida.</span></div></div>
+        <div class="g-passo"><span class="pn">5</span><div><b>Defeito? Registre a NC na sessão</b><span>O defeito é <strong>sempre do catálogo</strong> (nunca texto livre) — isso permite Pareto, CEP e custo da qualidade automáticos. Pode anexar <strong>foto</strong>. Se o volume/recorrência estourar o gatilho, o sistema marca sozinho para abrir <strong>RNC</strong> (ação corretiva).</span></div></div>
+        <div class="g-passo"><span class="pn">6</span><div><b>Parou? Registre a parada · Precisa de ajuda? Andon</b><span>“⏸ Registrar parada” com o motivo (alimenta o OEE — disponibilidade). “🆘 Andon” chama ajuda em tempo real (ajuda / linha parada / qualidade / falta material) — aparece no painel de todos.</span></div></div>
+        <div class="g-passo"><span class="pn">7</span><div><b>■ Encerrar a sessão ao terminar</b><span>Sessão fechada = medição completa (a duração ÷ quantidade vira o <strong>tempo real</strong> daquela etapa/produto). Sessão esquecida aberta distorce OEE e tempo — encerre sempre.</span></div></div>
+        <p style="margin-top:10px;">✅ <strong>Bom apontamento em uma frase:</strong> uma sessão por OP+máquina+turno, quantidades lançadas na hora, defeito do catálogo, parada com motivo, sessão encerrada.</p>
+    </div>
+
+    <!-- ═══════════ 2. PARA ONDE A INFORMAÇÃO VAI ═══════════ -->
+    <div class="g-sec"><span class="n">2</span> Para onde a informação vai</div>
+    <div class="g-card">
+        <p>Cada apontamento dispara uma cadeia automática. Nada disso exige ação sua:</p>
+        <div class="fluxo" style="margin-top:10px;"><b>NA HORA</b> (segundos)
+  → a OP anda no <b>Kanban WIP</b> (MES › Visão Geral) e no <b>Prazo &amp; Risco</b>
+  → o <b>Painel</b> e o <b>Andon</b> refletem a produção do turno
+  → OEE começa a ser <b>medido</b> (não estimado): disponibilidade × performance × qualidade
+
+<b>A CADA 15 MIN</b> (varredura N1Tech)
+  → o WIP entra na <b>posição de estoque</b> (disponível − reservado + em produção)
+  → pulmões mudam de cor · reposições são <b>sugeridas</b> se entrar no amarelo/vermelho
+
+<b>TODA NOITE 23:30</b> (fechamento N1Tech)
+  → <b>tempo real</b> por etapa/produto (duração ÷ qtd) — o cronômetro automático
+  → desvio &gt;15% persistente vs tempo-padrão → <b>alerta de dado mestre</b>
+  → <b>aderência</b> (o chão seguiu a fila?) · <b>latência</b> · rupturas → KPI do dia
+  → pulmões se auto-ajustam (DBM: ×1,33 se sofrendo · ×0,67 se sobrando)
+
+<b>NO PLANEJAMENTO</b> (SIGS)
+  → o TOC passa a usar o <b>tempo MEDIDO</b> no gargalo (selo “medido MES”)
+  → NCs viram <b>custo da qualidade</b> (R$) e Pareto de defeitos
+  → o realizado alimenta o S&amp;OP do mês seguinte (plano × real)</div>
+    </div>
+
+    <!-- ═══════════ 3. ONDE CONSULTAR ═══════════ -->
+    <div class="g-sec"><span class="n">3</span> Onde consultar — “quero saber X, abro Y”</div>
+    <div class="g-card" style="padding:0;overflow:hidden;">
+        <table class="g-t">
+            <thead><tr><th>QUERO SABER…</th><th>ABRO…</th><th>O QUE VEJO</th></tr></thead>
+            <tbody>
+                <tr><td>O que produzir agora (chão)</td><td>MES › Fila de OPs · N1Tech › Fila com Cor</td><td>Fila priorizada; a cor mostra a urgência da reposição (preto/vermelho primeiro)</td></tr>
+                <tr><td>Como está a produção AGORA</td><td>MES › Painel · Kanban WIP · Andon</td><td>Sessões abertas, peças do turno, OP em cada etapa, chamados</td></tr>
+                <tr><td>Vamos atrasar alguma entrega?</td><td>MES › Prazo &amp; Risco</td><td>🔴 atrasada/vai atrasar · 🟡 aperta · 🟢 no prazo (por OP)</td></tr>
+                <tr><td>O que repor de estoque (MTS)</td><td>N1Tech › Pulmões · Ordens Sugeridas</td><td>Cor de cada SKU + sugestões com prioridade 0–100; “Aprovar” vira OP</td></tr>
+                <tr><td>Estado e histórico de uma OP</td><td>APS › Carteira de Ordens</td><td>Estado (planejada→liberada→…), gate de liberação, 📜 ledger completo</td></tr>
+                <tr><td>Em que ordem programar</td><td>APS › Sequenciamento · Heijunka</td><td>Fila otimizada (prazo × setup × prioridade) + nivelamento de mix</td></tr>
+                <tr><td>Qual é o gargalo da fábrica</td><td>SIGS › TOC · N1Tech › Gargalo (Drum)</td><td>% de utilização por processo; o maior é o gargalo — ele dita o ritmo</td></tr>
+                <tr><td>Eficiência real (OEE) e qualidade</td><td>MES › OEE &amp; Qualidade · Custo da Qualidade</td><td>OEE medido por máquina/turno; NCs, Pareto, R$ perdido</td></tr>
+                <tr><td>A fábrica está seguindo o plano?</td><td>N1Tech › KPIs Diários</td><td>Aderência %, rupturas, latência, penetração média dos pulmões</td></tr>
+                <tr><td>O que é PULL e o que é PUSH</td><td>N1Tech › Política (S&amp;OP leve)</td><td>Classe ABC-XYZ por faturamento + trilho de cada SKU + homologação mensal</td></tr>
+                <tr><td>Visão executiva de tudo</td><td>SIGS › Cockpit</td><td>Carteira, produção, teares, OEE, Andon — os dois domínios numa tela</td></tr>
+                <tr><td>Previsão e plano do mês</td><td>SIGS › Previsão · Plano de Produção · S&amp;OP</td><td>Demanda projetada, plano congelado, reconciliação em R$</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- ═══════════ 4. COMO INTERPRETAR ═══════════ -->
+    <div class="g-sec"><span class="n">4</span> Como interpretar — os números e as cores</div>
+
+    <div class="g-card">
+        <h3>🎨 Cores do pulmão (N1Tech e fila do chão)</h3>
+        <table class="g-t"><tbody>
+            <tr><td><span class="cor" style="background:#e0e0e0;"></span>PRETO</td><td>Posição ≤ 0: <strong>ruptura</strong> — já falta. Reposição com prioridade máxima (95–100). Se o SKU nem está na planilha de estoque, é buraco de dado: reimporte o estoque.</td></tr>
+            <tr><td><span class="cor" style="background:#f06292;"></span>VERMELHO</td><td>Consumiu o último terço do pulmão. Repor <strong>já</strong> (prio 70–95). Muitos dias seguidos no vermelho = pulmão pequeno → o sistema aumenta sozinho (×1,33).</td></tr>
+            <tr><td><span class="cor" style="background:#ffca28;"></span>AMARELO</td><td>Zona de atenção (terço do meio). Reposição sugerida com prioridade média (35–70). É o estado <em>normal</em> de trabalho.</td></tr>
+            <tr><td><span class="cor" style="background:#26a69a;"></span>VERDE</td><td>Pulmão confortável. <strong>Não gera ordem</strong> (produzir agora seria excesso de estoque). Tempo demais no verde = pulmão gordo → o sistema encolhe sozinho (×0,67).</td></tr>
+        </tbody></table>
+        <p style="margin-top:8px;"><strong>Penetração</strong> = quanto do pulmão já foi consumido (0% = cheio, 100% = zerado). É a régua única da urgência.</p>
+    </div>
+
+    <div class="g-card">
+        <h3>📈 KPIs diários (N1Tech › KPIs) — metas do sistema</h3>
+        <table class="g-t"><tbody>
+            <tr><td>Aderência</td><td>% da fila que o chão seguiu na ordem. <strong>Meta &gt; 70%</strong> (por 4 semanas) para evoluir de fase; &gt;85% habilita o sequenciador fino automático. Baixa = a fila não é crível OU o chão fura a ordem — investigar os dois lados.</td></tr>
+            <tr><td>Latência de apontamento</td><td>Minutos entre o fato e o registro. <strong>Meta: mediana &lt; 60 min</strong>. Alta = apontamento “de memória” no fim do turno → dados piores.</td></tr>
+            <tr><td>Rupturas</td><td>SKUs PULL com posição ≤ 0. Tendência importa mais que o número absoluto: caindo = pulmões funcionando.</td></tr>
+            <tr><td>Penetração média</td><td>Saúde geral dos pulmões. Subindo semana após semana = capacidade não acompanha o consumo → olhar o gargalo.</td></tr>
+        </tbody></table>
+    </div>
+
+    <div class="g-card">
+        <h3>🏭 TOC / Gargalo (SIGS › TOC e N1Tech › Gargalo)</h3>
+        <p><strong>Utilização = carga necessária ÷ capacidade disponível.</strong> <span class="chip" style="background:#26a69a22;color:#26a69a;">&lt;80% OK</span> <span class="chip" style="background:#ffca2822;color:#ffca28;">80–100% atenção</span> <span class="chip" style="background:#f0629222;color:#f06292;">&gt;100% GARGALO</span> — o processo mais alto dita o ritmo da fábrica inteira: hora perdida nele é hora perdida na fábrica. Ações na ordem: tirar carga dele (rotas alternativas), protegê-lo (nunca parar por falta de material — pulmão na frente), só depois pensar em turno/máquina extra. O Drum do N1Tech aprova ordens até <strong>90%</strong> do gargalo — os 10% são a proteção contra a variabilidade.</p>
+    </div>
+
+    <div class="g-card">
+        <h3>🔤 ABC-XYZ e o trilho (N1Tech › Política)</h3>
+        <p><strong>ABC</strong> = importância no faturamento (A ≈ 80% dos R$ · B ≈ 15% · C ≈ 5%). <strong>XYZ</strong> = regularidade da demanda (X estável · Y variável · Z errática/intermitente).</p>
+        <table class="g-t"><tbody>
+            <tr><td>AX · AY (o “ouro”)</td><td>Alto faturamento, demanda razoável → <strong>PULL com pulmão</strong>: repõe pelo consumo, nunca falta, nunca sobra.</td></tr>
+            <tr><td>Coluna Z</td><td>Errático demais para pulmão → <strong>PUSH</strong>: produz contra pedido/carteira firme, priorizado pela folga do prazo.</td></tr>
+            <tr><td>CZ (“revisar portfólio”)</td><td>Rende pouco E é imprevisível. Pergunta de negócio: vale manter no catálogo? Hoje são <strong>487 de 774 SKUs</strong>.</td></tr>
+            <tr><td>Item novo (&lt;6 meses)</td><td>Sem história → PUSH até criar história.</td></tr>
+        </tbody></table>
+        <p style="margin-top:8px;"><strong>Histerese:</strong> mudança de trilho só se confirma se a sugestão persistir <strong>2 ciclos mensais</strong> — evita SKU pingue-pongue. Você homologa o ciclo na aba Política (1× por mês).</p>
+        <p><strong>MAPE</strong> (previsão por família): erro médio da previsão. &lt;30% razoável · &gt;50% = família imprevisível — mais um motivo para operar por pulmão (consumo real) em vez de previsão.</p>
+    </div>
+
+    <div class="g-card">
+        <h3>⏱ OEE e tempo-padrão (MES)</h3>
+        <p><strong>OEE = disponibilidade × performance × qualidade.</strong> Classe mundial ≈ 85%; fábricas típicas 40–60%. Só existe com apontamento: paradas registradas (disponibilidade), tempo-padrão cadastrado (performance) e refugo/retrabalho apontados (qualidade). O <strong>tempo real</strong> medido pelas sessões corrige o tempo-padrão: desvio &gt;15% por 3 fechamentos → alerta para atualizar o cadastro — o plano fica cada vez mais realista sozinho.</p>
+    </div>
+
+    <!-- ═══════════ 5. O RELÓGIO ═══════════ -->
+    <div class="g-sec"><span class="n">5</span> O relógio automático e a sua rotina</div>
+    <div class="g-card">
+        <h3>🤖 O que roda sozinho (ninguém aperta nada)</h3>
+        <table class="g-t"><tbody>
+            <tr><td>A cada 15 min</td><td>Varredura: posição vs pulmão → gera sugestões de reposição</td></tr>
+            <tr><td>05:00</td><td>ETL + motor: ressincroniza vendas/estoque/WIP e recalcula μ/σ dos pulmões</td></tr>
+            <tr><td>23:30</td><td>Fechamento: KPIs do dia, ajuste DBM dos pulmões, tempo real, aderência, latência</td></tr>
+            <tr><td>Dia 01, 06:00</td><td>Roteamento ABC-XYZ do mês + previsão por família → staging para você homologar</td></tr>
+        </tbody></table>
+        <h3 style="margin-top:14px;">👤 A sua rotina sugerida</h3>
+        <table class="g-t"><tbody>
+            <tr><td>Operador (turno)</td><td>Seguir a fila com cor · apontar na hora · NC do catálogo · encerrar a sessão</td></tr>
+            <tr><td>PCP (diário, 10 min)</td><td>N1Tech › Sugeridas: aprovar reposições → liberar no APS (gate) → sequenciar. MES › Prazo &amp; Risco: agir nos vermelhos</td></tr>
+            <tr><td>PCP (semanal)</td><td>N1Tech › KPIs (aderência/latência/rupturas) · DBM (pulmões que se auto-ajustaram) · SIGS › TOC (gargalo mudou?)</td></tr>
+            <tr><td>Gestão (mensal — S&amp;OP)</td><td>N1Tech › Política: homologar o ciclo (trilhos + lista CZ p/ decisão de portfólio) · SIGS › S&amp;OP: plano × real em R$ · Cockpit</td></tr>
+        </tbody></table>
+    </div>
+
+    <!-- ═══════════ 6. DESTRAVAMENTO ═══════════ -->
+    <div class="g-sec"><span class="n">6</span> O que ainda destrava valor (checklist de dados)</div>
+    <div class="g-card">
+        <table class="g-t"><tbody>
+            <tr><td>⏱ Tempos-padrão</td><td>Cronometrar as etapas dos top-20 SKUs (MES › Engenharia). <strong>É o destravamento mais valioso:</strong> liga o gate de capacidade (Drum), a data-promessa (CTP), o OEE-performance e a prontidão para liberar OPs. Depois o cronômetro automático mantém.</td></tr>
+            <tr><td>📦 Estoque completo</td><td>Reimportar o estoque com TODOS os SKUs que vendem (74 “pretos” de hoje incluem itens fora da última planilha).</td></tr>
+            <tr><td>📋 BOM (fio por SKU)</td><td>Colar em N1Tech › Dados Mestres › BOM (código · fio · consumo/un). Liga o check de fio: nenhuma OP aprovada sem material.</td></tr>
+            <tr><td>✅ Vendas com preço</td><td><strong>Feito (jul/26)</strong> — ABC por R$ e S&amp;OP financeiro ativos. Reimporte quando quiser atualizar.</td></tr>
+        </tbody></table>
+        <p style="margin-top:10px;">Manual detalhado do chão de fábrica: <a href="/manual_mes.html" style="color:var(--indigo-primary);">Manual do MES</a> · Arquitetura e decisões: <code>ARQUITETURA.md</code> no repositório.</p>
+    </div>
+
+</div>
+</body>
+</html>
