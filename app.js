@@ -1708,7 +1708,8 @@ const vendas = {
         const monthOrigCols = new Set(this.monthCols.map(mc => mc.originalCol));
         const KNOWN_NORM = new Set(['codigo', 'descricao', 'modelo', 'segmento', 'tamanho', 'marca',
             'quantidade', 'qtd', 'qty', 'qtde', 'valor', 'valorrs', 'valortotal', 'valorr',
-            'faturamento', 'fat', 'receita', 'valorfaturado', 'vlrtotal', 'vlr']);
+            'faturamento', 'fat', 'receita', 'valorfaturado', 'vlrtotal', 'vlr',
+            'valorvendas', 'precovenda', 'precounitario', 'preco', 'precomedio', 'valorunitario', 'vlrunit']);
         this.extraCols = allHeaders.filter(h =>
             !monthOrigCols.has(h) && !KNOWN_NORM.has(this.normalizeKey(h))
         );
@@ -1726,6 +1727,16 @@ const vendas = {
                 extras[col] = val !== undefined && val !== null ? String(val) : '';
             });
 
+            // quantidade: coluna explícita OU a soma dos meses detectados
+            const qtdCol   = toNum(get(row, 'quantidade', 'qtd', 'qty', 'qtde'));
+            const qtdMeses = Object.values(mData).reduce((s, v) => s + (Number(v) || 0), 0);
+            const quantidade = qtdCol > 0 ? qtdCol : qtdMeses;
+            // valor (faturamento TOTAL): coluna de total OU preço unitário × quantidade
+            // ("Valor Vendas" da planilha da fábrica é PREÇO unitário — R$/peça)
+            const valorCol  = toNum(get(row, 'valor', 'valorrs', 'valortotal', 'valorr', 'faturamento', 'fat', 'receita', 'valorfaturado', 'vlrtotal', 'vlr'));
+            const precoUnit = toNum(get(row, 'valorvendas', 'precovenda', 'precounitario', 'preco', 'precomedio', 'valorunitario', 'vlrunit'));
+            const valor = valorCol > 0 ? valorCol : (precoUnit > 0 ? precoUnit * quantidade : 0);
+
             return {
                 _id: i,
                 codigo:    get(row, 'codigo'),
@@ -1736,8 +1747,8 @@ const vendas = {
                 marca:     get(row, 'marca').trim(),
                 _extras: extras,
                 ...mData,
-                quantidade: toNum(get(row, 'quantidade', 'qtd', 'qty', 'qtde')),
-                valor:      toNum(get(row, 'valor', 'valorrs', 'valortotal', 'valorr', 'faturamento', 'fat', 'receita', 'valorfaturado', 'vlrtotal', 'vlr'))
+                quantidade,
+                valor
             };
         });
 
@@ -1768,7 +1779,8 @@ const vendas = {
             }
             const res = await api.salvarImport(this._nomeArquivoAtual, this.rawData, this.monthCols);
             if (res?.ok) { this._currentId = res.importacaoId; sucesso = true; }
-        } catch (e) { console.error('Erro ao salvar:', e); }
+            else mostrarToast(`✗ NÃO SALVOU no banco: ${res?.erro || 'sem resposta do servidor'} — os dados estão só nesta tela.`, 'erro');
+        } catch (e) { console.error('Erro ao salvar:', e); mostrarToast('✗ NÃO SALVOU no banco: ' + e.message, 'erro'); }
         finally { this.setSalvando(false); }
         await this.carregarHistorico();
         if (sucesso) {
