@@ -607,14 +607,15 @@
     <main class="content" id="view-stoll-ocup" style="display:none;">
         <header class="page-header">
             <div class="page-header-text">
-                <h1 class="page-title">Vendas por <span>Stoll</span></h1>
-                <p class="page-subtitle">Mix mensal das vendas por modelo de tear (530 · 330 · 303) — peças e % pelo código (coluna "Stoll" do Banco)</p>
+                <h1 class="page-title">Vendas × <span>Capacidade</span></h1>
+                <p class="page-subtitle">Mix mensal por Stoll (530 · 330 · 303) · ocupação mês a mês por processo (tecelagem, costura automática…) — pelas vendas</p>
             </div>
-            <div class="page-header-actions" style="display:flex;align-items:center;gap:10px;">
+            <div class="page-header-actions" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
                 <div style="display:flex;border:1px solid var(--border-color);border-radius:8px;overflow:hidden;">
                     <button id="stoll-modo-mix" class="btn secondary" onclick="stollOcup.setModo('mix')" style="font-size:.76rem;border:none;border-radius:0;">Mix de vendas</button>
                     <button id="stoll-modo-tempo" class="btn secondary" onclick="stollOcup.setModo('tempo')" style="font-size:.76rem;border:none;border-radius:0;">Ocupação (tempo)</button>
                 </div>
+                <select id="stoll-ocup-proc" onchange="stollOcup.render()" style="display:none;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;"></select>
                 <select id="stoll-ocup-ano" onchange="stollOcup.render()" style="padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.82rem;"></select>
                 <button class="btn secondary" onclick="stollOcup.render()" style="font-size:.8rem;">↻ Atualizar</button>
             </div>

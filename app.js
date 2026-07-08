@@ -5171,6 +5171,12 @@ const stollOcup = {
             b.style.background = this._modo === m ? on.background : 'var(--bg-input)';
             b.style.color = this._modo === m ? on.color : 'var(--text-primary)';
         });
+        // seletor de processo só faz sentido no modo tempo
+        const ps = document.getElementById('stoll-ocup-proc');
+        if (ps) {
+            if (!ps.options.length) ps.innerHTML = toc._PROCS.map(p => `<option value="${p.id}">${escHTML(p.nome)}</option>`).join('');
+            ps.style.display = this._modo === 'tempo' ? '' : 'none';
+        }
     },
 
     _popularAnos() {
@@ -5266,6 +5272,85 @@ const stollOcup = {
             </div>`;
     },
 
+    // ── MODO TEMPO por PROCESSO (ex.: Costura Automática): mesma lógica mensal ──
+    // carga = vendas do mês × tempo do processo (Banco de Dados) · capacidade =
+    // máquinas × h/dia × dias úteis reais × OEE — tudo da config do TOC (Capacidade).
+    async _renderTempoProc(procId) {
+        const el = document.getElementById('stoll-ocup-content');
+        const procDef = toc._PROCS.find(p => p.id === procId);
+        if (!procDef) { el.innerHTML = `<div class="summary-card" style="color:#f06292;">Processo desconhecido.</div>`; return; }
+        el.innerHTML = `<div class="summary-card" style="color:var(--text-dim);">Calculando ${escHTML(procDef.nome)} mês a mês…</div>`;
+        const bancoMap = {};
+        banco.rawData.forEach(r => { const cod = String(r.dados?.['Código'] ?? '').trim().toUpperCase(); if (cod) bancoMap[cod] = r.dados; });
+        if (!toc._capCache) await toc._loadCapConfig().catch(() => {});
+        const capP = toc._getCap()[procId] || { maquinas: 1, horasDia: 8, oee: 100 };
+        const anoSel = document.getElementById('stoll-ocup-ano')?.value || 'all';
+        const cols = (vendas.monthCols || []).filter(c => c.year && (anoSel === 'all' || c.year === anoSel));
+        if (!cols.length) { el.innerHTML = `<div class="summary-card" style="color:#ffca28;">Nenhum mês com ano identificado nas vendas.</div>`; return; }
+
+        const meses = [];
+        for (const c of cols) {
+            let cargaMin = 0, skus = 0, pcContadas = 0, pcSemTempo = 0, pcSemCad = 0, total = 0;
+            vendas.rawData.forEach(r => {
+                const q = Number(r[c.key]) || 0; if (q <= 0) return;
+                const cod = String(r.codigo || '').trim().toUpperCase(); if (!cod) return;
+                total += q;
+                const dados = bancoMap[cod];
+                if (!dados) { pcSemCad += q; return; }
+                const t = toc._getTempoMinutos(dados, procDef.cols);
+                if (!t) { pcSemTempo += q; return; }
+                cargaMin += t * q; skus++; pcContadas += q;
+            });
+            const mesStr = `${c.year}-${String(this._MES_NUM[c.abbr] || 1).padStart(2, '0')}`;
+            const dias = await toc._calcDiasUteisDoMes(mesStr).catch(() => 22);
+            const capMin = capP.maquinas * capP.horasDia * 60 * dias * (Math.min(capP.oee || 100, 100) / 100);
+            meses.push({ label: c.label, dias, cargaMin, capMin, util: capMin > 0 ? cargaMin / capMin : 0, skus, total, pcContadas, pcSemTempo, pcSemCad });
+        }
+
+        const corDe = u => u >= 1 ? '#f06292' : u >= 0.8 ? '#ffca28' : '#26a69a';
+        const utils = meses.filter(m => m.cargaMin > 0);
+        const media = utils.length ? utils.reduce((s, m) => s + m.util, 0) / utils.length : 0;
+        const pico = meses.reduce((a, m) => m.util > a.util ? m : a, { util: -1, label: '—' });
+        const pcForaTotal = meses.reduce((s, m) => s + m.pcSemTempo + m.pcSemCad, 0);
+        const pcTotal = meses.reduce((s, m) => s + m.total, 0) || 1;
+
+        const linhas = meses.map(m => `
+            <div style="display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);">
+                <div style="width:64px;font-weight:700;font-size:.82rem;">${escHTML(m.label)}</div>
+                <div style="flex:1;height:12px;background:var(--bg-input);border-radius:6px;overflow:hidden;">
+                    <div style="width:${Math.min(m.util * 100 / 1.5, 100)}%;height:100%;background:${corDe(m.util)};"></div></div>
+                <div style="width:52px;text-align:right;font-weight:800;font-size:.84rem;color:${corDe(m.util)};">${(m.util * 100).toFixed(0)}%</div>
+                <div style="width:130px;text-align:right;font-size:.7rem;color:var(--text-dim);">${(m.cargaMin / 60).toFixed(0)}h / ${(m.capMin / 60).toFixed(0)}h</div>
+                <div style="width:70px;text-align:right;font-size:.7rem;color:var(--text-dim);">${m.skus} SKUs</div>
+                <div style="width:76px;text-align:right;font-size:.7rem;color:var(--text-dim);">${m.dias} d.u.</div>
+                <div style="width:110px;text-align:right;font-size:.68rem;color:${(m.pcSemTempo + m.pcSemCad) > 0 ? '#ffca28' : 'var(--text-dim)'};">${(m.pcSemTempo + m.pcSemCad).toLocaleString('pt-BR')} pç fora</div>
+            </div>`).join('');
+
+        el.innerHTML = `
+            <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;">
+                <div class="summary-card" style="flex:1;min-width:170px;border-top:3px solid ${corDe(media)};">
+                    <span class="s-label">${escHTML(procDef.nome.toUpperCase())} — MÉDIA</span>
+                    <span class="s-value" style="color:${corDe(media)};font-size:1.6rem;">${(media * 100).toFixed(0)}%</span>
+                    <span class="s-sub">pico ${(Math.max(pico.util, 0) * 100).toFixed(0)}% em ${escHTML(pico.label)}</span></div>
+                <div class="summary-card" style="flex:1;min-width:170px;">
+                    <span class="s-label">CAPACIDADE ASSUMIDA</span>
+                    <span class="s-value" style="font-size:1.15rem;">${capP.maquinas} máq × ${capP.horasDia}h</span>
+                    <span class="s-sub">× dias úteis reais × OEE ${capP.oee}% — ajuste em TOC › Capacidade</span></div>
+                <div class="summary-card" style="flex:1;min-width:170px;border-top:3px solid ${pcForaTotal > 0 ? '#ffca28' : '#26a69a'};">
+                    <span class="s-label">FORA DA CONTA</span>
+                    <span class="s-value" style="color:${pcForaTotal > 0 ? '#ffca28' : '#26a69a'};font-size:1.6rem;">${(pcForaTotal / pcTotal * 100).toFixed(0)}%</span>
+                    <span class="s-sub">${pcForaTotal.toLocaleString('pt-BR')} pç sem cadastro ou sem tempo de ${escHTML(procDef.nome.toLowerCase())}</span></div>
+            </div>
+            <div class="summary-card">
+                <div class="s-label" style="margin-bottom:10px;">OCUPAÇÃO — ${escHTML(procDef.nome.toUpperCase())} · mês a mês (pelas vendas)</div>
+                ${linhas}
+                <div style="margin-top:10px;font-size:.7rem;color:var(--text-dim);">
+                    carga = vendas do mês × tempo de ${escHTML(procDef.nome.toLowerCase())} (Banco de Dados) · capacidade = ${capP.maquinas} máq × ${capP.horasDia}h/dia × dias úteis reais (feriados descontados) × OEE ${capP.oee}% ·
+                    <span style="color:#26a69a;">&lt;80% OK</span> · <span style="color:#ffca28;">80–100% atenção</span> · <span style="color:#f06292;">&gt;100% acima da capacidade</span>
+                </div>
+            </div>`;
+    },
+
     // ── cadastro rápido dos códigos sem cadastro (grava na importação vigente do Banco) ──
     _renderCadastro() {
         const p = document.getElementById('stoll-cad-panel'); if (!p || !this._semCad?.length) return;
@@ -5321,6 +5406,8 @@ const stollOcup = {
         if (!banco.rawData?.length)  { el.innerHTML = `<div class="summary-card" style="color:#ffca28;">Importe o <strong>Banco de Dados</strong> primeiro — é dele que vem a coluna "Stoll" de cada código.</div>`; return; }
         this._pintarModo();
         if (this._modo === 'mix') return this._renderMix();
+        const procSel = document.getElementById('stoll-ocup-proc')?.value || 'tecelagem';
+        if (procSel !== 'tecelagem') return this._renderTempoProc(procSel);
         el.innerHTML = `<div class="summary-card" style="color:var(--text-dim);">Calculando ocupação mês a mês…</div>`;
 
         // mapas base (mesmos do TOC)
