@@ -616,6 +616,30 @@ app.post("/api/banco/import", auth, adminOnly, async (req, res) => {
     res.json({ ok: true, importacaoId: imp.id, total: linhas.length });
 });
 
+// ── POST /api/banco/adicionar — acrescenta códigos à ÚLTIMA importação ───────
+// Cadastro rápido (ex.: códigos vendidos sem cadastro, via dashboard Vendas por
+// Stoll). Não cria importação nova: pendura na vigente e ajusta total_linhas.
+app.post('/api/banco/adicionar', auth, adminOnly, async (req, res) => {
+    const linhas = Array.isArray(req.body?.linhas) ? req.body.linhas.filter(l => l?.dados?.['Código']) : [];
+    if (!linhas.length) return res.status(400).json({ erro: 'linhas [{dados:{Código,...}}] obrigatório' });
+    const { data: imp, error: eI } = await supabase.from('importacoes_banco')
+        .select('id,total_linhas').order('criado_em', { ascending: false }).limit(1).maybeSingle();
+    if (eI) return erro500(res, eI);
+    if (!imp) return res.status(422).json({ erro: 'Nenhuma importação de Banco de Dados existe ainda — importe a planilha primeiro.' });
+    // não duplicar código que já existe na importação vigente
+    let existentes;
+    try { existentes = await fetchAllRows('dados_banco', imp.id); } catch (e) { return erro500(res, e); }
+    const jaTem = new Set((existentes || []).map(r => String(r.dados?.['Código'] ?? '').trim().toUpperCase()).filter(Boolean));
+    const novas = linhas.filter(l => !jaTem.has(String(l.dados['Código']).trim().toUpperCase()))
+        .map(l => ({ importacao_id: imp.id, dados: l.dados }));
+    if (novas.length) {
+        const { error } = await supabase.from('dados_banco').insert(novas);
+        if (error) return erro500(res, error);
+        await supabase.from('importacoes_banco').update({ total_linhas: (imp.total_linhas || 0) + novas.length }).eq('id', imp.id);
+    }
+    res.json({ ok: true, adicionadas: novas.length, ja_existiam: linhas.length - novas.length });
+});
+
 // ── GET /api/banco?importacao_id=xxx ─────────────────────────
 app.get('/api/banco', auth, async (req, res) => {
     const { importacao_id } = req.query;

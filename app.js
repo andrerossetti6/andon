@@ -5191,6 +5191,7 @@ const stollOcup = {
         if (!cols.length) { el.innerHTML = `<div class="summary-card" style="color:#ffca28;">Nenhum mês com ano identificado nas vendas.</div>`; return; }
 
         const SEM_CAD = 'sem cadastro';   // código vendido que não está no Banco de Dados
+        const semCadMap = {};             // cod → { qty, desc } (para o cadastro rápido)
         const meses = cols.map(c => {
             const porModelo = {}; let total = 0;
             vendas.rawData.forEach(r => {
@@ -5198,21 +5199,24 @@ const stollOcup = {
                 const cod = String(r.codigo || '').trim().toUpperCase(); if (!cod) return;
                 const dados = bancoMap[cod];
                 const modelo = dados ? (toc._getModelosStoll(dados)[0] || 'sem Stoll') : SEM_CAD;
+                if (!dados) { const s = semCadMap[cod] || (semCadMap[cod] = { qty: 0, desc: r.descricao || '' }); s.qty += q; }
                 porModelo[modelo] = (porModelo[modelo] || 0) + q;
                 total += q;
             });
             return { label: c.label, total, porModelo };
         });
+        this._semCad = Object.entries(semCadMap).map(([cod, x]) => ({ cod, ...x })).sort((a, b) => b.qty - a.qty);
 
         // modelos ordenados pelo volume total do período (numéricos primeiro, buckets de aviso por último)
         const totalPorModelo = {};
         meses.forEach(m => Object.entries(m.porModelo).forEach(([mod, q]) => { totalPorModelo[mod] = (totalPorModelo[mod] || 0) + q; }));
+        const ehNaoTece = m => /N[AÃ]O\s*TECE/i.test(m);
         const ehAviso = m => m === SEM_CAD || m === 'sem Stoll';
-        const modelos = Object.keys(totalPorModelo).sort((a, b) => (ehAviso(a) - ehAviso(b)) || totalPorModelo[b] - totalPorModelo[a]);
+        const modelos = Object.keys(totalPorModelo).sort((a, b) => ((ehAviso(a) || ehNaoTece(a)) - (ehAviso(b) || ehNaoTece(b))) || totalPorModelo[b] - totalPorModelo[a]);
         const PAL = ['#26c6da', '#7c4dff', '#26a69a', '#ffab76', '#f06292', '#ba68c8'];
         const corDe = {}; let pi = 0;
-        modelos.forEach(m => { corDe[m] = ehAviso(m) ? (m === SEM_CAD ? '#8b949e' : '#ffca28') : PAL[pi++ % PAL.length]; });
-        const nome = m => ehAviso(m) ? m : 'Stoll ' + m;
+        modelos.forEach(m => { corDe[m] = ehNaoTece(m) ? '#607d8b' : ehAviso(m) ? (m === SEM_CAD ? '#8b949e' : '#ffca28') : PAL[pi++ % PAL.length]; });
+        const nome = m => ehNaoTece(m) ? 'não tece (fora Stoll)' : ehAviso(m) ? m : 'Stoll ' + m;
 
         const totalGeral = Object.values(totalPorModelo).reduce((s, v) => s + v, 0) || 1;
         const cards = modelos.map(mod => {
@@ -5248,14 +5252,61 @@ const stollOcup = {
 
         el.innerHTML = `
             <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;">${cards}</div>
+            ${this._semCad?.length ? `<div class="summary-card" style="margin-bottom:14px;border-left:3px solid #8b949e;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+                <span style="flex:1;font-size:.8rem;color:var(--text-dim);"><strong style="color:var(--text-primary);">${this._semCad.length} código(s) vendidos sem cadastro</strong> no Banco de Dados (${this._semCad.reduce((s, x) => s + x.qty, 0).toLocaleString('pt-BR')} pç). Defina a Stoll de cada um — ou marque "não tece" (palmilha, meia…).</span>
+                <button class="btn primary" style="font-size:.76rem;" onclick="stollOcup._renderCadastro()">➕ Cadastrar agora</button>
+            </div><div id="stoll-cad-panel"></div>` : ''}
             <div class="summary-card">
                 <div class="s-label" style="margin-bottom:10px;">MIX DE VENDAS POR MODELO — mês a mês (100% = peças vendidas no mês)</div>
                 ${linhas}
                 <div style="margin-top:10px;font-size:.7rem;color:var(--text-dim);">
                     Cada peça vendida entra no modelo declarado na coluna <strong>"Stoll"</strong> do Banco de Dados (1º da lista) — sem tempo, OEE ou capacidade, só código × quantidade.
-                    <span style="color:#8b949e;">"sem cadastro"</span> = código vendido que não está no Banco (ex.: palmilhas/meias) · <span style="color:#ffca28;">"sem Stoll"</span> = está no Banco mas com a coluna Stoll vazia.
+                    <span style="color:#8b949e;">"sem cadastro"</span> = código vendido que não está no Banco · <span style="color:#ffca28;">"sem Stoll"</span> = está no Banco com a coluna Stoll vazia · <span style="color:#607d8b;">"não tece"</span> = cadastrado como fora das Stoll.
                 </div>
             </div>`;
+    },
+
+    // ── cadastro rápido dos códigos sem cadastro (grava na importação vigente do Banco) ──
+    _renderCadastro() {
+        const p = document.getElementById('stoll-cad-panel'); if (!p || !this._semCad?.length) return;
+        const OPTS = ['530', '330', '303', 'NÃO TECE'];
+        p.innerHTML = `<div class="summary-card" style="margin-bottom:14px;">
+            <div class="s-label" style="margin-bottom:10px;">CADASTRO RÁPIDO — defina a Stoll de cada código (deixe "— pular —" para decidir depois)</div>
+            <div style="max-height:44vh;overflow-y:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:.8rem;">
+                    <thead><tr style="position:sticky;top:0;background:var(--bg-card);color:var(--text-dim);font-size:.64rem;text-align:left;">
+                        <th style="padding:6px 8px;">CÓDIGO</th><th style="padding:6px 8px;">DESCRIÇÃO (das vendas)</th><th style="padding:6px 8px;text-align:right;">PEÇAS</th><th style="padding:6px 8px;">STOLL</th></tr></thead>
+                    <tbody>${this._semCad.map((x, i) => `<tr style="border-bottom:1px solid rgba(255,255,255,.05);">
+                        <td style="padding:6px 8px;font-weight:700;">${escHTML(x.cod)}</td>
+                        <td style="padding:6px 8px;color:var(--text-dim);">${escHTML(x.desc || '—')}</td>
+                        <td style="padding:6px 8px;text-align:right;">${x.qty.toLocaleString('pt-BR')}</td>
+                        <td style="padding:6px 8px;"><select id="stoll-cad-${i}" style="padding:5px 8px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:.78rem;">
+                            <option value="">— pular —</option>${OPTS.map(o => `<option value="${o}">${o === 'NÃO TECE' ? 'não tece (palmilha/meia…)' : 'Stoll ' + o}</option>`).join('')}
+                        </select></td></tr>`).join('')}</tbody>
+                </table>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:12px;align-items:center;">
+                <button class="btn primary" style="font-size:.78rem;" onclick="stollOcup._salvarCadastro()">💾 Salvar no Banco de Dados</button>
+                <button class="btn secondary" style="font-size:.78rem;" onclick="document.getElementById('stoll-cad-panel').innerHTML=''">Cancelar</button>
+                <span style="font-size:.7rem;color:var(--text-dim);">Grava na importação vigente do Banco (some da fatia cinza na hora). Tempo de tecelagem pode ser preenchido depois na planilha.</span>
+            </div>
+        </div>`;
+        p.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+    async _salvarCadastro() {
+        const linhas = [];
+        (this._semCad || []).forEach((x, i) => {
+            const v = document.getElementById('stoll-cad-' + i)?.value;
+            if (!v) return;
+            linhas.push({ dados: { 'Código': x.cod, 'Descrição': x.desc || '', 'Stoll': v, '_origem': 'cadastro rápido (Vendas por Stoll)' } });
+        });
+        if (!linhas.length) return mostrarToast('Nenhum código com Stoll definida — selecione ao menos um.', 'aviso');
+        const r = await api.post('/api/banco/adicionar', { linhas });
+        if (!r?.ok) return mostrarToast('✗ NÃO SALVOU: ' + (r?.erro || 'sem resposta'), 'erro');
+        // reflete no rawData local (sem reimportar) e re-renderiza o mix
+        linhas.forEach(l => banco.rawData.push({ dados: l.dados }));
+        mostrarToast(`✓ ${r.adicionadas} código(s) cadastrados no Banco${r.ja_existiam ? ` · ${r.ja_existiam} já existiam` : ''}.`);
+        this.render();
     },
 
     async render(tent = 0) {
