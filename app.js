@@ -1148,7 +1148,7 @@ function navigateTo(viewName) {
     if (viewName !== 'dashboard') localStorage.setItem('sin1_lastView', viewName);
     fecharDetalhe();
     fecharDetalheVxe();
-    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','toc','previsao','politica','plano-prod','soep','timeline','pesquisa','vxe','op-dash','pedidos','comparador','clientes-dash','abc','abc-micro','abc-estoque','mes','cockpit'].forEach(v => {
+    ['dashboard','vendas','cliente','banco','estoque','op','costura','calendario','processos','capacidade','toc','previsao','politica','plano-prod','soep','timeline','pesquisa','vxe','op-dash','pedidos','comparador','clientes-dash','abc','abc-micro','abc-estoque','mes','cockpit','stoll-ocup'].forEach(v => {
         const el = document.getElementById(`view-${v}`);
         if (el) el.style.display = v === viewName ? 'flex' : 'none';
     });
@@ -1187,6 +1187,7 @@ function navigateTo(viewName) {
         pesquisa:      'nav-pesquisa',
         vxe:           'nav-vxe',
         'op-dash':     'nav-op-dash',
+        'stoll-ocup':  'nav-stoll-ocup',
         pedidos:       'nav-pedidos',
         comparador:    'nav-comparador',
         'clientes-dash':'nav-clientes-dash',
@@ -1293,6 +1294,8 @@ function navigateTo(viewName) {
         document.getElementById('nav-op-dash')?.classList.add('active');
         if (opDash._dirty || !opDash._rows.length) opDash.render();
         opDash._dirty = false;
+    } else if (viewName === 'stoll-ocup') {
+        setTimeout(() => stollOcup.render(), 50);
     } else if (viewName === 'abc') {
         document.querySelector('[data-view="abc"]')?.classList.add('sub-active');
         setTimeout(() => abc.render(), 50);
@@ -5150,6 +5153,122 @@ toc._calcDiasUteisDoMes = async function(mesStr) {
         if (!(this._feriadosCache || new Set()).has(iso)) uteis++;  // A1: guard se feriados falharam (não quebra o heatmap do S&OP)
     }
     return uteis;
+};
+
+// ═══ OCUPAÇÃO STOLL — dashboard mensal (vendas × banco "Stoll" × teares) ═════
+// Reusa a MESMA matemática do TOC (toc.calcularStoll): carga = tempo de tecelagem
+// × qty do mês, alocada no 1º modelo apto da coluna "Stoll"; capacidade = tear a
+// tear (h/dia × dias úteis reais do mês × OEE do próprio tear). Nada inventado.
+const stollOcup = {
+    _MES_NUM: { jan:1, fev:2, mar:3, abr:4, mai:5, jun:6, jul:7, ago:8, set:9, out:10, nov:11, dez:12 },
+
+    _popularAnos() {
+        const sel = document.getElementById('stoll-ocup-ano'); if (!sel) return;
+        const anos = [...new Set((vendas.monthCols || []).map(c => c.year).filter(Boolean))].sort();
+        const cur = sel.value;
+        sel.innerHTML = '<option value="all">Todos os meses</option>' +
+            anos.map(a => `<option value="${a}"${a === cur ? ' selected' : ''}>${a}</option>`).join('');
+    },
+
+    async render(tent = 0) {
+        const el = document.getElementById('stoll-ocup-content'); if (!el) return;
+        this._popularAnos();
+        // boot assíncrono: vendas/banco podem ainda estar carregando do Supabase — espera até ~15s
+        if ((!vendas.rawData?.length || !banco.rawData?.length) && tent < 10) {
+            el.innerHTML = `<div class="summary-card" style="color:var(--text-dim);">Carregando vendas e banco de dados…</div>`;
+            setTimeout(() => this.render(tent + 1), 1500); return;
+        }
+        if (!vendas.rawData?.length) { el.innerHTML = `<div class="summary-card" style="color:#ffca28;">Importe as <strong>Vendas</strong> primeiro (Dados Operacionais › Vendas) — o dashboard usa as quantidades mensais.</div>`; return; }
+        if (!banco.rawData?.length)  { el.innerHTML = `<div class="summary-card" style="color:#ffca28;">Importe o <strong>Banco de Dados</strong> primeiro — é dele que vêm o tempo de tecelagem e a coluna "Stoll" de cada código.</div>`; return; }
+        el.innerHTML = `<div class="summary-card" style="color:var(--text-dim);">Calculando ocupação mês a mês…</div>`;
+
+        // mapas base (mesmos do TOC)
+        const bancoMap = {};
+        banco.rawData.forEach(r => { const cod = String(r.dados?.['Código'] ?? '').trim().toUpperCase(); if (cod) bancoMap[cod] = r.dados; });
+        if (!toc._capCache) await toc._loadCapConfig().catch(() => {});
+        const cap = toc._getCap();
+
+        const anoSel = document.getElementById('stoll-ocup-ano')?.value || 'all';
+        const cols = (vendas.monthCols || []).filter(c => c.year && (anoSel === 'all' || c.year === anoSel));
+        if (!cols.length) { el.innerHTML = `<div class="summary-card" style="color:#ffca28;">Nenhum mês com ano identificado nas vendas.</div>`; return; }
+
+        const meses = [];
+        for (const c of cols) {
+            const demanda = {};
+            vendas.rawData.forEach(r => {
+                const q = Number(r[c.key]) || 0; if (q <= 0) return;
+                const cod = String(r.codigo || '').trim().toUpperCase(); if (!cod) return;
+                demanda[cod] = (demanda[cod] || 0) + q;
+            });
+            const mesStr = `${c.year}-${String(this._MES_NUM[c.abbr] || 1).padStart(2, '0')}`;
+            const dias = await toc._calcDiasUteisDoMes(mesStr).catch(() => 22);
+            const modelos = Object.keys(demanda).length ? await toc.calcularStoll(demanda, bancoMap, dias, cap) : [];
+            meses.push({ label: c.label, dias, modelos, pecas: Object.values(demanda).reduce((s, v) => s + v, 0) });
+        }
+
+        // conjunto de modelos com máquina cadastrada (colunas do quadro), na ordem de nº de teares
+        const capPorModelo = {};
+        meses.forEach(m => m.modelos.forEach(x => { if (x.n > 0 && !(x.modelo in capPorModelo)) capPorModelo[x.modelo] = x.n; }));
+        const modelosCad = Object.keys(capPorModelo).sort((a, b) => capPorModelo[b] - capPorModelo[a]);
+        if (!modelosCad.length) { el.innerHTML = `<div class="summary-card" style="color:#ffca28;">Nenhum tear com modelo cadastrado — cadastre as máquinas de Tecelagem (com o modelo Stoll e OEE) em <strong>Configuração › Processos</strong>.</div>`; return; }
+
+        // médias e picos por modelo + problemas de dado
+        const resumo = modelosCad.map(mod => {
+            const utils = meses.map(m => m.modelos.find(x => x.modelo === mod)).filter(Boolean).map(x => x.util === Infinity ? null : (x.util || 0)).filter(v => v != null);
+            const media = utils.length ? utils.reduce((s, v) => s + v, 0) / utils.length : 0;
+            let pico = { v: -1, mes: '—' };
+            meses.forEach(m => { const x = m.modelos.find(y => y.modelo === mod); const u = x && x.util !== Infinity ? (x.util || 0) : 0; if (u > pico.v) pico = { v: u, mes: m.label }; });
+            return { mod, n: capPorModelo[mod], media, pico };
+        });
+        const semModelo = new Set(); let cargaSemMaq = 0;
+        meses.forEach(m => m.modelos.forEach(x => { if (x.n === 0 && x.cargaMin > 0) { semModelo.add(x.modelo); cargaSemMaq += x.cargaMin; } }));
+
+        const corDe = u => u >= 1 ? '#f06292' : u >= 0.8 ? '#ffca28' : '#26a69a';
+        const cards = resumo.map(r => `
+            <div class="summary-card" style="flex:1;min-width:180px;border-top:3px solid ${corDe(r.media)};">
+                <span class="s-label">STOLL ${escHTML(r.mod)} · ${r.n} tear${r.n > 1 ? 'es' : ''}</span>
+                <span class="s-value" style="color:${corDe(r.media)};font-size:1.6rem;">${(r.media * 100).toFixed(0)}%</span>
+                <span class="s-sub">ocupação média · pico ${(Math.max(r.pico.v, 0) * 100).toFixed(0)}% em ${escHTML(r.pico.mes)}</span>
+            </div>`).join('');
+
+        const th = `<th style="padding:8px 10px;text-align:left;color:var(--text-dim);font-size:.66rem;letter-spacing:.05em;">MÊS</th>` +
+            modelosCad.map(mod => `<th style="padding:8px 10px;text-align:left;color:var(--text-dim);font-size:.66rem;letter-spacing:.05em;">STOLL ${escHTML(mod)}</th>`).join('') +
+            `<th style="padding:8px 10px;text-align:right;color:var(--text-dim);font-size:.66rem;">PEÇAS</th><th style="padding:8px 10px;text-align:right;color:var(--text-dim);font-size:.66rem;">DIAS ÚTEIS</th>`;
+        const linhas = meses.map(m => {
+            const celulas = modelosCad.map(mod => {
+                const x = m.modelos.find(y => y.modelo === mod);
+                if (!x || x.cargaMin <= 0) return `<td style="padding:7px 10px;color:var(--text-dim);font-size:.74rem;">—</td>`;
+                const u = x.util === Infinity ? 0 : (x.util || 0);
+                const cor = corDe(u);
+                return `<td style="padding:7px 10px;min-width:170px;">
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <div style="flex:1;height:9px;background:var(--bg-input);border-radius:5px;overflow:hidden;"><div style="width:${Math.min(u * 100 / 1.5, 100)}%;height:100%;background:${cor};"></div></div>
+                        <span style="width:44px;text-align:right;font-size:.8rem;font-weight:700;color:${cor};">${(u * 100).toFixed(0)}%</span>
+                    </div>
+                    <div style="font-size:.64rem;color:var(--text-dim);margin-top:2px;">${(x.cargaMin / 60).toFixed(0)}h / ${(x.capMin / 60).toFixed(0)}h · ${x.skus} SKU${x.skus > 1 ? 's' : ''}</div>
+                </td>`;
+            }).join('');
+            return `<tr style="border-bottom:1px solid rgba(255,255,255,.05);">
+                <td style="padding:7px 10px;font-weight:700;white-space:nowrap;">${escHTML(m.label)}</td>${celulas}
+                <td style="padding:7px 10px;text-align:right;color:var(--text-dim);">${m.pecas.toLocaleString('pt-BR')}</td>
+                <td style="padding:7px 10px;text-align:right;color:var(--text-dim);">${m.dias}</td>
+            </tr>`;
+        }).join('');
+
+        el.innerHTML = `
+            <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;">${cards}</div>
+            ${semModelo.size ? `<div class="summary-card" style="margin-bottom:14px;border-left:3px solid #ff5252;"><span style="font-size:.78rem;color:#ff5252;">⚠ ${(cargaSemMaq / 60).toFixed(0)}h de demanda em modelo sem tear cadastrado: ${[...semModelo].map(escHTML).join(', ')} — corrija a coluna "Stoll" do Banco ou cadastre o tear.</span></div>` : ''}
+            <div class="summary-card" style="padding:0;overflow:hidden;">
+                <div style="overflow:auto;max-height:64vh;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">
+                    <thead><tr style="position:sticky;top:0;background:var(--bg-card);z-index:1;border-bottom:2px solid var(--border-color);">${th}</tr></thead>
+                    <tbody>${linhas}</tbody>
+                </table></div>
+                <div style="padding:8px 14px;font-size:.7rem;color:var(--text-dim);border-top:1px solid var(--border-color);">
+                    Mesma matemática do TOC: carga = tempo de tecelagem × vendas do mês, no 1º modelo apto da coluna "Stoll" · capacidade = tear a tear (h/dia × dias úteis reais × OEE do tear, cadastro Processos › Tecelagem) ·
+                    <span style="color:#26a69a;">&lt;80% OK</span> · <span style="color:#ffca28;">80–100% atenção</span> · <span style="color:#f06292;">&gt;100% acima da capacidade</span>
+                </div>
+            </div>`;
+    },
 };
 
 // Extensão do TOC: calcula sem alterar estado (usado por S&OP)
