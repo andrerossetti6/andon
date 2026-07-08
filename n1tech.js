@@ -56,14 +56,17 @@ const n1 = {
         document.querySelectorAll('.nav-section-header[data-key]').forEach(h3 => {
             if (localStorage.getItem('nav-sec-' + h3.dataset.key) === '1') h3.closest('.nav-section')?.classList.add('nav-section-collapsed');
         });
-        // login por link: ?token=...
-        const urlTok = new URLSearchParams(location.search).get('token');
+        // login por link: ?token=... · deep-link: ?tab=pulmoes
+        const qs = new URLSearchParams(location.search);
+        const urlTok = qs.get('token');
+        this._tabInicial = qs.get('tab') || null;
         if (urlTok) { localStorage.setItem(TOKEN_KEY, urlTok); try { history.replaceState({}, document.title, location.pathname); } catch {} }
 
         if (!localStorage.getItem(TOKEN_KEY)) return this._mostrarLogin();
         const ok = await this._auth();
         if (ok === false) return this._mostrarLogin();
         this._mostrarApp();
+        if (this._tabInicial) { try { this.tab(this._tabInicial); } catch {} }
     },
 
     // valida a sessão com uma leitura leve (não escreve nada em lugar nenhum)

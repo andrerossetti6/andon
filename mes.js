@@ -120,10 +120,11 @@ const mf = {
         const qs = new URLSearchParams(location.search);
         const urlTok = qs.get('token');
         if (urlTok) { localStorage.setItem(TOKEN_KEY, urlTok); }
-        // modo quiosque: ?maquina=CIRC-01 fixa a máquina deste tablet
+        // modo quiosque: ?maquina=CIRC-01 fixa a máquina deste tablet · deep-link: ?tab=apont
         const km = qs.get('maquina');
+        this._tabInicial = qs.get('tab') || null;
         if (km !== null) { if (km) localStorage.setItem('mf_kiosk_maq', km); else localStorage.removeItem('mf_kiosk_maq'); }
-        if (urlTok || km !== null) { try { history.replaceState({}, document.title, location.pathname); } catch {} }
+        if (urlTok || km !== null || this._tabInicial) { try { history.replaceState({}, document.title, location.pathname); } catch {} }
 
         // restaura estados de menu colapsado
         document.querySelectorAll('.has-sub[id]').forEach(li => { if (localStorage.getItem('nav-grp-' + li.id) === '1') li.classList.add('nav-collapsed'); });
@@ -147,6 +148,7 @@ const mf = {
             this._mostrarApp(); toast('Offline e sem dados em cache — conecte ao menos uma vez.', 'aviso'); return;
         }
         this._mostrarApp();
+        if (this._tabInicial) { try { this.tab(this._tabInicial); } catch {} }
         fila.flush();
     },
 
