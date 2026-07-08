@@ -5280,8 +5280,15 @@ const stollOcup = {
     _archCache: null,
     async _loadArquitetura() {
         if (this._archCache) return this._archCache;
-        const [procs, maqs] = await Promise.all([api.get('/api/processos-config'), api.get('/api/maquinas-unificado')]);
-        return (this._archCache = { procs: procs || [], maqs: maqs || [] });
+        // DUAS fontes mescladas: unificado (máquinas migradas ao MES, ex.: teares) +
+        // legada 'maquinas' (onde a TELA Base de Dados › Processos grava — equipes/pessoas).
+        // Dedup por processo+identificação (a tela pode ter linha que também migrou).
+        const [procs, unif, leg] = await Promise.all([
+            api.get('/api/processos-config'), api.get('/api/maquinas-unificado'), api.get('/api/maquinas')]);
+        const chave = m => (m.processo_id || '') + '|' + String(m.id_maquina || m.modelo || '').trim().toLowerCase();
+        const vistos = new Set((unif || []).map(chave));
+        const maqs = [...(unif || []), ...(leg || []).filter(m => !vistos.has(chave(m)))];
+        return (this._archCache = { procs: procs || [], maqs });
     },
     // casa o processo do TOC com o processo da arquitetura pelo nome (tolerante)
     _procArqDe(procId, procs) {
@@ -5307,12 +5314,16 @@ const stollOcup = {
         const procArq = this._procArqDe(procId, arch.procs);
         const maqsProc = procArq ? arch.maqs.filter(m => m.processo_id === procArq.id && String(m.status || 'Ativo').toLowerCase() !== 'inativo') : [];
         const usaArq = maqsProc.length > 0;
-        // fator de capacidade por dia: Σ máquinas (h/dia × 60 × OEE da máquina) OU config do TOC
+        // capacidade por dia: Σ recursos da arquitetura — cada linha vale máx(nº de pessoas, 1)
+        // postos × h/dia × 60 × OEE da linha. Máquina (sem pessoas) conta 1; equipe conta N.
+        const postosDe = m => Math.max(Number(m.n_pessoas) || 1, 1);
         const capDiaMin = usaArq
-            ? maqsProc.reduce((s, m) => s + capP.horasDia * 60 * (Math.min(m.oee == null ? 100 : Number(m.oee), 100) / 100), 0)
+            ? maqsProc.reduce((s, m) => s + postosDe(m) * capP.horasDia * 60 * (Math.min(m.oee == null ? 100 : Number(m.oee), 100) / 100), 0)
             : capP.maquinas * capP.horasDia * 60 * (Math.min(capP.oee || 100, 100) / 100);
         const oeeMedio = usaArq ? maqsProc.reduce((s, m) => s + (m.oee == null ? 100 : Number(m.oee)), 0) / maqsProc.length : (capP.oee || 100);
-        const nMaq = usaArq ? maqsProc.length : capP.maquinas;
+        const totalPostos = usaArq ? maqsProc.reduce((s, m) => s + postosDe(m), 0) : capP.maquinas;
+        const temPessoas = usaArq && maqsProc.some(m => Number(m.n_pessoas) > 0);
+        const nMaq = totalPostos;
 
         const anoSel = document.getElementById('stoll-ocup-ano')?.value || 'all';
         const cols = (vendas.monthCols || []).filter(c => c.year && (anoSel === 'all' || c.year === anoSel));
@@ -5361,8 +5372,9 @@ const stollOcup = {
         const chipsMaq = usaArq ? maqsProc.map(m => {
             const oee = m.oee == null ? 100 : Number(m.oee);
             const corO = oee >= 75 ? '#26a69a' : oee >= 60 ? '#ffca28' : '#f06292';
+            const pes = Number(m.n_pessoas) > 0 ? ` <span style="color:#26c6da;font-weight:700;">👤×${Number(m.n_pessoas)}</span>` : '';
             return `<span style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-color);border-radius:7px;padding:4px 10px;font-size:.74rem;">
-                <strong>${escHTML(m.id_maquina || m.codigo || m.nome || 'máq')}</strong>${m.modelo ? ` <span style="color:var(--text-dim);">${escHTML(String(m.modelo))}</span>` : ''}
+                <strong>${escHTML(m.id_maquina || m.codigo || m.nome || 'máq')}</strong>${m.modelo ? ` <span style="color:var(--text-dim);">${escHTML(String(m.modelo))}</span>` : ''}${pes}
                 <span style="font-weight:800;color:${corO};">${oee}%</span></span>`;
         }).join(' ') : '';
         const cardEfic = `
@@ -5370,11 +5382,11 @@ const stollOcup = {
                 <div class="s-label" style="margin-bottom:8px;">⚙ EFICIÊNCIAS USADAS — ${usaArq ? 'arquitetura de processos (Base de Dados › Processos)' : 'TOC › Capacidade (fallback)'}</div>
                 ${usaArq
                     ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">${chipsMaq}</div>
-                       <div style="font-size:.76rem;color:var(--text-dim);">OEE médio das ${nMaq} máquinas ativas: <strong style="color:var(--text-primary);">${oeeMedio.toFixed(0)}%</strong> · a capacidade soma máquina a máquina, cada uma com o SEU OEE.</div>`
-                    : `<div style="font-size:.78rem;color:#ffca28;">⚠ Nenhuma máquina de <strong>${escHTML(procDef.nome)}</strong> cadastrada na arquitetura de processos — usando a config do TOC (${capP.maquinas} máq · OEE ${capP.oee}%). Cadastre as máquinas com OEE em <strong>Base de Dados › Processos</strong> para o cálculo usar a eficiência real de cada uma.</div>`}
+                       <div style="font-size:.76rem;color:var(--text-dim);">${maqsProc.length} recurso(s) ativos = <strong style="color:var(--text-primary);">${nMaq} posto(s)</strong>${temPessoas ? ' (máquina conta 1 · equipe conta o nº de pessoas 👤)' : ''} · OEE médio <strong style="color:var(--text-primary);">${oeeMedio.toFixed(0)}%</strong> · a capacidade soma recurso a recurso, cada um com o SEU OEE.</div>`
+                    : `<div style="font-size:.78rem;color:#ffca28;">⚠ Nenhum recurso de <strong>${escHTML(procDef.nome)}</strong> cadastrado na arquitetura de processos — usando a config do TOC (${capP.maquinas} postos · OEE ${capP.oee}%). Em <strong>Base de Dados › Processos</strong>, cadastre as máquinas (com OEE) — ou, se o processo é manual, uma linha com o <strong>nº de pessoas</strong> e o OEE da equipe: o cálculo troca sozinho.</div>`}
                 <div style="margin-top:10px;padding:10px 12px;background:var(--bg-input);border-radius:8px;font-family:ui-monospace,Menlo,monospace;font-size:.72rem;color:var(--text-dim);overflow-x:auto;">
-                    capacidade(mês) = ${usaArq ? `Σ máquinas [ ${capP.horasDia}h/dia × 60 × dias úteis × OEE da máquina ]` : `${capP.maquinas} máq × ${capP.horasDia}h/dia × 60 × dias úteis × ${capP.oee}%`}<br>
-                    ex. ${escHTML(m0.label)}: <strong style="color:var(--text-primary);">${(m0.capMin / 60).toFixed(0)}h</strong> = ${usaArq ? `Σ ${nMaq} máq (${capP.horasDia}h × ${m0.dias} d.u. × OEE ${oeeMedio.toFixed(0)}% médio)` : `${capP.maquinas} × ${capP.horasDia}h × ${m0.dias} d.u. × ${capP.oee}%`}<br>
+                    capacidade(mês) = ${usaArq ? `Σ recursos [ máx(pessoas, 1) × ${capP.horasDia}h/dia × 60 × dias úteis × OEE do recurso ]` : `${capP.maquinas} postos × ${capP.horasDia}h/dia × 60 × dias úteis × ${capP.oee}%`}<br>
+                    ex. ${escHTML(m0.label)}: <strong style="color:var(--text-primary);">${(m0.capMin / 60).toFixed(0)}h</strong> = ${usaArq ? `${nMaq} posto(s) × ${capP.horasDia}h × ${m0.dias} d.u. × OEE ${oeeMedio.toFixed(0)}% médio` : `${capP.maquinas} × ${capP.horasDia}h × ${m0.dias} d.u. × ${capP.oee}%`}<br>
                     carga(mês) = Σ códigos [ vendas do mês × tempo de ${escHTML(procDef.nome.toLowerCase())} do Banco ] → ex. ${escHTML(m0.label)}: <strong style="color:var(--text-primary);">${(m0.cargaMin / 60).toFixed(0)}h</strong> → ocupação ${(m0.util * 100).toFixed(0)}%
                 </div>
             </div>`;
@@ -5387,8 +5399,8 @@ const stollOcup = {
                     <span class="s-sub">pico ${(Math.max(pico.util, 0) * 100).toFixed(0)}% em ${escHTML(pico.label)}</span></div>
                 <div class="summary-card" style="flex:1;min-width:170px;">
                     <span class="s-label">CAPACIDADE ASSUMIDA</span>
-                    <span class="s-value" style="font-size:1.15rem;">${nMaq} máq × ${capP.horasDia}h · OEE ${oeeMedio.toFixed(0)}%</span>
-                    <span class="s-sub">${usaArq ? 'OEE por máquina (arquitetura de processos)' : 'config do TOC › Capacidade'} · jornada em TOC › Capacidade</span></div>
+                    <span class="s-value" style="font-size:1.15rem;">${nMaq} posto${nMaq > 1 ? 's' : ''} × ${capP.horasDia}h · OEE ${oeeMedio.toFixed(0)}%</span>
+                    <span class="s-sub">${usaArq ? (temPessoas ? 'máquinas + pessoas da arquitetura de processos' : 'OEE por máquina (arquitetura de processos)') : 'config do TOC › Capacidade'} · jornada em TOC › Capacidade</span></div>
                 <div class="summary-card" style="flex:1;min-width:170px;border-top:3px solid ${pcForaTotal > 0 ? '#ffca28' : '#26a69a'};">
                     <span class="s-label">FORA DA CONTA</span>
                     <span class="s-value" style="color:${pcForaTotal > 0 ? '#ffca28' : '#26a69a'};font-size:1.6rem;">${(pcForaTotal / pcTotal * 100).toFixed(0)}%</span>
@@ -5399,7 +5411,7 @@ const stollOcup = {
                 <div class="s-label" style="margin-bottom:10px;">OCUPAÇÃO — ${escHTML(procDef.nome.toUpperCase())} · mês a mês (pelas vendas)</div>
                 ${linhas}
                 <div style="margin-top:10px;font-size:.7rem;color:var(--text-dim);">
-                    carga = vendas do mês × tempo de ${escHTML(procDef.nome.toLowerCase())} (Banco de Dados) · capacidade = ${usaArq ? `Σ ${nMaq} máquinas × ${capP.horasDia}h/dia × dias úteis × OEE de cada máquina` : `${capP.maquinas} máq × ${capP.horasDia}h/dia × dias úteis × OEE ${capP.oee}%`} ·
+                    carga = vendas do mês × tempo de ${escHTML(procDef.nome.toLowerCase())} (Banco de Dados) · capacidade = ${usaArq ? `Σ ${nMaq} postos (máquinas/pessoas) × ${capP.horasDia}h/dia × dias úteis × OEE de cada recurso` : `${capP.maquinas} postos × ${capP.horasDia}h/dia × dias úteis × OEE ${capP.oee}%`} ·
                     <span style="color:#26a69a;">&lt;80% OK</span> · <span style="color:#ffca28;">80–100% atenção</span> · <span style="color:#f06292;">&gt;100% acima da capacidade</span>
                 </div>
             </div>`;
