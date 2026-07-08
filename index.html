@@ -2737,6 +2737,18 @@
                     <option value="">Todos</option>
                 </select>
             </div>
+            <div id="toc-marca-wrap">
+                <div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:6px;letter-spacing:.06em;">MARCA</div>
+                <select id="toc-marca-sel" style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:8px;color:var(--text-primary);font-size:0.85rem;">
+                    <option value="">Todas</option>
+                </select>
+            </div>
+            <div id="toc-modelo-wrap">
+                <div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:6px;letter-spacing:.06em;">MODELO</div>
+                <select id="toc-modelo-sel" style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:8px;color:var(--text-primary);font-size:0.85rem;">
+                    <option value="">Todos</option>
+                </select>
+            </div>
             <div>
                 <div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:6px;letter-spacing:.06em;">DIAS ÚTEIS / MÊS <span id="toc-dias-hint" style="color:#26c6da;text-transform:none;letter-spacing:0;"></span></div>
                 <input id="toc-dias" type="number" value="22" min="1" max="31"
@@ -2771,8 +2783,15 @@
 
         <!-- Barras por processo -->
         <div class="summary-card" style="margin-bottom:20px;">
-            <div class="s-label" style="margin-bottom:16px;">UTILIZAÇÃO POR PROCESSO</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+                <div class="s-label" style="margin:0;">UTILIZAÇÃO POR PROCESSO</div>
+                <div style="display:flex;gap:8px;">
+                    <button class="btn secondary" style="font-size:.74rem;" onclick="toc._renderMatriz()" title="Utilização de TODOS os processos mês a mês (heatmap) — respeita os filtros de segmento/marca/modelo e o E-SE de capacidade">📅 Matriz mensal</button>
+                    <button class="btn secondary" style="font-size:.74rem;" onclick="toc._exportCsv()" title="Baixa o resultado em CSV (Excel)">⬇ CSV</button>
+                </div>
+            </div>
             <div id="toc-barras"></div>
+            <div id="toc-matriz" style="margin-top:16px;"></div>
         </div>
 
         <!-- Tecelagem por modelo Stoll -->
@@ -2810,6 +2829,15 @@
                     oninput="toc._simularCenario(this.value)"
                     style="flex:1;min-width:160px;max-width:360px;accent-color:var(--indigo-primary);">
                 <span id="toc-cen-label" style="font-size:.95rem;font-weight:800;color:var(--indigo-primary);min-width:52px;">+0%</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.06);">
+                <span style="font-size:.82rem;color:var(--text-dim);white-space:nowrap;">E se? capacidade extra:</span>
+                <select id="toc-whatif-proc" style="padding:7px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.8rem;"></select>
+                <input id="toc-whatif-delta" type="number" value="1" min="-10" max="20" step="1" title="postos/pessoas a mais (negativo tira)"
+                    style="width:70px;padding:7px 10px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:7px;color:var(--text-primary);font-size:.8rem;text-align:right;"> 👤
+                <button class="btn secondary" style="font-size:.74rem;" onclick="toc._whatIfAplicar()">Aplicar</button>
+                <button class="btn secondary" style="font-size:.74rem;" onclick="toc._whatIfLimpar()">Limpar</button>
+                <span id="toc-whatif-status" style="font-size:.74rem;color:#26c6da;"></span>
             </div>
             <div id="toc-cen-barras"></div>
         </div>

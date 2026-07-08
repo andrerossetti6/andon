@@ -4443,11 +4443,10 @@ const toc = {
             const fonte = document.getElementById('toc-fonte-sel').value;
             const wVxe   = document.getElementById('toc-vxe-periodo-wrap');
             const wPlano = document.getElementById('toc-plano-mes-wrap');
-            const wMes   = document.getElementById('toc-mes-wrap');
-            const wSeg   = document.getElementById('toc-seg-wrap');
+            ['toc-mes-wrap', 'toc-seg-wrap', 'toc-marca-wrap', 'toc-modelo-wrap'].forEach(id => {
+                const w = document.getElementById(id); if (w) w.style.display = fonte === 'vxe' ? '' : 'none';
+            });
             if (wVxe)   wVxe.style.display   = fonte === 'vxe'   ? '' : 'none';
-            if (wMes)   wMes.style.display   = fonte === 'vxe'   ? '' : 'none';
-            if (wSeg)   wSeg.style.display   = fonte === 'vxe'   ? '' : 'none';
             if (wPlano) wPlano.style.display = fonte === 'plano' ? '' : 'none';
             if (fonte === 'plano') this._popularMesesPlano();
         });
@@ -4481,6 +4480,129 @@ const toc = {
             const segs = [...new Set((vendas.rawData || []).map(r => String(r.segmento || '').trim()).filter(Boolean))].sort();
             sSel.innerHTML = '<option value="">Todos</option>' + segs.map(s => `<option value="${escHTML(s)}">${escHTML(s)}</option>`).join('');
         }
+        const maSel = document.getElementById('toc-marca-sel');
+        if (maSel && maSel.options.length <= 1) {
+            const marcas = [...new Set((vendas.rawData || []).map(r => String(r.marca || '').trim()).filter(Boolean))].sort();
+            maSel.innerHTML = '<option value="">Todas</option>' + marcas.map(s => `<option value="${escHTML(s)}">${escHTML(s)}</option>`).join('');
+        }
+        const moSel = document.getElementById('toc-modelo-sel');
+        if (moSel && moSel.options.length <= 1) {
+            const mods = [...new Set((vendas.rawData || []).map(r => String(r.modelo || '').trim()).filter(Boolean))].sort();
+            moSel.innerHTML = '<option value="">Todos</option>' + mods.map(s => `<option value="${escHTML(s)}">${escHTML(s)}</option>`).join('');
+        }
+        // "E se?": processos elegíveis (tecelagem fica de fora — capacidade dela é por tear)
+        const wSel = document.getElementById('toc-whatif-proc');
+        if (wSel && !wSel.options.length) {
+            wSel.innerHTML = this._PROCS.filter(p => p.id !== 'tecelagem').map(p => `<option value="${p.id}">${escHTML(p.nome)}</option>`).join('');
+            wSel.value = 'costura_manual';
+        }
+    },
+
+    // ── exporta o resultado atual em CSV (Excel abre direto) ──
+    _exportCsv() {
+        if (!this._resultProcs?.length) return mostrarToast('Calcule o gargalo primeiro.', 'aviso');
+        const sep = ';';
+        const linhas = [
+            ['Processo', 'Carga (h)', 'Capacidade (h)', 'Utilização (%)', 'Status', 'Simulação'].join(sep),
+            ...this._resultProcs.map(p => [
+                p.nome,
+                p.semDados ? '' : p.cargaH.toFixed(1).replace('.', ','),
+                p.semDados ? '' : p.capH.toFixed(1).replace('.', ','),
+                p.semDados || p.util == null ? 'sem dados' : (p.util * 100).toFixed(1).replace('.', ','),
+                p.semDados ? '—' : p.util >= 1 ? 'GARGALO' : p.util >= 0.8 ? 'ATENÇÃO' : 'OK',
+                p.whatIf ? `${p.whatIf > 0 ? '+' : ''}${p.whatIf} posto(s)` : '',
+            ].join(sep)),
+            '', (this._ctxDemanda || '').replace(/·/g, '-'),
+        ];
+        const blob = new Blob(['﻿' + linhas.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `gargalo_toc_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.click(); URL.revokeObjectURL(a.href);
+        mostrarToast('✓ CSV baixado.');
+    },
+
+    // ── matriz mensal: utilização de TODOS os processos mês a mês (heatmap) ──
+    // Respeita segmento/marca/modelo e o E-SE; dias úteis reais por mês.
+    async _renderMatriz() {
+        const el = document.getElementById('toc-matriz'); if (!el) return;
+        if (el.innerHTML) { el.innerHTML = ''; return; }                 // toggle
+        if (!vendas.rawData?.length || !banco.rawData?.length) return mostrarToast('Importe Vendas e Banco de Dados.', 'aviso');
+        el.innerHTML = `<div style="color:var(--text-dim);font-size:.8rem;padding:8px;">Calculando a matriz mês a mês…</div>`;
+        const bancoMap = {};
+        banco.rawData.forEach(r => { const cod = String(r.dados?.['Código'] ?? '').trim().toUpperCase(); if (cod) bancoMap[cod] = r.dados; });
+        const cap = this._capComWhatIf(this._getCap());
+        const segSel    = (document.getElementById('toc-seg-sel')?.value || '').trim().toLowerCase();
+        const marcaSel  = (document.getElementById('toc-marca-sel')?.value || '').trim().toLowerCase();
+        const modeloSel = (document.getElementById('toc-modelo-sel')?.value || '').trim().toLowerCase();
+        let linhasV = vendas.rawData;
+        if (segSel)    linhasV = linhasV.filter(r => String(r.segmento || '').trim().toLowerCase() === segSel);
+        if (marcaSel)  linhasV = linhasV.filter(r => String(r.marca || '').trim().toLowerCase() === marcaSel);
+        if (modeloSel) linhasV = linhasV.filter(r => String(r.modelo || '').trim().toLowerCase() === modeloSel);
+        const cols = (vendas.monthCols || []).filter(c => c.year);
+        const rows = [];
+        for (const c of cols) {
+            const mesStr = `${c.year}-${String(this._MES_NUM[c.abbr] || 1).padStart(2, '0')}`;
+            const du = await this._calcDiasUteisDoMes(mesStr).catch(() => 22);
+            const cel = {};
+            for (const p of this._PROCS) {
+                let cargaMin = 0;
+                linhasV.forEach(r => {
+                    const q = Number(r[c.key]) || 0; if (q <= 0) return;
+                    const dados = bancoMap[String(r.codigo || '').trim().toUpperCase()]; if (!dados) return;
+                    const t = this._getTempoMinutos(dados, p.cols); if (!t) return;
+                    cargaMin += t * q;
+                });
+                const cp = cap[p.id] || { maquinas: 1, horasDia: 8, oee: 100 };
+                const capMin = cp.maquinas * cp.horasDia * 60 * du * (Math.min(cp.oee || 100, 100) / 100);
+                cel[p.id] = capMin > 0 ? cargaMin / capMin : null;
+            }
+            rows.push({ label: c.label, du, cel });
+        }
+        const corBg = u => u == null ? 'transparent' : u >= 1 ? 'rgba(240,98,146,.28)' : u >= 0.8 ? 'rgba(255,202,40,.22)' : `rgba(38,166,154,${0.08 + Math.min(u, 0.79) * 0.25})`;
+        const corTx = u => u == null ? 'var(--text-dim)' : u >= 1 ? '#f06292' : u >= 0.8 ? '#ffca28' : '#26a69a';
+        el.innerHTML = `
+            <div class="s-label" style="margin-bottom:8px;">📅 MATRIZ MENSAL — utilização por processo ${Object.keys(this._whatIf).length ? '<span style="color:#7c4dff;">(com E-SE aplicado)</span>' : ''}</div>
+            <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.76rem;">
+                <thead><tr>
+                    <th style="padding:6px 8px;text-align:left;color:var(--text-dim);font-size:.64rem;">MÊS</th>
+                    ${this._PROCS.map(p => `<th style="padding:6px 8px;text-align:center;color:var(--text-dim);font-size:.64rem;">${escHTML(p.nome.replace('Costura ', 'Cost. '))}</th>`).join('')}
+                    <th style="padding:6px 8px;text-align:right;color:var(--text-dim);font-size:.64rem;">D.U.</th>
+                </tr></thead>
+                <tbody>${rows.map(r => `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+                    <td style="padding:5px 8px;font-weight:700;white-space:nowrap;">${escHTML(r.label)}</td>
+                    ${this._PROCS.map(p => { const u = r.cel[p.id];
+                        return `<td style="padding:5px 8px;text-align:center;background:${corBg(u)};color:${corTx(u)};font-weight:${u != null && u >= 0.8 ? 800 : 600};">${u == null ? '—' : (u * 100).toFixed(0) + '%'}</td>`; }).join('')}
+                    <td style="padding:5px 8px;text-align:right;color:var(--text-dim);">${r.du}</td>
+                </tr>`).join('')}</tbody>
+            </table></div>
+            <div style="margin-top:6px;font-size:.68rem;color:var(--text-dim);">carga do mês (vendas × tempos do Banco, com os filtros ativos) ÷ capacidade (postos × jornada × d.u. reais × OEE da arquitetura) · <span style="color:#26a69a;">&lt;80%</span> · <span style="color:#ffca28;">80–100%</span> · <span style="color:#f06292;">&gt;100%</span> · clique no botão de novo para fechar</div>`;
+    },
+
+    // ── "E SE?" de capacidade: +N pessoas/postos num processo (simulação, nada gravado) ──
+    _whatIf: {},   // procId → Δ postos
+    _capComWhatIf(cap) {
+        const out = { ...cap };
+        Object.entries(this._whatIf || {}).forEach(([pid, delta]) => {
+            const c = out[pid]; if (!c || !delta) return;
+            out[pid] = { ...c, maquinas: Math.max(0, (Number(c.maquinas) || 0) + delta), _whatIf: delta };
+        });
+        return out;
+    },
+    _whatIfAplicar() {
+        const pid = document.getElementById('toc-whatif-proc')?.value;
+        const delta = parseInt(document.getElementById('toc-whatif-delta')?.value) || 0;
+        if (!pid || !delta) return mostrarToast('Escolha o processo e um Δ diferente de zero.', 'aviso');
+        this._whatIf[pid] = (this._whatIf[pid] || 0) + delta;
+        if (!this._whatIf[pid]) delete this._whatIf[pid];
+        this._whatIfStatus();
+        this.calcular();
+    },
+    _whatIfLimpar() { this._whatIf = {}; this._whatIfStatus(); this.calcular(); },
+    _whatIfStatus() {
+        const el = document.getElementById('toc-whatif-status'); if (!el) return;
+        const parts = Object.entries(this._whatIf).map(([pid, d]) => `${this._PROCS.find(p => p.id === pid)?.nome || pid} ${d > 0 ? '+' : ''}${d}👤`);
+        el.textContent = parts.length ? `simulando: ${parts.join(' · ')}` : '';
     },
 
     // mês específico escolhido → dias úteis REAIS do mês preenchem o campo sozinhos
@@ -4691,9 +4813,13 @@ const toc = {
                 ? vendas.monthCols.filter(c => c.key === mesSel)
                 : (anoSel === 'all' ? vendas.monthCols : vendas.monthCols.filter(c => c.year === anoSel));
             const div = mesSel !== 'all' ? 1 : (cols.length || 1);   // mês específico = demanda cheia do mês
+            const marcaSel  = (document.getElementById('toc-marca-sel')?.value || '').trim().toLowerCase();
+            const modeloSel = (document.getElementById('toc-modelo-sel')?.value || '').trim().toLowerCase();
             const mapa = {}; // código → qtd (média/mês ou do mês escolhido)
             let linhas = vendas.rawData;
-            if (segSel) linhas = linhas.filter(r => String(r.segmento || '').trim().toLowerCase() === segSel);
+            if (segSel)    linhas = linhas.filter(r => String(r.segmento || '').trim().toLowerCase() === segSel);
+            if (marcaSel)  linhas = linhas.filter(r => String(r.marca || '').trim().toLowerCase() === marcaSel);
+            if (modeloSel) linhas = linhas.filter(r => String(r.modelo || '').trim().toLowerCase() === modeloSel);
             linhas.forEach(r => {
                 const cod = String(r.codigo || '').trim().toUpperCase();
                 if (!cod) return;
@@ -4703,7 +4829,10 @@ const toc = {
             // contexto p/ exibir no resultado (o cálculo fica auto-explicado)
             const totalPc = Object.values(mapa).reduce((s, v) => s + v, 0);
             const mesLbl = mesSel !== 'all' ? (cols[0]?.label || mesSel) : (anoSel === 'all' ? 'média de todos os meses' : `média mensal de ${anoSel}`);
-            this._ctxDemanda = `Demanda: vendas · ${mesLbl} · ${Math.round(totalPc).toLocaleString('pt-BR')} pç · ${Object.keys(mapa).length} SKUs${segSel ? ` · segmento "${document.getElementById('toc-seg-sel').value}"` : ''}`;
+            const filtros = [segSel && `segmento "${document.getElementById('toc-seg-sel').value}"`,
+                marcaSel && `marca "${document.getElementById('toc-marca-sel').value}"`,
+                modeloSel && `modelo "${document.getElementById('toc-modelo-sel').value}"`].filter(Boolean).join(' · ');
+            this._ctxDemanda = `Demanda: vendas · ${mesLbl} · ${Math.round(totalPc).toLocaleString('pt-BR')} pç · ${Object.keys(mapa).length} SKUs${filtros ? ' · ' + filtros : ''}`;
             return mapa;
         } else {
             // OP: soma por código
@@ -4732,7 +4861,7 @@ const toc = {
             await planoProducao._loadPlanoFromDB().catch(() => {});
             this._popularMesesPlano();
         }
-        const cap = this._saveCap();
+        const cap = this._capComWhatIf(this._saveCap());
         const demanda = this._getDemanda();
         if (!demanda) return;
 
@@ -4787,6 +4916,7 @@ const toc = {
                 topPecas: topPecas.slice(0, 15),
                 medidasUsadas,                          // nº de SKUs cujo tempo veio medido (MES)
                 fonteTempo: medidasUsadas > 0 ? 'medido' : 'planilha',
+                whatIf: capP._whatIf || 0,              // Δ postos simulado ("E se?")
             };
         });
 
@@ -4966,9 +5096,11 @@ const toc = {
             const cor = p.util >= 1 ? '#f06292' : p.util >= 0.8 ? '#ffca28' : '#26a69a';
             const label = p.util >= 1 ? 'GARGALO' : p.util >= 0.8 ? 'ATENÇÃO' : 'OK';
             const barW = Math.min(pct / 1.5, 100); // escala visual: 150% = barra cheia
-            const selo = p.fonteTempo === 'medido'
+            const selo = (p.fonteTempo === 'medido'
                 ? `<span title="${p.medidasUsadas} SKU(s) com tempo MEDIDO no MES (cronoanálise) — tem prioridade sobre a planilha" style="font-size:.6rem;color:#26c6da;border:1px solid #26c6da55;border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:middle;">medido MES</span>`
-                : '';
+                : '') + (p.whatIf
+                ? `<span title="simulação E-SE: ${p.whatIf > 0 ? '+' : ''}${p.whatIf} posto(s) — nada foi gravado" style="font-size:.6rem;color:#7c4dff;border:1px solid #7c4dff55;border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:middle;">${p.whatIf > 0 ? '+' : ''}${p.whatIf}👤 simulado</span>`
+                : '');
             return `<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border-color);cursor:pointer;"
                 onclick="toc._mostrarTop('${p.id}')">
                 <div style="width:160px;font-size:0.82rem;font-weight:600;color:var(--text-primary);">${p.nome}${selo}</div>
@@ -5009,7 +5141,7 @@ const toc = {
         if (lb) lb.textContent = (pct >= 0 ? '+' : '') + pct + '%';
         if (!this._demandaAtual || !banco.rawData.length) return;
 
-        const cap    = this._getCap();
+        const cap    = this._capComWhatIf(this._getCap());
         const dias   = parseFloat(document.getElementById('toc-dias')?.value) || 22;
         const factor = 1 + pct / 100;
         const bancoMap = {};
