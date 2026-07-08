@@ -5273,8 +5273,25 @@ const stollOcup = {
     },
 
     // ── MODO TEMPO por PROCESSO (ex.: Costura Automática): mesma lógica mensal ──
-    // carga = vendas do mês × tempo do processo (Banco de Dados) · capacidade =
-    // máquinas × h/dia × dias úteis reais × OEE — tudo da config do TOC (Capacidade).
+    // carga = vendas do mês × tempo do processo (Banco de Dados) · capacidade:
+    // OEE vem da ARQUITETURA DE PROCESSOS (Base de Dados › Processos — máquina a
+    // máquina); jornada (h/dia) vem do TOC › Capacidade. Sem máquina cadastrada
+    // no processo → cai no OEE do TOC › Capacidade, com aviso.
+    _archCache: null,
+    async _loadArquitetura() {
+        if (this._archCache) return this._archCache;
+        const [procs, maqs] = await Promise.all([api.get('/api/processos-config'), api.get('/api/maquinas-unificado')]);
+        return (this._archCache = { procs: procs || [], maqs: maqs || [] });
+    },
+    // casa o processo do TOC com o processo da arquitetura pelo nome (tolerante)
+    _procArqDe(procId, procs) {
+        const n = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+        const cand = procs.map(p => ({ p, nome: n(p.nome) }));
+        if (procId === 'tecelagem')      return cand.find(c => c.nome.includes('tecel'))?.p;
+        if (procId === 'costura_auto')   return cand.find(c => c.nome.includes('costura') && c.nome.includes('autom'))?.p;
+        if (procId === 'costura_manual') return cand.find(c => c.nome.includes('costura') && !c.nome.includes('autom'))?.p;
+        return cand.find(c => c.nome.includes(n(procId).replace('_', ' ')) || c.nome.includes(n(procId)))?.p;
+    },
     async _renderTempoProc(procId) {
         const el = document.getElementById('stoll-ocup-content');
         const procDef = toc._PROCS.find(p => p.id === procId);
@@ -5284,6 +5301,19 @@ const stollOcup = {
         banco.rawData.forEach(r => { const cod = String(r.dados?.['Código'] ?? '').trim().toUpperCase(); if (cod) bancoMap[cod] = r.dados; });
         if (!toc._capCache) await toc._loadCapConfig().catch(() => {});
         const capP = toc._getCap()[procId] || { maquinas: 1, horasDia: 8, oee: 100 };
+
+        // EFICIÊNCIAS da arquitetura de processos: máquinas ativas do processo, OEE de cada
+        const arch = await this._loadArquitetura();
+        const procArq = this._procArqDe(procId, arch.procs);
+        const maqsProc = procArq ? arch.maqs.filter(m => m.processo_id === procArq.id && String(m.status || 'Ativo').toLowerCase() !== 'inativo') : [];
+        const usaArq = maqsProc.length > 0;
+        // fator de capacidade por dia: Σ máquinas (h/dia × 60 × OEE da máquina) OU config do TOC
+        const capDiaMin = usaArq
+            ? maqsProc.reduce((s, m) => s + capP.horasDia * 60 * (Math.min(m.oee == null ? 100 : Number(m.oee), 100) / 100), 0)
+            : capP.maquinas * capP.horasDia * 60 * (Math.min(capP.oee || 100, 100) / 100);
+        const oeeMedio = usaArq ? maqsProc.reduce((s, m) => s + (m.oee == null ? 100 : Number(m.oee)), 0) / maqsProc.length : (capP.oee || 100);
+        const nMaq = usaArq ? maqsProc.length : capP.maquinas;
+
         const anoSel = document.getElementById('stoll-ocup-ano')?.value || 'all';
         const cols = (vendas.monthCols || []).filter(c => c.year && (anoSel === 'all' || c.year === anoSel));
         if (!cols.length) { el.innerHTML = `<div class="summary-card" style="color:#ffca28;">Nenhum mês com ano identificado nas vendas.</div>`; return; }
@@ -5303,7 +5333,7 @@ const stollOcup = {
             });
             const mesStr = `${c.year}-${String(this._MES_NUM[c.abbr] || 1).padStart(2, '0')}`;
             const dias = await toc._calcDiasUteisDoMes(mesStr).catch(() => 22);
-            const capMin = capP.maquinas * capP.horasDia * 60 * dias * (Math.min(capP.oee || 100, 100) / 100);
+            const capMin = capDiaMin * dias;
             meses.push({ label: c.label, dias, cargaMin, capMin, util: capMin > 0 ? cargaMin / capMin : 0, skus, total, pcContadas, pcSemTempo, pcSemCad });
         }
 
@@ -5326,6 +5356,29 @@ const stollOcup = {
                 <div style="width:110px;text-align:right;font-size:.68rem;color:${(m.pcSemTempo + m.pcSemCad) > 0 ? '#ffca28' : 'var(--text-dim)'};">${(m.pcSemTempo + m.pcSemCad).toLocaleString('pt-BR')} pç fora</div>
             </div>`).join('');
 
+        // card de EFICIÊNCIAS: máquina a máquina (arquitetura) + a conta aberta com o 1º mês
+        const m0 = meses[0];
+        const chipsMaq = usaArq ? maqsProc.map(m => {
+            const oee = m.oee == null ? 100 : Number(m.oee);
+            const corO = oee >= 75 ? '#26a69a' : oee >= 60 ? '#ffca28' : '#f06292';
+            return `<span style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-color);border-radius:7px;padding:4px 10px;font-size:.74rem;">
+                <strong>${escHTML(m.id_maquina || m.codigo || m.nome || 'máq')}</strong>${m.modelo ? ` <span style="color:var(--text-dim);">${escHTML(String(m.modelo))}</span>` : ''}
+                <span style="font-weight:800;color:${corO};">${oee}%</span></span>`;
+        }).join(' ') : '';
+        const cardEfic = `
+            <div class="summary-card" style="margin-bottom:14px;border-left:3px solid ${usaArq ? '#26c6da' : '#ffca28'};">
+                <div class="s-label" style="margin-bottom:8px;">⚙ EFICIÊNCIAS USADAS — ${usaArq ? 'arquitetura de processos (Base de Dados › Processos)' : 'TOC › Capacidade (fallback)'}</div>
+                ${usaArq
+                    ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">${chipsMaq}</div>
+                       <div style="font-size:.76rem;color:var(--text-dim);">OEE médio das ${nMaq} máquinas ativas: <strong style="color:var(--text-primary);">${oeeMedio.toFixed(0)}%</strong> · a capacidade soma máquina a máquina, cada uma com o SEU OEE.</div>`
+                    : `<div style="font-size:.78rem;color:#ffca28;">⚠ Nenhuma máquina de <strong>${escHTML(procDef.nome)}</strong> cadastrada na arquitetura de processos — usando a config do TOC (${capP.maquinas} máq · OEE ${capP.oee}%). Cadastre as máquinas com OEE em <strong>Base de Dados › Processos</strong> para o cálculo usar a eficiência real de cada uma.</div>`}
+                <div style="margin-top:10px;padding:10px 12px;background:var(--bg-input);border-radius:8px;font-family:ui-monospace,Menlo,monospace;font-size:.72rem;color:var(--text-dim);overflow-x:auto;">
+                    capacidade(mês) = ${usaArq ? `Σ máquinas [ ${capP.horasDia}h/dia × 60 × dias úteis × OEE da máquina ]` : `${capP.maquinas} máq × ${capP.horasDia}h/dia × 60 × dias úteis × ${capP.oee}%`}<br>
+                    ex. ${escHTML(m0.label)}: <strong style="color:var(--text-primary);">${(m0.capMin / 60).toFixed(0)}h</strong> = ${usaArq ? `Σ ${nMaq} máq (${capP.horasDia}h × ${m0.dias} d.u. × OEE ${oeeMedio.toFixed(0)}% médio)` : `${capP.maquinas} × ${capP.horasDia}h × ${m0.dias} d.u. × ${capP.oee}%`}<br>
+                    carga(mês) = Σ códigos [ vendas do mês × tempo de ${escHTML(procDef.nome.toLowerCase())} do Banco ] → ex. ${escHTML(m0.label)}: <strong style="color:var(--text-primary);">${(m0.cargaMin / 60).toFixed(0)}h</strong> → ocupação ${(m0.util * 100).toFixed(0)}%
+                </div>
+            </div>`;
+
         el.innerHTML = `
             <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;">
                 <div class="summary-card" style="flex:1;min-width:170px;border-top:3px solid ${corDe(media)};">
@@ -5334,18 +5387,19 @@ const stollOcup = {
                     <span class="s-sub">pico ${(Math.max(pico.util, 0) * 100).toFixed(0)}% em ${escHTML(pico.label)}</span></div>
                 <div class="summary-card" style="flex:1;min-width:170px;">
                     <span class="s-label">CAPACIDADE ASSUMIDA</span>
-                    <span class="s-value" style="font-size:1.15rem;">${capP.maquinas} máq × ${capP.horasDia}h</span>
-                    <span class="s-sub">× dias úteis reais × OEE ${capP.oee}% — ajuste em TOC › Capacidade</span></div>
+                    <span class="s-value" style="font-size:1.15rem;">${nMaq} máq × ${capP.horasDia}h · OEE ${oeeMedio.toFixed(0)}%</span>
+                    <span class="s-sub">${usaArq ? 'OEE por máquina (arquitetura de processos)' : 'config do TOC › Capacidade'} · jornada em TOC › Capacidade</span></div>
                 <div class="summary-card" style="flex:1;min-width:170px;border-top:3px solid ${pcForaTotal > 0 ? '#ffca28' : '#26a69a'};">
                     <span class="s-label">FORA DA CONTA</span>
                     <span class="s-value" style="color:${pcForaTotal > 0 ? '#ffca28' : '#26a69a'};font-size:1.6rem;">${(pcForaTotal / pcTotal * 100).toFixed(0)}%</span>
                     <span class="s-sub">${pcForaTotal.toLocaleString('pt-BR')} pç sem cadastro ou sem tempo de ${escHTML(procDef.nome.toLowerCase())}</span></div>
             </div>
+            ${cardEfic}
             <div class="summary-card">
                 <div class="s-label" style="margin-bottom:10px;">OCUPAÇÃO — ${escHTML(procDef.nome.toUpperCase())} · mês a mês (pelas vendas)</div>
                 ${linhas}
                 <div style="margin-top:10px;font-size:.7rem;color:var(--text-dim);">
-                    carga = vendas do mês × tempo de ${escHTML(procDef.nome.toLowerCase())} (Banco de Dados) · capacidade = ${capP.maquinas} máq × ${capP.horasDia}h/dia × dias úteis reais (feriados descontados) × OEE ${capP.oee}% ·
+                    carga = vendas do mês × tempo de ${escHTML(procDef.nome.toLowerCase())} (Banco de Dados) · capacidade = ${usaArq ? `Σ ${nMaq} máquinas × ${capP.horasDia}h/dia × dias úteis × OEE de cada máquina` : `${capP.maquinas} máq × ${capP.horasDia}h/dia × dias úteis × OEE ${capP.oee}%`} ·
                     <span style="color:#26a69a;">&lt;80% OK</span> · <span style="color:#ffca28;">80–100% atenção</span> · <span style="color:#f06292;">&gt;100% acima da capacidade</span>
                 </div>
             </div>`;
@@ -5483,8 +5537,28 @@ const stollOcup = {
             </tr>`;
         }).join('');
 
+        // eficiências dos teares (arquitetura de processos): chips por máquina com OEE
+        const tearesTec = await toc._loadMaquinasTecelagem();
+        const chipsTear = (tearesTec || []).map(m => {
+            const oee = m.oee == null ? 100 : Number(m.oee);
+            const corO = oee >= 75 ? '#26a69a' : oee >= 60 ? '#ffca28' : '#f06292';
+            return `<span style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-color);border-radius:7px;padding:4px 10px;font-size:.74rem;">
+                <strong>${escHTML(m.id_maquina || m.codigo || 'tear')}</strong> <span style="color:var(--text-dim);">${escHTML(String(m.modelo || ''))}</span>
+                <span style="font-weight:800;color:${corO};">${oee}%</span></span>`;
+        }).join(' ');
+        const cardEficTec = `
+            <div class="summary-card" style="margin-bottom:14px;border-left:3px solid #26c6da;">
+                <div class="s-label" style="margin-bottom:8px;">⚙ EFICIÊNCIAS USADAS — arquitetura de processos (Base de Dados › Processos › Tecelagem)</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">${chipsTear || '<span style="color:#ffca28;font-size:.78rem;">nenhum tear cadastrado</span>'}</div>
+                <div style="margin-top:4px;padding:10px 12px;background:var(--bg-input);border-radius:8px;font-family:ui-monospace,Menlo,monospace;font-size:.72rem;color:var(--text-dim);overflow-x:auto;">
+                    capacidade(modelo, mês) = Σ teares do modelo [ h/dia × 60 × dias úteis × OEE do tear ]<br>
+                    carga(modelo, mês) = Σ códigos do modelo (coluna "Stoll" do Banco) [ vendas do mês × tempo de tecelagem ] → ocupação = carga ÷ capacidade
+                </div>
+            </div>`;
+
         el.innerHTML = `
             <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;">${cards}</div>
+            ${cardEficTec}
             ${semModelo.size ? `<div class="summary-card" style="margin-bottom:14px;border-left:3px solid #ff5252;"><span style="font-size:.78rem;color:#ff5252;">⚠ ${(cargaSemMaq / 60).toFixed(0)}h de demanda em modelo sem tear cadastrado: ${[...semModelo].map(escHTML).join(', ')} — corrija a coluna "Stoll" do Banco ou cadastre o tear.</span></div>` : ''}
             <div class="summary-card" style="padding:0;overflow:hidden;">
                 <div style="overflow:auto;max-height:64vh;"><table style="width:100%;border-collapse:collapse;font-size:.82rem;">
