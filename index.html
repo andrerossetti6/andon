@@ -2725,8 +2725,20 @@
                     <option value="all">Todos os anos</option>
                 </select>
             </div>
+            <div id="toc-mes-wrap">
+                <div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:6px;letter-spacing:.06em;">MÊS DE VENDA</div>
+                <select id="toc-mes-sel" onchange="toc._mesMudou()" style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:8px;color:var(--text-primary);font-size:0.85rem;">
+                    <option value="all">Média mensal</option>
+                </select>
+            </div>
+            <div id="toc-seg-wrap">
+                <div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:6px;letter-spacing:.06em;">SEGMENTO</div>
+                <select id="toc-seg-sel" style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:8px;color:var(--text-primary);font-size:0.85rem;">
+                    <option value="">Todos</option>
+                </select>
+            </div>
             <div>
-                <div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:6px;letter-spacing:.06em;">DIAS ÚTEIS / MÊS</div>
+                <div style="font-size:0.72rem;color:var(--text-dim);margin-bottom:6px;letter-spacing:.06em;">DIAS ÚTEIS / MÊS <span id="toc-dias-hint" style="color:#26c6da;text-transform:none;letter-spacing:0;"></span></div>
                 <input id="toc-dias" type="number" value="22" min="1" max="31"
                     style="width:100%;padding:8px 12px;background:var(--bg-input);border:1px solid var(--border-color);border-radius:8px;color:var(--text-primary);font-size:0.85rem;">
             </div>
@@ -2754,6 +2766,7 @@
             <div style="font-size:0.65rem;color:#f06292;letter-spacing:.14em;font-weight:700;margin-bottom:6px;">GARGALO IDENTIFICADO</div>
             <div id="toc-gargalo-nome" style="font-size:1.6rem;font-weight:800;color:#f06292;margin-bottom:4px;"></div>
             <div id="toc-gargalo-sub"  style="font-size:0.85rem;color:var(--text-dim);"></div>
+            <div id="toc-ctx" style="font-size:0.72rem;color:var(--text-dim);margin-top:8px;"></div>
         </div>
 
         <!-- Barras por processo -->

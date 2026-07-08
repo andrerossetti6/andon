@@ -4443,7 +4443,11 @@ const toc = {
             const fonte = document.getElementById('toc-fonte-sel').value;
             const wVxe   = document.getElementById('toc-vxe-periodo-wrap');
             const wPlano = document.getElementById('toc-plano-mes-wrap');
+            const wMes   = document.getElementById('toc-mes-wrap');
+            const wSeg   = document.getElementById('toc-seg-wrap');
             if (wVxe)   wVxe.style.display   = fonte === 'vxe'   ? '' : 'none';
+            if (wMes)   wMes.style.display   = fonte === 'vxe'   ? '' : 'none';
+            if (wSeg)   wSeg.style.display   = fonte === 'vxe'   ? '' : 'none';
             if (wPlano) wPlano.style.display = fonte === 'plano' ? '' : 'none';
             if (fonte === 'plano') this._popularMesesPlano();
         });
@@ -4465,6 +4469,34 @@ const toc = {
         const cur = sel.value;
         sel.innerHTML = '<option value="all">Todos os anos</option>' +
             anos.map(a => `<option value="${a}"${a === cur ? ' selected' : ''}>${a}</option>`).join('');
+        // mês de venda (específico) e segmento — filtros da fonte VxE
+        const mSel = document.getElementById('toc-mes-sel');
+        if (mSel) {
+            const curM = mSel.value;
+            mSel.innerHTML = '<option value="all">Média mensal</option>' +
+                (vendas.monthCols || []).filter(c => c.year).map(c => `<option value="${c.key}"${c.key === curM ? ' selected' : ''}>${c.label}</option>`).join('');
+        }
+        const sSel = document.getElementById('toc-seg-sel');
+        if (sSel && sSel.options.length <= 1) {
+            const segs = [...new Set((vendas.rawData || []).map(r => String(r.segmento || '').trim()).filter(Boolean))].sort();
+            sSel.innerHTML = '<option value="">Todos</option>' + segs.map(s => `<option value="${escHTML(s)}">${escHTML(s)}</option>`).join('');
+        }
+    },
+
+    // mês específico escolhido → dias úteis REAIS do mês preenchem o campo sozinhos
+    _MES_NUM: { jan:1, fev:2, mar:3, abr:4, mai:5, jun:6, jul:7, ago:8, set:9, out:10, nov:11, dez:12 },
+    async _mesMudou() {
+        const key = document.getElementById('toc-mes-sel')?.value || 'all';
+        const hint = document.getElementById('toc-dias-hint');
+        if (key === 'all') { if (hint) hint.textContent = ''; return; }
+        const [abbr, ano] = key.split('_');
+        const mesStr = `${ano}-${String(this._MES_NUM[abbr] || 1).padStart(2, '0')}`;
+        const du = await this._calcDiasUteisDoMes(mesStr).catch(() => null);
+        if (du) {
+            const el = document.getElementById('toc-dias');
+            if (el) el.value = du;
+            if (hint) hint.textContent = `· auto: ${du} d.u. reais`;
+        }
     },
 
     // Fonte única de capacidade: servidor (capacidade_config) > derivado do cadastro de máquinas > localStorage > default.
@@ -4650,18 +4682,28 @@ const toc = {
         }
 
         if (fonte === 'vxe') {
-            // Média mensal de vendas por código
+            // Vendas por código: MÉDIA mensal (padrão) ou um MÊS específico; filtro por segmento
             if (!vendas.rawData.length) { alert('Importe dados de Vendas primeiro.'); return null; }
             this._popularAnos();
-            const cols = anoSel === 'all' ? vendas.monthCols : vendas.monthCols.filter(c => c.year === anoSel);
-            const div = cols.length || 1;
-            const mapa = {}; // código → qtd média/mês
-            vendas.rawData.forEach(r => {
+            const mesSel = document.getElementById('toc-mes-sel')?.value || 'all';
+            const segSel = (document.getElementById('toc-seg-sel')?.value || '').trim().toLowerCase();
+            const cols = mesSel !== 'all'
+                ? vendas.monthCols.filter(c => c.key === mesSel)
+                : (anoSel === 'all' ? vendas.monthCols : vendas.monthCols.filter(c => c.year === anoSel));
+            const div = mesSel !== 'all' ? 1 : (cols.length || 1);   // mês específico = demanda cheia do mês
+            const mapa = {}; // código → qtd (média/mês ou do mês escolhido)
+            let linhas = vendas.rawData;
+            if (segSel) linhas = linhas.filter(r => String(r.segmento || '').trim().toLowerCase() === segSel);
+            linhas.forEach(r => {
                 const cod = String(r.codigo || '').trim().toUpperCase();
                 if (!cod) return;
                 const total = cols.reduce((s, c) => s + (r[c.key] || 0), 0);
                 mapa[cod] = (mapa[cod] || 0) + total / div;
             });
+            // contexto p/ exibir no resultado (o cálculo fica auto-explicado)
+            const totalPc = Object.values(mapa).reduce((s, v) => s + v, 0);
+            const mesLbl = mesSel !== 'all' ? (cols[0]?.label || mesSel) : (anoSel === 'all' ? 'média de todos os meses' : `média mensal de ${anoSel}`);
+            this._ctxDemanda = `Demanda: vendas · ${mesLbl} · ${Math.round(totalPc).toLocaleString('pt-BR')} pç · ${Object.keys(mapa).length} SKUs${segSel ? ` · segmento "${document.getElementById('toc-seg-sel').value}"` : ''}`;
             return mapa;
         } else {
             // OP: soma por código
@@ -4900,6 +4942,14 @@ const toc = {
             document.getElementById('toc-gargalo-nome').textContent = gargalo.nome.toUpperCase();
             document.getElementById('toc-gargalo-sub').textContent =
                 `${gargalo.cargaH.toFixed(0)}h necessárias · ${gargalo.capH.toFixed(0)}h disponíveis/mês · ${(gargalo.util * 100).toFixed(0)}% de utilização`;
+        }
+        // contexto do cálculo (que demanda entrou — mês/segmento/peças)
+        const ctxEl = document.getElementById('toc-ctx');
+        if (ctxEl) {
+            const fonteSel2 = document.getElementById('toc-fonte-sel')?.value;
+            if (fonteSel2 !== 'vxe') this._ctxDemanda = fonteSel2 === 'plano' ? 'Demanda: Plano de Produção (S&OP)' : 'Demanda: OPs em aberto';
+            const dias2 = document.getElementById('toc-dias')?.value;
+            ctxEl.textContent = `${this._ctxDemanda || ''} · capacidade: ${dias2} dias úteis · fontes: arquitetura de processos (postos × OEE)`;
         }
 
         // Barras de utilização
