@@ -4473,15 +4473,22 @@ const toc = {
     _capOrigem: {},
 
     async _loadCapConfig() {
-        const [config, procs, maqs] = await Promise.all([
+        const [config, procs, maqsLeg, maqsUnif] = await Promise.all([
             api.get('/api/capacidade-config'),
             api.get('/api/processos-config'),
             api.get('/api/maquinas'),
+            api.get('/api/maquinas-unificado').catch(() => []),
         ]);
         const serverCfg = {};
         (config || []).forEach(r => { serverCfg[r.processo] = { maquinas: Number(r.maquinas)||1, horasDia: Number(r.horas_dia)||8, oee: Number(r.oee)||100 }; });
 
-        // Derivação do cadastro: postos = Σ(n_pessoas||1) das máquinas ativas; OEE = média das máquinas
+        // ARQUITETURA DE PROCESSOS (fonte primária da capacidade — regra do dono):
+        // postos = Σ máx(n_pessoas, 1) das linhas ativas (máquina conta 1, equipe conta N
+        // pessoas); OEE = média das linhas. Fontes: unificado (MES) MANDA no processo que
+        // já migrou (ex.: teares — a legada seria duplicata); a legada 'maquinas' (tela
+        // Base de Dados › Processos) vale só para processos SEM linha no unificado (equipes).
+        const procsComUnif = new Set((maqsUnif || []).map(m => m.processo_id).filter(Boolean));
+        const maqs = [...(maqsUnif || []), ...(maqsLeg || []).filter(m => !procsComUnif.has(m.processo_id))];
         const porPid = {};
         const naoMapeados = [];   // B6: processos cujo nome não casa com nenhuma etapa do TOC — não somem em silêncio
         if (procs?.length && maqs?.length) {
@@ -4501,14 +4508,17 @@ const toc = {
 
         const cache = {}, origem = {};
         this._PROCS.forEach(p => {
-            if (serverCfg[p.id]) { cache[p.id] = serverCfg[p.id]; origem[p.id] = 'servidor'; return; }
+            // 1º) arquitetura de processos (postos × OEE do cadastro); jornada (h/dia) vem
+            //     da config do servidor quando existir (é a jornada do processo, não do recurso)
             const d = porPid[p.id];
-            if (d) {
+            if (d && d.postos > 0) {
                 const oeeMed = d.oees.length ? d.oees.reduce((s,o)=>s+o,0)/d.oees.length : 100;
-                cache[p.id] = { maquinas: d.postos, horasDia: lsCap[p.id]?.horasDia || 8, oee: Math.round(oeeMed) };
-                origem[p.id] = 'cadastro';
+                cache[p.id] = { maquinas: d.postos, horasDia: serverCfg[p.id]?.horasDia || lsCap[p.id]?.horasDia || 8, oee: Math.round(oeeMed) };
+                origem[p.id] = 'arquitetura';
                 return;
             }
+            // 2º) config do servidor (TOC › Capacidade)
+            if (serverCfg[p.id]) { cache[p.id] = serverCfg[p.id]; origem[p.id] = 'servidor'; return; }
             if (lsCap[p.id]) { cache[p.id] = lsCap[p.id]; origem[p.id] = 'local'; return; }
             cache[p.id] = { maquinas: 1, horasDia: 8, oee: 100 };
             origem[p.id] = 'padrão';
@@ -4556,7 +4566,7 @@ const toc = {
         const grid = document.getElementById('toc-cap-grid');
         if (!grid) return;
         const cap = this._getCap();
-        const CORES_ORIGEM = { servidor: '#26a69a', cadastro: '#26c6da', local: '#ffca28', 'padrão': '#f06292' };
+        const CORES_ORIGEM = { arquitetura: '#7c4dff', servidor: '#26a69a', cadastro: '#26c6da', local: '#ffca28', 'padrão': '#f06292' };
         // B6: avisa quando há processos cadastrados que não casam com nenhuma etapa do TOC (máquinas ignoradas na capacidade)
         const aviso = (this._capNaoMapeados?.length)
             ? `<div style="grid-column:1/-1;display:flex;align-items:flex-start;gap:8px;padding:9px 12px;background:rgba(255,202,40,.08);border:1px solid rgba(255,202,40,.35);border-radius:8px;font-size:.72rem;color:#ffca28;">
@@ -4566,7 +4576,7 @@ const toc = {
         grid.innerHTML = aviso + this._PROCS.map(p => {
             const c = cap[p.id] || { maquinas: 1, horasDia: 8, oee: 100 };
             const org = this._capOrigem[p.id];
-            const badge = org ? `<span title="Origem do valor: ${org === 'cadastro' ? 'derivado do cadastro de máquinas (Configuração › Processos)' : org === 'servidor' ? 'configuração salva no servidor' : org === 'local' ? 'apenas deste navegador — clique CALCULAR para salvar no servidor' : 'valor padrão — configure e calcule para salvar'}"
+            const badge = org ? `<span title="Origem do valor: ${org === 'arquitetura' ? 'arquitetura de processos (Base de Dados › Processos): postos = Σ pessoas (máquina conta 1) · OEE = média das linhas · jornada (h/dia) editável aqui' : org === 'cadastro' ? 'derivado do cadastro de máquinas (Configuração › Processos)' : org === 'servidor' ? 'configuração salva no servidor' : org === 'local' ? 'apenas deste navegador — clique CALCULAR para salvar no servidor' : 'valor padrão — configure e calcule para salvar'}"
                 style="font-size:.58rem;font-weight:700;letter-spacing:.05em;color:${CORES_ORIGEM[org]};border:1px solid ${CORES_ORIGEM[org]}55;border-radius:4px;padding:1px 5px;">${org.toUpperCase()}</span>` : '';
             return `<div style="display:flex;flex-direction:column;gap:8px;padding:10px 14px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-color);">
                 <span style="display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:0.82rem;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${p.nome}">${p.nome} ${badge}</span>
@@ -5280,14 +5290,13 @@ const stollOcup = {
     _archCache: null,
     async _loadArquitetura() {
         if (this._archCache) return this._archCache;
-        // DUAS fontes mescladas: unificado (máquinas migradas ao MES, ex.: teares) +
-        // legada 'maquinas' (onde a TELA Base de Dados › Processos grava — equipes/pessoas).
-        // Dedup por processo+identificação (a tela pode ter linha que também migrou).
+        // Fontes: unificado (MES) MANDA no processo que já migrou (ex.: teares — a legada
+        // seria duplicata); a legada 'maquinas' (tela Base de Dados › Processos) vale só
+        // para processos SEM linha no unificado (ex.: equipes de costura com nº de pessoas).
         const [procs, unif, leg] = await Promise.all([
             api.get('/api/processos-config'), api.get('/api/maquinas-unificado'), api.get('/api/maquinas')]);
-        const chave = m => (m.processo_id || '') + '|' + String(m.id_maquina || m.modelo || '').trim().toLowerCase();
-        const vistos = new Set((unif || []).map(chave));
-        const maqs = [...(unif || []), ...(leg || []).filter(m => !vistos.has(chave(m)))];
+        const procsComUnif = new Set((unif || []).map(m => m.processo_id).filter(Boolean));
+        const maqs = [...(unif || []), ...(leg || []).filter(m => !procsComUnif.has(m.processo_id))];
         return (this._archCache = { procs: procs || [], maqs });
     },
     // casa o processo do TOC com o processo da arquitetura pelo nome (tolerante)
