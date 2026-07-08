@@ -5161,6 +5161,17 @@ toc._calcDiasUteisDoMes = async function(mesStr) {
 // tear (h/dia × dias úteis reais do mês × OEE do próprio tear). Nada inventado.
 const stollOcup = {
     _MES_NUM: { jan:1, fev:2, mar:3, abr:4, mai:5, jun:6, jul:7, ago:8, set:9, out:10, nov:11, dez:12 },
+    _modo: 'mix',   // 'mix' = % das VENDAS por modelo (só peças) · 'tempo' = ocupação com tempo×capacidade
+
+    setModo(m) { this._modo = m; this.render(); },
+    _pintarModo() {
+        const on = { background: 'var(--indigo-primary)', color: '#fff' };
+        ['mix', 'tempo'].forEach(m => {
+            const b = document.getElementById('stoll-modo-' + m); if (!b) return;
+            b.style.background = this._modo === m ? on.background : 'var(--bg-input)';
+            b.style.color = this._modo === m ? on.color : 'var(--text-primary)';
+        });
+    },
 
     _popularAnos() {
         const sel = document.getElementById('stoll-ocup-ano'); if (!sel) return;
@@ -5168,6 +5179,83 @@ const stollOcup = {
         const cur = sel.value;
         sel.innerHTML = '<option value="all">Todos os meses</option>' +
             anos.map(a => `<option value="${a}"${a === cur ? ' selected' : ''}>${a}</option>`).join('');
+    },
+
+    // ── MODO MIX: % das vendas do mês por modelo Stoll — só código e quantidade ──
+    _renderMix() {
+        const el = document.getElementById('stoll-ocup-content');
+        const bancoMap = {};
+        banco.rawData.forEach(r => { const cod = String(r.dados?.['Código'] ?? '').trim().toUpperCase(); if (cod) bancoMap[cod] = r.dados; });
+        const anoSel = document.getElementById('stoll-ocup-ano')?.value || 'all';
+        const cols = (vendas.monthCols || []).filter(c => c.year && (anoSel === 'all' || c.year === anoSel));
+        if (!cols.length) { el.innerHTML = `<div class="summary-card" style="color:#ffca28;">Nenhum mês com ano identificado nas vendas.</div>`; return; }
+
+        const SEM_CAD = 'sem cadastro';   // código vendido que não está no Banco de Dados
+        const meses = cols.map(c => {
+            const porModelo = {}; let total = 0;
+            vendas.rawData.forEach(r => {
+                const q = Number(r[c.key]) || 0; if (q <= 0) return;
+                const cod = String(r.codigo || '').trim().toUpperCase(); if (!cod) return;
+                const dados = bancoMap[cod];
+                const modelo = dados ? (toc._getModelosStoll(dados)[0] || 'sem Stoll') : SEM_CAD;
+                porModelo[modelo] = (porModelo[modelo] || 0) + q;
+                total += q;
+            });
+            return { label: c.label, total, porModelo };
+        });
+
+        // modelos ordenados pelo volume total do período (numéricos primeiro, buckets de aviso por último)
+        const totalPorModelo = {};
+        meses.forEach(m => Object.entries(m.porModelo).forEach(([mod, q]) => { totalPorModelo[mod] = (totalPorModelo[mod] || 0) + q; }));
+        const ehAviso = m => m === SEM_CAD || m === 'sem Stoll';
+        const modelos = Object.keys(totalPorModelo).sort((a, b) => (ehAviso(a) - ehAviso(b)) || totalPorModelo[b] - totalPorModelo[a]);
+        const PAL = ['#26c6da', '#7c4dff', '#26a69a', '#ffab76', '#f06292', '#ba68c8'];
+        const corDe = {}; let pi = 0;
+        modelos.forEach(m => { corDe[m] = ehAviso(m) ? (m === SEM_CAD ? '#8b949e' : '#ffca28') : PAL[pi++ % PAL.length]; });
+        const nome = m => ehAviso(m) ? m : 'Stoll ' + m;
+
+        const totalGeral = Object.values(totalPorModelo).reduce((s, v) => s + v, 0) || 1;
+        const cards = modelos.map(mod => {
+            const q = totalPorModelo[mod];
+            return `<div class="summary-card" style="flex:1;min-width:160px;border-top:3px solid ${corDe[mod]};">
+                <span class="s-label">${escHTML(nome(mod).toUpperCase())}</span>
+                <span class="s-value" style="color:${corDe[mod]};font-size:1.6rem;">${(q / totalGeral * 100).toFixed(0)}%</span>
+                <span class="s-sub">${q.toLocaleString('pt-BR')} pç no período</span>
+            </div>`;
+        }).join('');
+
+        // barra empilhada por mês (100% = vendas do mês) + % por modelo
+        const linhas = meses.map(m => {
+            const segs = modelos.map(mod => {
+                const q = m.porModelo[mod] || 0; if (!q) return '';
+                const pct = q / (m.total || 1) * 100;
+                return `<div title="${escHTML(nome(mod))}: ${q.toLocaleString('pt-BR')} pç (${pct.toFixed(1)}%)" style="width:${pct}%;background:${corDe[mod]};display:flex;align-items:center;justify-content:center;overflow:hidden;">
+                    ${pct >= 7 ? `<span style="font-size:.64rem;font-weight:800;color:#0d1117;">${pct.toFixed(0)}%</span>` : ''}</div>`;
+            }).join('');
+            const detalhe = modelos.map(mod => {
+                const q = m.porModelo[mod] || 0; if (!q) return '';
+                return `<span style="margin-right:10px;white-space:nowrap;"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${corDe[mod]};margin-right:4px;"></span>${escHTML(nome(mod))} <strong>${(q / (m.total || 1) * 100).toFixed(1)}%</strong> (${q.toLocaleString('pt-BR')})</span>`;
+            }).join('');
+            return `<div style="padding:10px 0;border-bottom:1px solid rgba(255,255,255,.05);">
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <div style="width:64px;font-weight:700;font-size:.82rem;">${escHTML(m.label)}</div>
+                    <div style="flex:1;height:22px;display:flex;border-radius:6px;overflow:hidden;background:var(--bg-input);">${segs}</div>
+                    <div style="width:86px;text-align:right;font-size:.78rem;color:var(--text-dim);">${m.total.toLocaleString('pt-BR')} pç</div>
+                </div>
+                <div style="margin-left:76px;margin-top:4px;font-size:.68rem;color:var(--text-dim);">${detalhe}</div>
+            </div>`;
+        }).join('');
+
+        el.innerHTML = `
+            <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;">${cards}</div>
+            <div class="summary-card">
+                <div class="s-label" style="margin-bottom:10px;">MIX DE VENDAS POR MODELO — mês a mês (100% = peças vendidas no mês)</div>
+                ${linhas}
+                <div style="margin-top:10px;font-size:.7rem;color:var(--text-dim);">
+                    Cada peça vendida entra no modelo declarado na coluna <strong>"Stoll"</strong> do Banco de Dados (1º da lista) — sem tempo, OEE ou capacidade, só código × quantidade.
+                    <span style="color:#8b949e;">"sem cadastro"</span> = código vendido que não está no Banco (ex.: palmilhas/meias) · <span style="color:#ffca28;">"sem Stoll"</span> = está no Banco mas com a coluna Stoll vazia.
+                </div>
+            </div>`;
     },
 
     async render(tent = 0) {
@@ -5179,7 +5267,9 @@ const stollOcup = {
             setTimeout(() => this.render(tent + 1), 1500); return;
         }
         if (!vendas.rawData?.length) { el.innerHTML = `<div class="summary-card" style="color:#ffca28;">Importe as <strong>Vendas</strong> primeiro (Dados Operacionais › Vendas) — o dashboard usa as quantidades mensais.</div>`; return; }
-        if (!banco.rawData?.length)  { el.innerHTML = `<div class="summary-card" style="color:#ffca28;">Importe o <strong>Banco de Dados</strong> primeiro — é dele que vêm o tempo de tecelagem e a coluna "Stoll" de cada código.</div>`; return; }
+        if (!banco.rawData?.length)  { el.innerHTML = `<div class="summary-card" style="color:#ffca28;">Importe o <strong>Banco de Dados</strong> primeiro — é dele que vem a coluna "Stoll" de cada código.</div>`; return; }
+        this._pintarModo();
+        if (this._modo === 'mix') return this._renderMix();
         el.innerHTML = `<div class="summary-card" style="color:var(--text-dim);">Calculando ocupação mês a mês…</div>`;
 
         // mapas base (mesmos do TOC)
