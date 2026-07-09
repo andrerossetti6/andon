@@ -4632,30 +4632,30 @@ const toc = {
             .sort((a, b) => a.headroom - b.headroom);
 
         const fmt$ = v => 'R$ ' + Math.round(v).toLocaleString('pt-BR');
-        const linhaSku = (x, cor) => `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
-            <td style="padding:5px 8px;font-weight:700;color:${cor};">${escHTML(x.cod)}</td>
-            <td style="padding:5px 8px;text-align:right;font-weight:800;color:${cor};">${fmt$(x.rHora)}/h</td>
-            <td style="padding:5px 8px;text-align:right;color:var(--text-dim);">${x.tMin.toFixed(1)} min/pç</td>
-            <td style="padding:5px 8px;text-align:right;color:var(--text-dim);">R$ ${x.preco.toFixed(0)}/pç</td>
-            <td style="padding:5px 8px;text-align:right;color:var(--text-dim);">${Math.round(x.qty).toLocaleString('pt-BR')} pç · ${x.horas.toFixed(0)}h</td>
+        const linhaSku = (x, cor) => `<tr>
+            <td style="font-weight:700;color:${cor};">${escHTML(x.cod)}</td>
+            <td class="num" style="font-weight:800;color:${cor};">${fmt$(x.rHora)}/h</td>
+            <td class="num dim">${x.tMin.toFixed(1)} min/pç</td>
+            <td class="num dim">R$ ${x.preco.toFixed(0)}/pç</td>
+            <td class="num dim">${Math.round(x.qty).toLocaleString('pt-BR')} pç · ${x.horas.toFixed(0)}h</td>
         </tr>`;
         const cobertura = horasTot > 0 ? (1 - horasSemPreco / horasTot) * 100 : 0;
 
         el.innerHTML = `
         <div class="summary-card" style="border-left:3px solid #7c4dff;">
-            <div class="s-label" style="margin-bottom:12px;">🧠 TOC PROFUNDO — os 5 passos de focalização · gargalo: <span style="color:#f06292;">${escHTML(g.nome)}</span></div>
+            <div class="s-label" style="margin-bottom:12px;display:flex;align-items:center;gap:8px;">${icon('cerebro', 'icon sm')} TOC PROFUNDO — os 5 passos de focalização · gargalo: <span style="color:#f06292;">${escHTML(g.nome)}</span></div>
 
             <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
                 <div class="summary-card" style="flex:1;min-width:190px;border-top:3px solid #f06292;">
-                    <span class="s-label">💰 VALOR DA HORA DO GARGALO</span>
+                    <span class="s-label">${icon('moeda', 'icon sm')} VALOR DA HORA DO GARGALO</span>
                     <span class="s-value" style="color:#f06292;font-size:1.5rem;">${fmt$(valorHora)}/h</span>
                     <span class="s-sub">receita que atravessa o gargalo ÷ horas dele · 1h parada ≈ ${fmt$(valorHora)} que a FÁBRICA INTEIRA deixa de faturar</span></div>
                 <div class="summary-card" style="flex:1;min-width:190px;border-top:3px solid #26a69a;">
-                    <span class="s-label">⬆ ELEVAR: +1 POSTO NO GARGALO</span>
+                    <span class="s-label">${icon('tendencia', 'icon sm')} ELEVAR: +1 POSTO NO GARGALO</span>
                     <span class="s-value" style="color:#26a69a;font-size:1.5rem;">+${Math.round(extraH)}h/mês</span>
                     <span class="s-sub">${deficitH > 0 ? `déficit atual ${Math.round(deficitH)}h → destrava ≈ ${fmt$(ganhoMes)}/mês de receita represada` : `sem déficit neste recorte (${(g.util * 100).toFixed(0)}%) — o ganho aparece nos meses de pico (filtre Abr/26)`} · utilização iria a ${(utilDepois * 100).toFixed(0)}%</span></div>
                 <div class="summary-card" style="flex:1;min-width:190px;border-top:3px solid #ffca28;">
-                    <span class="s-label">📐 COBERTURA DA ANÁLISE</span>
+                    <span class="s-label">${icon('gauge', 'icon sm')} COBERTURA DA ANÁLISE</span>
                     <span class="s-value" style="color:${cobertura >= 80 ? '#26a69a' : '#ffca28'};font-size:1.5rem;">${cobertura.toFixed(0)}%</span>
                     <span class="s-sub">das horas do gargalo têm preço de venda · sem custo de MP (BOM), R$/h = receita/h, não margem/h</span></div>
             </div>
@@ -4663,12 +4663,12 @@ const toc = {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
                 <div>
                     <div class="s-label" style="margin-bottom:6px;">② EXPLORAR — quem MERECE a hora do gargalo (maior R$/h)</div>
-                    <table style="width:100%;border-collapse:collapse;font-size:.76rem;">${top5.map(x => linhaSku(x, '#26a69a')).join('')}</table>
+                    <table class="data-table" style="font-size:.78rem;">${top5.map(x => linhaSku(x, 'var(--ok)')).join('')}</table>
                     <div style="font-size:.66rem;color:var(--text-dim);margin-top:4px;">priorize estes na fila do gargalo — cada hora dedicada a eles rende mais</div>
                 </div>
                 <div>
                     <div class="s-label" style="margin-bottom:6px;">quem CONSOME a hora rendendo pouco (menor R$/h)</div>
-                    <table style="width:100%;border-collapse:collapse;font-size:.76rem;">${bottom5.map(x => linhaSku(x, '#f06292')).join('')}</table>
+                    <table class="data-table" style="font-size:.78rem;">${bottom5.map(x => linhaSku(x, 'var(--bad)')).join('')}</table>
                     <div style="font-size:.66rem;color:var(--text-dim);margin-top:4px;">candidatos a reprecificar, lotear fora de pico ou repensar — só se o gargalo estiver estourado</div>
                 </div>
             </div>
@@ -4768,7 +4768,7 @@ const toc = {
         const corBg = u => u == null ? 'transparent' : u >= 1 ? 'rgba(240,98,146,.28)' : u >= 0.8 ? 'rgba(255,202,40,.22)' : `rgba(38,166,154,${0.08 + Math.min(u, 0.79) * 0.25})`;
         const corTx = u => u == null ? 'var(--text-dim)' : u >= 1 ? '#f06292' : u >= 0.8 ? '#ffca28' : '#26a69a';
         el.innerHTML = `
-            <div class="s-label" style="margin-bottom:8px;">📅 MATRIZ MENSAL — utilização por processo ${(Object.keys(this._whatIf).length || Object.keys(this._whatIfJornada).length || Object.keys(this._whatIfTempo).length) ? '<span style="color:#7c4dff;">(com E-SE aplicado)</span>' : ''}${ant ? `<span style="color:#26c6da;"> · antecipando ${ant.pct}% de ${ant.de.replace('_', '/')} → ${ant.para.replace('_', '/')}</span>` : ''}</div>
+            <div class="s-label" style="margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${icon('calendario', 'icon sm')} MATRIZ MENSAL — utilização por processo ${(Object.keys(this._whatIf).length || Object.keys(this._whatIfJornada).length || Object.keys(this._whatIfTempo).length) ? '<span style="color:#7c4dff;">(com E-SE aplicado)</span>' : ''}${ant ? `<span style="color:#26c6da;"> · antecipando ${ant.pct}% de ${ant.de.replace('_', '/')} → ${ant.para.replace('_', '/')}</span>` : ''}</div>
             <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.76rem;">
                 <thead><tr>
                     <th style="padding:6px 8px;text-align:left;color:var(--text-dim);font-size:.64rem;">MÊS</th>
@@ -4861,7 +4861,7 @@ const toc = {
         const el = document.getElementById('toc-whatif-status'); if (!el) return;
         const nome = pid => this._PROCS.find(p => p.id === pid)?.nome || pid;
         const parts = [
-            ...Object.entries(this._whatIf).map(([pid, d]) => `${nome(pid)} ${d > 0 ? '+' : ''}${d}👤`),
+            ...Object.entries(this._whatIf).map(([pid, d]) => `${nome(pid)} ${d > 0 ? '+' : ''}${d} pessoa${Math.abs(d) > 1 ? 's' : ''}`),
             ...Object.entries(this._whatIfJornada).map(([pid, d]) => `${nome(pid)} ${d > 0 ? '+' : ''}${d}h/dia`),
             ...Object.entries(this._whatIfTempo).map(([cod, o]) => `${cod}: ${o.antes.toFixed(0)}→${o.novoMin} min (${nome(o.procId)})`),
             ...(this._whatIfAntecip ? [`antecipa ${this._whatIfAntecip.pct}% de ${this._whatIfAntecip.de.replace('_', '/')} → ${this._whatIfAntecip.para.replace('_', '/')}`] : []),
@@ -5374,7 +5374,7 @@ const toc = {
             const selo = (p.fonteTempo === 'medido'
                 ? `<span title="${p.medidasUsadas} SKU(s) com tempo MEDIDO no MES (cronoanálise) — tem prioridade sobre a planilha" style="font-size:.6rem;color:#26c6da;border:1px solid #26c6da55;border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:middle;">medido MES</span>`
                 : '') + (p.whatIf
-                ? `<span title="simulação E-SE: ${p.whatIf > 0 ? '+' : ''}${p.whatIf} posto(s) — nada foi gravado" style="font-size:.6rem;color:#7c4dff;border:1px solid #7c4dff55;border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:middle;">${p.whatIf > 0 ? '+' : ''}${p.whatIf}👤 simulado</span>`
+                ? `<span title="simulação E-SE: ${p.whatIf > 0 ? '+' : ''}${p.whatIf} posto(s) — nada foi gravado" style="font-size:.6rem;color:#7c4dff;border:1px solid #7c4dff55;border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:middle;">${p.whatIf > 0 ? '+' : ''}${p.whatIf} pessoa${Math.abs(p.whatIf) > 1 ? 's' : ''} · simulado</span>`
                 : '') + (p.whatIfH
                 ? `<span title="simulação E-SE: ${p.whatIfH > 0 ? '+' : ''}${p.whatIfH}h/dia de jornada — nada foi gravado" style="font-size:.6rem;color:#7c4dff;border:1px solid #7c4dff55;border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:middle;">${p.whatIfH > 0 ? '+' : ''}${p.whatIfH}h simulado</span>`
                 : '');
@@ -5585,21 +5585,16 @@ const toc = {
         if (!p || !p.topPecas?.length) return;
         document.getElementById('toc-top-proc-label').textContent = p.nome.toUpperCase();
         document.getElementById('toc-top-thead').innerHTML =
-            `<th style="padding:8px 12px;text-align:left;">CÓDIGO</th>
-             <th style="padding:8px 12px;text-align:right;">TEMPO/UN (min)</th>
-             <th style="padding:8px 12px;text-align:right;">DEMANDA (un)</th>
-             <th style="padding:8px 12px;text-align:right;">CARGA TOTAL (h)</th>
-             <th style="padding:8px 12px;text-align:right;">% DO GARGALO</th>`;
+            `<th>Código</th><th class="num">Tempo/un (min)</th><th class="num">Demanda (un)</th><th class="num">Carga total (h)</th><th class="num">% do gargalo</th>`;
         const totalCarga = p.cargaMin;
-        document.getElementById('toc-top-tbody').innerHTML = p.topPecas.map((r, i) => {
+        document.getElementById('toc-top-tbody').innerHTML = p.topPecas.map(r => {
             const pct = totalCarga > 0 ? (r.carga / totalCarga * 100).toFixed(1) : '—';
-            const bg = i % 2 === 0 ? 'transparent' : 'var(--bg-input)';
-            return `<tr style="background:${bg};">
-                <td style="padding:7px 12px;font-weight:600;color:var(--indigo-primary);">${escHTML(r.cod)}</td>
-                <td style="padding:7px 12px;text-align:right;">${r.tempoUn.toFixed(2)}</td>
-                <td style="padding:7px 12px;text-align:right;">${r.qty.toFixed(0)}</td>
-                <td style="padding:7px 12px;text-align:right;font-weight:600;">${(r.carga/60).toFixed(1)}h</td>
-                <td style="padding:7px 12px;text-align:right;color:var(--text-dim);">${pct}%</td>
+            return `<tr>
+                <td style="font-weight:600;color:var(--indigo-primary);">${escHTML(r.cod)}</td>
+                <td class="num">${r.tempoUn.toFixed(2)}</td>
+                <td class="num">${r.qty.toFixed(0)}</td>
+                <td class="num" style="font-weight:600;">${(r.carga/60).toFixed(1)}h</td>
+                <td class="num dim">${pct}%</td>
             </tr>`;
         }).join('');
     },
@@ -5734,7 +5729,7 @@ const stollOcup = {
             <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:16px;">${cards}</div>
             ${this._semCad?.length ? `<div class="summary-card" style="margin-bottom:14px;border-left:3px solid #8b949e;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
                 <span style="flex:1;font-size:.8rem;color:var(--text-dim);"><strong style="color:var(--text-primary);">${this._semCad.length} código(s) vendidos sem cadastro</strong> no Banco de Dados (${this._semCad.reduce((s, x) => s + x.qty, 0).toLocaleString('pt-BR')} pç). Defina a Stoll de cada um — ou marque "não tece" (palmilha, meia…).</span>
-                <button class="btn primary" style="font-size:.76rem;" onclick="stollOcup._renderCadastro()">➕ Cadastrar agora</button>
+                <button class="btn primary" style="font-size:.76rem;" onclick="stollOcup._renderCadastro()">Cadastrar agora</button>
             </div><div id="stoll-cad-panel"></div>` : ''}
             <div class="summary-card">
                 <div class="s-label" style="margin-bottom:10px;">MIX DE VENDAS POR MODELO — mês a mês (100% = peças vendidas no mês)</div>
@@ -5845,17 +5840,17 @@ const stollOcup = {
         const chipsMaq = usaArq ? maqsProc.map(m => {
             const oee = m.oee == null ? 100 : Number(m.oee);
             const corO = oee >= 75 ? '#26a69a' : oee >= 60 ? '#ffca28' : '#f06292';
-            const pes = Number(m.n_pessoas) > 0 ? ` <span style="color:#26c6da;font-weight:700;">👤×${Number(m.n_pessoas)}</span>` : '';
+            const pes = Number(m.n_pessoas) > 0 ? ` <span style="color:#26c6da;font-weight:700;">${icon('pessoas', 'icon sm')} ×${Number(m.n_pessoas)}</span>` : '';
             return `<span style="display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border-color);border-radius:7px;padding:4px 10px;font-size:.74rem;">
                 <strong>${escHTML(m.id_maquina || m.codigo || m.nome || 'máq')}</strong>${m.modelo ? ` <span style="color:var(--text-dim);">${escHTML(String(m.modelo))}</span>` : ''}${pes}
                 <span style="font-weight:800;color:${corO};">${oee}%</span></span>`;
         }).join(' ') : '';
         const cardEfic = `
             <div class="summary-card" style="margin-bottom:14px;border-left:3px solid ${usaArq ? '#26c6da' : '#ffca28'};">
-                <div class="s-label" style="margin-bottom:8px;">⚙ EFICIÊNCIAS USADAS — ${usaArq ? 'arquitetura de processos (Base de Dados › Processos)' : 'TOC › Capacidade (fallback)'}</div>
+                <div class="s-label" style="margin-bottom:8px;">${icon('config', 'icon sm')} EFICIÊNCIAS USADAS — ${usaArq ? 'arquitetura de processos (Base de Dados › Processos)' : 'TOC › Capacidade (fallback)'}</div>
                 ${usaArq
                     ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">${chipsMaq}</div>
-                       <div style="font-size:.76rem;color:var(--text-dim);">${maqsProc.length} recurso(s) ativos = <strong style="color:var(--text-primary);">${nMaq} posto(s)</strong>${temPessoas ? ' (máquina conta 1 · equipe conta o nº de pessoas 👤)' : ''} · OEE médio <strong style="color:var(--text-primary);">${oeeMedio.toFixed(0)}%</strong> · a capacidade soma recurso a recurso, cada um com o SEU OEE.</div>`
+                       <div style="font-size:.76rem;color:var(--text-dim);">${maqsProc.length} recurso(s) ativos = <strong style="color:var(--text-primary);">${nMaq} posto(s)</strong>${temPessoas ? ' (máquina conta 1 · equipe conta o nº de pessoas)' : ''} · OEE médio <strong style="color:var(--text-primary);">${oeeMedio.toFixed(0)}%</strong> · a capacidade soma recurso a recurso, cada um com o SEU OEE.</div>`
                     : `<div style="font-size:.78rem;color:#ffca28;">⚠ Nenhum recurso de <strong>${escHTML(procDef.nome)}</strong> cadastrado na arquitetura de processos — usando a config do TOC (${capP.maquinas} postos · OEE ${capP.oee}%). Em <strong>Base de Dados › Processos</strong>, cadastre as máquinas (com OEE) — ou, se o processo é manual, uma linha com o <strong>nº de pessoas</strong> e o OEE da equipe: o cálculo troca sozinho.</div>`}
                 <div style="margin-top:10px;padding:10px 12px;background:var(--bg-input);border-radius:8px;font-family:ui-monospace,Menlo,monospace;font-size:.72rem;color:var(--text-dim);overflow-x:auto;">
                     capacidade(mês) = ${usaArq ? `Σ recursos [ máx(pessoas, 1) × ${capP.horasDia}h/dia × 60 × dias úteis × OEE do recurso ]` : `${capP.maquinas} postos × ${capP.horasDia}h/dia × 60 × dias úteis × ${capP.oee}%`}<br>
@@ -5910,7 +5905,7 @@ const stollOcup = {
                 </table>
             </div>
             <div style="display:flex;gap:10px;margin-top:12px;align-items:center;">
-                <button class="btn primary" style="font-size:.78rem;" onclick="stollOcup._salvarCadastro()">💾 Salvar no Banco de Dados</button>
+                <button class="btn primary" style="font-size:.78rem;" onclick="stollOcup._salvarCadastro()">Salvar no Banco de Dados</button>
                 <button class="btn secondary" style="font-size:.78rem;" onclick="document.getElementById('stoll-cad-panel').innerHTML=''">Cancelar</button>
                 <span style="font-size:.7rem;color:var(--text-dim);">Grava na importação vigente do Banco (some da fatia cinza na hora). Tempo de tecelagem pode ser preenchido depois na planilha.</span>
             </div>
@@ -6033,7 +6028,7 @@ const stollOcup = {
         }).join(' ');
         const cardEficTec = `
             <div class="summary-card" style="margin-bottom:14px;border-left:3px solid #26c6da;">
-                <div class="s-label" style="margin-bottom:8px;">⚙ EFICIÊNCIAS USADAS — arquitetura de processos (Base de Dados › Processos › Tecelagem)</div>
+                <div class="s-label" style="margin-bottom:8px;">${icon('config', 'icon sm')} EFICIÊNCIAS USADAS — arquitetura de processos (Base de Dados › Processos › Tecelagem)</div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">${chipsTear || '<span style="color:#ffca28;font-size:.78rem;">nenhum tear cadastrado</span>'}</div>
                 <div style="margin-top:4px;padding:10px 12px;background:var(--bg-input);border-radius:8px;font-family:ui-monospace,Menlo,monospace;font-size:.72rem;color:var(--text-dim);overflow-x:auto;">
                     capacidade(modelo, mês) = Σ teares do modelo [ h/dia × 60 × dias úteis × OEE do tear ]<br>

@@ -147,16 +147,16 @@ const n1 = {
         <div class="summary-card" style="margin-bottom:12px;border-left:3px solid #26c6da;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
             <div style="flex:1;"><div class="s-label" style="margin:0 0 4px;">② CARTEIRA PUSH — prioridade pela folga (prazo − hoje − LT)</div>
             <p style="font-size:.74rem;color:var(--text-dim);margin:0;">Carteira firme = OPs do ERP para SKUs <strong>PUSH</strong> (homologados). Folga ≤ LT → prio 70–95; folga > LT → 10–35. ${(d.avisos || []).map(esc).join(' ')}</p></div>
-            ${this._nettingItens.length ? `<button class="btn primary" style="font-size:.74rem;" onclick="n1._nettingAplicar()">✓ Aplicar prioridades (${this._nettingItens.length})</button>` : ''}
+            ${this._nettingItens.length ? `<button class="btn primary" style="font-size:.74rem;" onclick="n1._nettingAplicar()">Aplicar prioridades (${this._nettingItens.length})</button>` : ''}
         </div>
         ${prevRows.length ? `<div class="summary-card" style="margin-bottom:12px;">
-            <div class="s-label" style="margin-bottom:6px;">📈 PREVISÃO POR FAMÍLIA — EWMA α=0,1 (próximo mês) + MAPE</div>
+            <div class="s-label" style="margin-bottom:6px;">PREVISÃO POR FAMÍLIA — EWMA α=0,1 (próximo mês) + MAPE</div>
             <div style="display:flex;gap:10px;flex-wrap:wrap;">${prevRows.map(p => `<div style="border:1px solid var(--border-color);border-radius:8px;padding:8px 12px;min-width:130px;">
                 <div style="font-size:.68rem;color:var(--text-dim);">${esc(String(p.familia).slice(0, 18))}</div>
                 <div style="font-size:1.1rem;font-weight:800;">${fmt(Math.round(p.previsao))}</div>
                 <div style="font-size:.64rem;color:${p.mape_pct > 50 ? '#f06292' : 'var(--text-dim)'};">MAPE ${p.mape_pct != null ? fmt1(p.mape_pct) + '%' : '—'}</div>
             </div>`).join('')}</div>
-        </div>` : `<div class="summary-card" style="margin-bottom:12px;"><button class="btn secondary" style="font-size:.74rem;" onclick="n1._acao('Previsão EWMA','/api/n1/previsao/rodar',null,'netting')">📈 Rodar previsão por família (EWMA+MAPE)</button></div>`}
+        </div>` : `<div class="summary-card" style="margin-bottom:12px;"><button class="btn secondary" style="font-size:.74rem;" onclick="n1._acao('Previsão EWMA','/api/n1/previsao/rodar',null,'netting')">Rodar previsão por família (EWMA+MAPE)</button></div>`}
         <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:52vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
             <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th">PRIO 0-100</th><th class="n1-th">OP</th><th class="n1-th">SKU</th><th class="n1-th" style="text-align:right;">QTD</th><th class="n1-th">PRAZO</th><th class="n1-th" style="text-align:right;">FOLGA</th><th class="n1-th" style="text-align:right;">PRIO OP</th></tr></thead>
             <tbody>${linhas || '<tr><td class="n1-td" colspan="7" style="text-align:center;color:var(--text-dim);padding:20px;">Nenhuma OP de SKU PUSH — homologue trilhos PUSH no S&OP (aba Política).</td></tr>'}</tbody></table></div></div>`;
@@ -185,7 +185,7 @@ const n1 = {
         <div class="summary-card" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
             <div style="flex:1;"><div class="s-label" style="margin:0 0 4px;">③ GATE ÚNICO — Drum ≤ 90% da capacidade</div>
             <p style="font-size:.74rem;color:var(--text-dim);margin:0;">Carga = OPs ativas + sugeridas pendentes/aprovadas × tempo-padrão do roteiro. ${d.avaliacao ? 'Última avaliação: ' + new Date(d.avaliacao).toLocaleString('pt-BR') : 'Nunca avaliado.'}</p></div>
-            <button class="btn primary" style="font-size:.74rem;" onclick="n1._acao('Gate de capacidade','/api/n1/gate/capacidade',{dias:22},'gargalo')">⚖ Avaliar agora (janela 22 d.u.)</button>
+            <button class="btn primary" style="font-size:.74rem;" onclick="n1._acao('Gate de capacidade','/api/n1/gate/capacidade',{dias:22},'gargalo')">Avaliar agora (janela 22 d.u.)</button>
         </div>
         <div class="summary-card">${linhas || '<div style="color:var(--text-dim);font-size:.8rem;padding:8px;">Nenhuma avaliação — clique em Avaliar. Sem tempo-padrão (F0), o gate fica desligado e aprova com aviso.</div>'}</div>`;
     },
@@ -258,7 +258,7 @@ const n1 = {
             <td class="n1-td"><span style="font-size:.66rem;font-weight:700;padding:1px 8px;border-radius:5px;background:${CORES[s.zona_origem]}22;color:${CORES[s.zona_origem]};border:1px solid ${CORES[s.zona_origem]}55;">${esc(s.zona_origem)}</span></td>
             <td class="n1-td" style="text-align:right;font-weight:700;">${fmt(s.qtd)}</td>
             <td class="n1-td" style="color:var(--text-dim);font-size:.74rem;">${esc(s.motivo || '')}</td>
-            <td class="n1-td"><button class="btn primary" style="font-size:.7rem;min-height:auto;padding:5px 12px;" onclick="n1._aprovar('${escJS(s.id)}')">✓ Aprovar → OP</button></td>
+            <td class="n1-td"><button class="btn primary" style="font-size:.7rem;min-height:auto;padding:5px 12px;" onclick="n1._aprovar('${escJS(s.id)}')">Aprovar → OP</button></td>
         </tr>`).join('');
         el.innerHTML = `
         <div class="summary-card" style="margin-bottom:12px;border-left:3px solid #7c4dff;">
@@ -294,7 +294,7 @@ const n1 = {
         <div class="summary-card" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
             <div style="flex:1;"><div class="s-label" style="margin:0 0 4px;">④ FILA DA MÁQUINA ${d.versao ? `· versão ${d.versao}` : ''}</div>
             <p style="font-size:.74rem;color:var(--text-dim);margin:0;">Prioridade DESC, cega à origem (pull e push na mesma régua). Versionada — o PWA consome a última.</p></div>
-            <button class="btn primary" style="font-size:.74rem;" onclick="n1._acao('Sequenciar','/api/n1/sequenciar',null,'fila')">🧮 Sequenciar (nova versão)</button>
+            <button class="btn primary" style="font-size:.74rem;" onclick="n1._acao('Sequenciar','/api/n1/sequenciar',null,'fila')">Sequenciar (nova versão)</button>
         </div>
         <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:58vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
             <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th" style="text-align:center;">#</th><th class="n1-th">OP</th><th class="n1-th">SKU</th><th class="n1-th" style="text-align:right;">QTD</th><th class="n1-th">COR DO PULMÃO</th></tr></thead>
@@ -337,7 +337,7 @@ const n1 = {
         <div class="summary-card" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
             <div style="flex:1;"><div class="s-label" style="margin:0 0 4px;">⑥ KPIs DIÁRIOS (fechamento noturno)</div>
             <p style="font-size:.74rem;color:var(--text-dim);margin:0;">Rupturas · penetração média dos pulmões · aderência (quando a fila for usada) · latência de apontamento. Alimentam o S&OP (⑦).</p></div>
-            <button class="btn primary" style="font-size:.74rem;" onclick="n1._acao('Fechamento','/api/n1/fechamento',null,'kpi')">🌙 Rodar fechamento agora</button>
+            <button class="btn primary" style="font-size:.74rem;" onclick="n1._acao('Fechamento','/api/n1/fechamento',null,'kpi')">Rodar fechamento agora</button>
         </div>
         <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:58vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
             <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th">DIA</th><th class="n1-th" style="text-align:right;">RUPTURAS</th><th class="n1-th" style="text-align:right;">PENETRAÇÃO MÉDIA</th><th class="n1-th" style="text-align:right;">ADERÊNCIA</th><th class="n1-th" style="text-align:right;">LATÊNCIA APONT.</th><th class="n1-th">DETALHE</th></tr></thead>
@@ -390,8 +390,8 @@ const n1 = {
             <div style="flex:1;"><div class="s-label" style="margin:0 0 4px;">⑦ S&OP LEVE — ciclo ${esc(rot.ciclo)} · roteamento ABC-XYZ</div>
             <p style="font-size:.74rem;color:var(--text-dim);margin:0;">${st.length ? `${st.length} SKUs no staging · <strong>${mudancas.length}</strong> mudanças propostas · <strong style="color:#26a69a;">${aplicaveis.length}</strong> passam a histerese (2 ciclos) · <strong style="color:#f06292;">${portfolio.length}</strong> CZ (revisar portfólio)` : 'Ciclo ainda não rodado.'} ABC por <strong>volume</strong> (valor zerado na base) · X: CV≤0,5 · Y: ≤1,0 · Z: >1,0 ou ≥40% meses zero · item novo (<6m) = PUSH.</p></div>
             <div style="display:flex;flex-direction:column;gap:6px;">
-                <button class="btn secondary" style="font-size:.72rem;" onclick="n1._acao('Roteamento','/api/n1/roteamento/rodar',null,'politica')">🔄 Rodar roteamento (mensal)</button>
-                ${pend && st.length ? `<button class="btn primary" style="font-size:.72rem;" onclick="n1._homologar('${escJS(rot.ciclo)}')">✓ Homologar ciclo (${aplicaveis.length} aplicáveis)</button>` : ''}
+                <button class="btn secondary" style="font-size:.72rem;" onclick="n1._acao('Roteamento','/api/n1/roteamento/rodar',null,'politica')">Rodar roteamento (mensal)</button>
+                ${pend && st.length ? `<button class="btn primary" style="font-size:.72rem;" onclick="n1._homologar('${escJS(rot.ciclo)}')">Homologar ciclo (${aplicaveis.length} aplicáveis)</button>` : ''}
             </div>
         </div>
         <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:56vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
@@ -488,7 +488,7 @@ const n1 = {
         const r = await fetch('/api/n1/bom', { headers: api._h() });
         if (r.status === 503) { const d = await r.json().catch(() => ({}));
             el.innerHTML = `<div class="summary-card" style="border-left:3px solid #ffab76;">
-                <div class="s-label" style="margin-bottom:6px;">📋 BOM — lista técnica (consumo de fio/MP por SKU)</div>
+                <div class="s-label" style="margin-bottom:6px;">BOM — lista técnica (consumo de fio/MP por SKU)</div>
                 <p style="font-size:.82rem;color:#ffab76;margin-bottom:8px;">${esc(d.erro || 'Tabela BOM não existe ainda.')}</p>
                 <p style="font-size:.76rem;color:var(--text-dim);">Rode <code>n1_f0.sql</code> no Supabase (SQL Editor) para criar a tabela. Ela habilita o check de fio no gate (③) e o desacople híbrido no semiacabado.</p></div>`;
             return; }
@@ -501,16 +501,16 @@ const n1 = {
         </tr>`).join('');
         el.innerHTML = `
         <div class="summary-card" style="margin-bottom:12px;border-left:3px solid #26a69a;">
-            <div class="s-label" style="margin-bottom:4px;">📋 BOM — lista técnica (consumo de fio/MP por SKU)</div>
+            <div class="s-label" style="margin-bottom:4px;">BOM — lista técnica (consumo de fio/MP por SKU)</div>
             <p style="font-size:.76rem;color:var(--text-dim);"><strong>${(bom || []).length}</strong> linha(s). Sem BOM, o check de fio do gate fica desligado para o SKU.</p>
         </div>
         <div class="summary-card" style="margin-bottom:12px;">
-            <div class="s-label" style="margin-bottom:6px;">⬆ IMPORTAR (colar do Excel)</div>
+            <div class="s-label" style="margin-bottom:6px;">IMPORTAR (colar do Excel)</div>
             <p style="font-size:.72rem;color:var(--text-dim);margin-bottom:8px;">Cole linhas com colunas separadas por TAB ou ponto-e-vírgula, na ordem: <code>código do produto · código do fio/MP · descrição do material · consumo por unidade · unidade (kg/g/m/pc)</code>. Uma linha por material.</p>
             <textarea id="n1-bom-cola" class="n1-input" rows="5" placeholder="12002&#9;FIO-PA-70&#9;Poliamida 70&#9;0,035&#9;kg&#10;12002&#9;ELAST-45&#9;Elastano 45&#9;0,008&#9;kg"></textarea>
             <div style="display:flex;gap:8px;margin-top:8px;">
-                <button class="btn secondary" style="font-size:.74rem;" onclick="n1._bomPreview()">🔍 Pré-visualizar</button>
-                <button class="btn primary" style="font-size:.74rem;" onclick="n1._bomImportar()">✓ Importar</button>
+                <button class="btn secondary" style="font-size:.74rem;" onclick="n1._bomPreview()">Pré-visualizar</button>
+                <button class="btn primary" style="font-size:.74rem;" onclick="n1._bomImportar()">Importar</button>
             </div>
             <div id="n1-bom-prev" style="margin-top:8px;font-size:.76rem;color:var(--text-dim);"></div>
         </div>
@@ -585,7 +585,7 @@ const n1 = {
             ${bloco('⑦','S&OP Leve (mensal)','Homologa politica_item (trilho PULL/PUSH por ABC-XYZ). Imutável entre ciclos. Recebe os KPIs de volta.','F2',[['politica','Política (Trilho)']])}
         </div>
         <div class="summary-card" style="margin-top:16px;border-left:3px solid #26a69a;">
-            <div class="s-label" style="margin-bottom:6px;">⏰ AUTOMAÇÃO — o laço roda sozinho (America/São_Paulo)</div>
+            <div class="s-label" style="margin-bottom:6px;">AUTOMAÇÃO — o laço roda sozinho (America/São_Paulo)</div>
             <p style="font-size:.78rem;color:var(--text-dim);">
                 <strong>Varredura do gatilho</strong> a cada 15 min · <strong>ETL + motor diário</strong> às 05:00 ·
                 <strong>Fechamento (DBM + KPIs)</strong> às 23:30 · <strong>Roteamento + previsão</strong> todo dia 01 às 06:00.

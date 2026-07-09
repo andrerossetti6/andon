@@ -511,7 +511,7 @@ const aps = {
         out.innerHTML = `
         <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px;">
             <span style="font-size:.72rem;color:var(--text-dim);align-self:center;">Aprovou esta ordem?</span>
-            <button class="btn primary" style="font-size:.78rem;" onclick="aps._congelarSequencia()">❄ Congelar sequência</button>
+            <button class="btn primary" style="font-size:.78rem;" onclick="aps._congelarSequencia()">Congelar sequência</button>
         </div>`;
         out.innerHTML += `
         ${(r.avisos||[]).length ? `<div class="summary-card" style="margin-bottom:12px;border-left:3px solid #ffca28;padding:10px 14px;">${r.avisos.map(a=>`<div style="font-size:.74rem;color:#ffca28;">⚠ ${esc(a)}</div>`).join('')}</div>` : ''}
@@ -574,7 +574,7 @@ const aps = {
         const el = $('aps-seq-status'); if (!el) return;
         const s = await api.get('/api/aps/seq-plano');
         if (!s || s.erro) { el.innerHTML = s?.erro ? `<div class="summary-card" style="border-left:3px solid #ffca28;padding:10px 14px;font-size:.76rem;color:#ffca28;">⚠ ${esc(s.erro)}</div>` : ''; return; }
-        if (!s.plano) { el.innerHTML = `<div class="summary-card" style="padding:10px 14px;font-size:.76rem;color:var(--text-dim);">Nenhuma sequência congelada. Sequencie e clique <strong>❄ Congelar sequência</strong> para o sistema passar a monitorar divergências.</div>`; return; }
+        if (!s.plano) { el.innerHTML = `<div class="summary-card" style="padding:10px 14px;font-size:.76rem;color:var(--text-dim);">Nenhuma sequência congelada. Sequencie e clique <strong>Congelar sequência</strong> para o sistema passar a monitorar divergências.</div>`; return; }
         const cor = s.desatualizado ? '#f06292' : '#26a69a';
         const TIPO = { bloqueada:'⛔ bloqueada', cancelada:'✕ cancelada', atrasada:'⏰ atrasada', nova:'➕ nova', sumiu:'❓ sumiu' };
         el.innerHTML = `
@@ -584,7 +584,7 @@ const aps = {
                     <span class="s-label" style="color:${cor};">${s.desatualizado ? '⚠ PLANO DESATUALIZADO' : '✓ PLANO EM DIA'}</span>
                     <div style="font-size:.74rem;color:var(--text-dim);margin-top:2px;">Congelado ${fmtData(s.plano.congelado_em)} por ${esc(s.plano.usuario||'—')} · ${s.progresso.concluidas}/${s.plano.total} concluídas · tolerância ${s.plano.tolerancia_dias}d</div>
                 </div>
-                ${s.desatualizado ? `<button class="btn primary" style="font-size:.78rem;" onclick="aps._renderSeqInteligente()">🔄 Re-sequenciar</button>` : ''}
+                ${s.desatualizado ? `<button class="btn primary" style="font-size:.78rem;" onclick="aps._renderSeqInteligente()">Re-sequenciar</button>` : ''}
             </div>
             ${s.divergencias.length ? `<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:6px;">${s.divergencias.slice(0,40).map(d=>`<span style="font-size:.7rem;background:var(--bg-input);border:1px solid ${cor}44;border-radius:5px;padding:2px 8px;color:var(--text-primary);" title="${esc(d.detalhe)}">${TIPO[d.tipo]||d.tipo} ${esc(d.numero)}</span>`).join('')}${s.divergencias.length>40?` <span style="font-size:.7rem;color:var(--text-dim);">+${s.divergencias.length-40}</span>`:''}</div>` : ''}
         </div>`;
@@ -608,9 +608,9 @@ const aps = {
             <p style="font-size:.74rem;color:var(--text-dim);margin-bottom:10px;">Combina as regras de despacho por peso e agrupa OPs de setup parecido (fio/galga/cor/programa). Só entram OPs <strong>LIBERADAS</strong> (que passaram pelo gate). Mostra o custo total de setup vs EDD puro — você decide com número.</p>
             <div style="display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap;" id="aps-pesos-wrap">
                 ${['edd','setup','prioridade','spt'].map(k => `<div><span class="aps-label">${{edd:'PRAZO (EDD)',setup:'MENOS SETUP',prioridade:'PRIORIDADE ★',spt:'MAIS CURTA (SPT)'}[k]}</span><input id="aps-peso-${k}" type="number" min="0" class="aps-input" style="width:92px;text-align:right;" value="0"></div>`).join('')}
-                <button class="btn secondary" style="font-size:.78rem;" onclick="aps._salvarPesos()">💾 Salvar pesos</button>
-                <button class="btn secondary" style="font-size:.78rem;" title="Ranqueia toda a carteira por data de entrega (EDD) e grava a prioridade (20% mais urgentes → urgente, 30% seguintes → alta). Preserva prioridades já ajustadas. O MES só exibe." onclick="aps._aplicarPrioridadeEDD()">⚡ Prioridade por EDD</button>
-                <button class="btn primary" style="font-size:.78rem;" onclick="aps._renderSeqInteligente()">🧮 Sequenciar</button>
+                <button class="btn secondary" style="font-size:.78rem;" onclick="aps._salvarPesos()">Salvar pesos</button>
+                <button class="btn secondary" style="font-size:.78rem;" title="Ranqueia toda a carteira por data de entrega (EDD) e grava a prioridade (20% mais urgentes → urgente, 30% seguintes → alta). Preserva prioridades já ajustadas. O MES só exibe." onclick="aps._aplicarPrioridadeEDD()">Prioridade por EDD</button>
+                <button class="btn primary" style="font-size:.78rem;" onclick="aps._renderSeqInteligente()">Sequenciar</button>
             </div>
         </div>
         <div id="aps-seq-smart" style="margin-bottom:18px;"></div>
@@ -618,7 +618,7 @@ const aps = {
             <div class="s-label" style="margin-bottom:6px;">FILA SIMPLES — regra EDD (menor prazo primeiro) + prioridade manual</div>
             <p style="font-size:.78rem;color:var(--text-dim);margin-bottom:10px;">Ordem de despacho recomendada para reduzir atraso. <strong style="color:${atrasadas?'#f06292':'#26a69a'};">${atrasadas} OP(s) já atrasada(s)</strong> — vão no topo. Este painel dá a <strong>fila GROSSA</strong> (que OP, em que ordem) da carteira inteira.</p>
             <p style="font-size:.74rem;color:var(--text-dim);margin-bottom:10px;">O <strong>sequenciamento FINO por máquina/tear</strong> — Gantt de capacidade finita, com setup e OEE por recurso — é a camada seguinte (grosso → fino). Vive no Preactor.</p>
-            <button class="btn secondary" style="font-size:.78rem;" onclick="location.href='/index.html?view=timeline'">↗ Abrir Sequenciamento fino por tear (Preactor)</button>
+            <button class="btn secondary" style="font-size:.78rem;" onclick="location.href='/index.html?view=timeline'">Abrir Sequenciamento fino por tear (Preactor)</button>
         </div>
         <div class="summary-card" style="padding:0;overflow:hidden;">
             <div style="max-height:64vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
