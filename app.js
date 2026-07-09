@@ -4500,11 +4500,28 @@ const toc = {
             const mods = [...new Set((vendas.rawData || []).map(r => String(r.modelo || '').trim()).filter(Boolean))].sort();
             moSel.innerHTML = '<option value="">Todos</option>' + mods.map(s => `<option value="${escHTML(s)}">${escHTML(s)}</option>`).join('');
         }
-        // "E se?": processos elegíveis (tecelagem fica de fora — capacidade dela é por tear)
+        // "E se?": processos elegíveis (tecelagem fica de fora do +gente — capacidade por tear)
         const wSel = document.getElementById('toc-whatif-proc');
         if (wSel && !wSel.options.length) {
             wSel.innerHTML = this._PROCS.filter(p => p.id !== 'tecelagem').map(p => `<option value="${p.id}">${escHTML(p.nome)}</option>`).join('');
             wSel.value = 'costura_manual';
+        }
+        const whSel = document.getElementById('toc-whatifh-proc');
+        if (whSel && !whSel.options.length) {
+            whSel.innerHTML = this._PROCS.map(p => `<option value="${p.id}">${escHTML(p.nome)}</option>`).join('');
+            whSel.value = 'costura_manual';
+        }
+        const wtSel = document.getElementById('toc-whatift-proc');
+        if (wtSel && !wtSel.options.length) {
+            wtSel.innerHTML = this._PROCS.map(p => `<option value="${p.id}">${escHTML(p.nome)}</option>`).join('');
+            wtSel.value = 'costura_manual';
+        }
+        // antecipação: meses das vendas (origem/destino)
+        const aDe = document.getElementById('toc-antecip-de'), aPara = document.getElementById('toc-antecip-para');
+        if (aDe && aPara && (vendas.monthCols || []).some(c => c.year) && aDe.options.length === 0) {
+            const ops = (vendas.monthCols || []).filter(c => c.year).map(c => `<option value="${c.key}">${c.label}</option>`).join('');
+            aDe.innerHTML = ops; aPara.innerHTML = ops;
+            const abr = (vendas.monthCols || []).find(c => c.key === 'abr_2026'); if (abr) aDe.value = 'abr_2026';
         }
     },
 
@@ -4537,7 +4554,7 @@ const toc = {
         Object.entries(this._demandaAtual).forEach(([cod, qty]) => {
             if (!(qty > 0)) return;
             const dados = bancoMap[cod]; if (!dados) return;
-            const tMin = this._getTempoMinutos(dados, procDef.cols); if (!tMin) return;
+            const tMin = this._tempoSim(cod, g.id, dados, procDef.cols); if (!tMin) return;
             const h = tMin * qty / 60;
             horasTot += h;
             const pr = preco[cod];
@@ -4667,25 +4684,36 @@ const toc = {
         for (const c of cols) {
             const mesStr = `${c.year}-${String(this._MES_NUM[c.abbr] || 1).padStart(2, '0')}`;
             const du = await this._calcDiasUteisDoMes(mesStr).catch(() => 22);
-            const cel = {};
+            const carga = {}, capM = {};
             for (const p of this._PROCS) {
                 let cargaMin = 0;
                 linhasV.forEach(r => {
                     const q = Number(r[c.key]) || 0; if (q <= 0) return;
-                    const dados = bancoMap[String(r.codigo || '').trim().toUpperCase()]; if (!dados) return;
-                    const t = this._getTempoMinutos(dados, p.cols); if (!t) return;
+                    const cod = String(r.codigo || '').trim().toUpperCase();
+                    const dados = bancoMap[cod]; if (!dados) return;
+                    const t = this._tempoSim(cod, p.id, dados, p.cols); if (!t) return;
                     cargaMin += t * q;
                 });
                 const cp = cap[p.id] || { maquinas: 1, horasDia: 8, oee: 100 };
-                const capMin = cp.maquinas * cp.horasDia * 60 * du * (Math.min(cp.oee || 100, 100) / 100);
-                cel[p.id] = capMin > 0 ? cargaMin / capMin : null;
+                carga[p.id] = cargaMin;
+                capM[p.id] = cp.maquinas * cp.horasDia * 60 * du * (Math.min(cp.oee || 100, 100) / 100);
             }
-            rows.push({ label: c.label, du, cel });
+            rows.push({ label: c.label, key: c.key, du, carga, capM });
         }
+        // E-SE antecipação: move X% da carga de um mês para outro (todos os processos)
+        const ant = this._whatIfAntecip;
+        if (ant) {
+            const rDe = rows.find(r => r.key === ant.de), rPara = rows.find(r => r.key === ant.para);
+            if (rDe && rPara) this._PROCS.forEach(p => {
+                const mov = (rDe.carga[p.id] || 0) * ant.pct / 100;
+                rDe.carga[p.id] -= mov; rPara.carga[p.id] = (rPara.carga[p.id] || 0) + mov;
+            });
+        }
+        rows.forEach(r => { r.cel = {}; this._PROCS.forEach(p => { r.cel[p.id] = r.capM[p.id] > 0 ? r.carga[p.id] / r.capM[p.id] : null; }); });
         const corBg = u => u == null ? 'transparent' : u >= 1 ? 'rgba(240,98,146,.28)' : u >= 0.8 ? 'rgba(255,202,40,.22)' : `rgba(38,166,154,${0.08 + Math.min(u, 0.79) * 0.25})`;
         const corTx = u => u == null ? 'var(--text-dim)' : u >= 1 ? '#f06292' : u >= 0.8 ? '#ffca28' : '#26a69a';
         el.innerHTML = `
-            <div class="s-label" style="margin-bottom:8px;">📅 MATRIZ MENSAL — utilização por processo ${Object.keys(this._whatIf).length ? '<span style="color:#7c4dff;">(com E-SE aplicado)</span>' : ''}</div>
+            <div class="s-label" style="margin-bottom:8px;">📅 MATRIZ MENSAL — utilização por processo ${(Object.keys(this._whatIf).length || Object.keys(this._whatIfJornada).length || Object.keys(this._whatIfTempo).length) ? '<span style="color:#7c4dff;">(com E-SE aplicado)</span>' : ''}${ant ? `<span style="color:#26c6da;"> · antecipando ${ant.pct}% de ${ant.de.replace('_', '/')} → ${ant.para.replace('_', '/')}</span>` : ''}</div>
             <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:.76rem;">
                 <thead><tr>
                     <th style="padding:6px 8px;text-align:left;color:var(--text-dim);font-size:.64rem;">MÊS</th>
@@ -4693,7 +4721,7 @@ const toc = {
                     <th style="padding:6px 8px;text-align:right;color:var(--text-dim);font-size:.64rem;">D.U.</th>
                 </tr></thead>
                 <tbody>${rows.map(r => `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
-                    <td style="padding:5px 8px;font-weight:700;white-space:nowrap;">${escHTML(r.label)}</td>
+                    <td style="padding:5px 8px;font-weight:700;white-space:nowrap;">${escHTML(r.label)}${ant && r.key === ant.de ? ' <span title="carga antecipada PARA outro mês" style="color:#26c6da;">↘</span>' : ''}${ant && r.key === ant.para ? ' <span title="recebeu carga antecipada" style="color:#26c6da;">↗</span>' : ''}</td>
                     ${this._PROCS.map(p => { const u = r.cel[p.id];
                         return `<td style="padding:5px 8px;text-align:center;background:${corBg(u)};color:${corTx(u)};font-weight:${u != null && u >= 0.8 ? 800 : 600};">${u == null ? '—' : (u * 100).toFixed(0) + '%'}</td>`; }).join('')}
                     <td style="padding:5px 8px;text-align:right;color:var(--text-dim);">${r.du}</td>
@@ -4702,15 +4730,28 @@ const toc = {
             <div style="margin-top:6px;font-size:.68rem;color:var(--text-dim);">carga do mês (vendas × tempos do Banco, com os filtros ativos) ÷ capacidade (postos × jornada × d.u. reais × OEE da arquitetura) · <span style="color:#26a69a;">&lt;80%</span> · <span style="color:#ffca28;">80–100%</span> · <span style="color:#f06292;">&gt;100%</span> · clique no botão de novo para fechar</div>`;
     },
 
-    // ── "E SE?" de capacidade: +N pessoas/postos num processo (simulação, nada gravado) ──
-    _whatIf: {},   // procId → Δ postos
+    // ── "E SE?" — 4 simulações combináveis (nada é gravado) ──────────────────────
+    _whatIf: {},          // procId → Δ postos (gente)
+    _whatIfJornada: {},   // procId → Δ h/dia (jornada)
+    _whatIfTempo: {},     // cod → { procId, novoMin } (método: tempo por peça)
+    _whatIfAntecip: null, // { pct, de, para } (antecipar carga entre meses — só na matriz)
     _capComWhatIf(cap) {
         const out = { ...cap };
         Object.entries(this._whatIf || {}).forEach(([pid, delta]) => {
             const c = out[pid]; if (!c || !delta) return;
             out[pid] = { ...c, maquinas: Math.max(0, (Number(c.maquinas) || 0) + delta), _whatIf: delta };
         });
+        Object.entries(this._whatIfJornada || {}).forEach(([pid, dh]) => {
+            const c = out[pid]; if (!c || !dh) return;
+            out[pid] = { ...c, horasDia: Math.min(24, Math.max(1, (Number(c.horasDia) || 8) + dh)), _whatIfH: dh };
+        });
         return out;
+    },
+    // tempo por peça com simulação de método: override quando (cod, processo) casam
+    _tempoSim(cod, procId, dados, cols) {
+        const o = this._whatIfTempo?.[cod];
+        if (o && o.procId === procId) return o.novoMin;
+        return this._getTempoMinutos(dados, cols);
     },
     _whatIfAplicar() {
         const pid = document.getElementById('toc-whatif-proc')?.value;
@@ -4721,10 +4762,55 @@ const toc = {
         this._whatIfStatus();
         this.calcular();
     },
-    _whatIfLimpar() { this._whatIf = {}; this._whatIfStatus(); this.calcular(); },
+    _whatIfJornadaAplicar() {
+        const pid = document.getElementById('toc-whatifh-proc')?.value;
+        const dh = parseFloat(document.getElementById('toc-whatifh-delta')?.value) || 0;
+        if (!pid || !dh) return mostrarToast('Escolha o processo e um Δ de horas diferente de zero.', 'aviso');
+        this._whatIfJornada[pid] = (this._whatIfJornada[pid] || 0) + dh;
+        if (!this._whatIfJornada[pid]) delete this._whatIfJornada[pid];
+        this._whatIfStatus();
+        this.calcular();
+    },
+    _whatIfTempoAplicar() {
+        const cod = String(document.getElementById('toc-whatift-cod')?.value || '').trim().toUpperCase();
+        const pid = document.getElementById('toc-whatift-proc')?.value;
+        const novoMin = parseFloat(document.getElementById('toc-whatift-min')?.value);
+        if (!cod || !pid || !(novoMin > 0)) return mostrarToast('Preencha código, processo e o novo tempo (min/pç).', 'aviso');
+        const bancoMap = {}; banco.rawData.forEach(r => { const c = String(r.dados?.['Código'] ?? '').trim().toUpperCase(); if (c) bancoMap[c] = r.dados; });
+        if (!bancoMap[cod]) return mostrarToast(`Código ${cod} não está no Banco de Dados.`, 'erro');
+        const procDef = this._PROCS.find(p => p.id === pid);
+        const atual = this._getTempoMinutos(bancoMap[cod], procDef.cols);
+        if (!atual) return mostrarToast(`${cod} não tem tempo de ${procDef.nome} no Banco — nada a simular.`, 'aviso');
+        this._whatIfTempo[cod] = { procId: pid, novoMin, antes: atual };
+        this._whatIfStatus();
+        this.calcular();
+    },
+    _antecipAplicar() {
+        const pct = parseFloat(document.getElementById('toc-antecip-pct')?.value) || 0;
+        const de = document.getElementById('toc-antecip-de')?.value;
+        const para = document.getElementById('toc-antecip-para')?.value;
+        if (!pct || !de || !para) return mostrarToast('Preencha %, mês de origem e destino.', 'aviso');
+        if (de === para) return mostrarToast('Origem e destino iguais — escolha meses diferentes.', 'aviso');
+        this._whatIfAntecip = { pct, de, para };
+        this._whatIfStatus();
+        const m = document.getElementById('toc-matriz');
+        if (m) { m.innerHTML = ''; this._renderMatriz(); }   // reabre a matriz já com a antecipação
+    },
+    _whatIfLimpar() {
+        this._whatIf = {}; this._whatIfJornada = {}; this._whatIfTempo = {}; this._whatIfAntecip = null;
+        this._whatIfStatus();
+        const m = document.getElementById('toc-matriz'); if (m?.innerHTML) { m.innerHTML = ''; this._renderMatriz(); }
+        this.calcular();
+    },
     _whatIfStatus() {
         const el = document.getElementById('toc-whatif-status'); if (!el) return;
-        const parts = Object.entries(this._whatIf).map(([pid, d]) => `${this._PROCS.find(p => p.id === pid)?.nome || pid} ${d > 0 ? '+' : ''}${d}👤`);
+        const nome = pid => this._PROCS.find(p => p.id === pid)?.nome || pid;
+        const parts = [
+            ...Object.entries(this._whatIf).map(([pid, d]) => `${nome(pid)} ${d > 0 ? '+' : ''}${d}👤`),
+            ...Object.entries(this._whatIfJornada).map(([pid, d]) => `${nome(pid)} ${d > 0 ? '+' : ''}${d}h/dia`),
+            ...Object.entries(this._whatIfTempo).map(([cod, o]) => `${cod}: ${o.antes.toFixed(0)}→${o.novoMin} min (${nome(o.procId)})`),
+            ...(this._whatIfAntecip ? [`antecipa ${this._whatIfAntecip.pct}% de ${this._whatIfAntecip.de.replace('_', '/')} → ${this._whatIfAntecip.para.replace('_', '/')}`] : []),
+        ];
         el.textContent = parts.length ? `simulando: ${parts.join(' · ')}` : '';
     },
 
@@ -5026,7 +5112,7 @@ const toc = {
                 const segMed = medProc?.porCodigo?.[cod];
                 let tempoUn, medido = false;
                 if (segMed != null && segMed > 0) { tempoUn = segMed / 60; medido = true; }
-                else { if (!dados) return; tempoUn = this._getTempoMinutos(dados, p.cols); }
+                else { if (!dados) return; tempoUn = this._tempoSim(cod, p.id, dados, p.cols); }
                 if (!tempoUn) return;
                 if (medido) medidasUsadas++;
                 const carga = tempoUn * qty;
@@ -5050,6 +5136,7 @@ const toc = {
                 medidasUsadas,                          // nº de SKUs cujo tempo veio medido (MES)
                 fonteTempo: medidasUsadas > 0 ? 'medido' : 'planilha',
                 whatIf: capP._whatIf || 0,              // Δ postos simulado ("E se?")
+                whatIfH: capP._whatIfH || 0,            // Δ h/dia simulado (jornada)
             };
         });
 
@@ -5141,7 +5228,7 @@ const toc = {
         Object.entries(demanda).forEach(([cod, qty]) => {
             const dados = bancoMap[String(cod).toUpperCase()];
             if (!dados) return;
-            const tempoUn = this._getTempoMinutos(dados, tecProc.cols);
+            const tempoUn = this._tempoSim(String(cod).toUpperCase(), 'tecelagem', dados, tecProc.cols);
             if (!tempoUn) return; // código sem tecelagem
             const modelo = this._getModelosStoll(dados)[0] || '(sem modelo)';
             if (!cargaModelo[modelo]) cargaModelo[modelo] = { mins: 0, skus: 0 };
@@ -5233,6 +5320,8 @@ const toc = {
                 ? `<span title="${p.medidasUsadas} SKU(s) com tempo MEDIDO no MES (cronoanálise) — tem prioridade sobre a planilha" style="font-size:.6rem;color:#26c6da;border:1px solid #26c6da55;border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:middle;">medido MES</span>`
                 : '') + (p.whatIf
                 ? `<span title="simulação E-SE: ${p.whatIf > 0 ? '+' : ''}${p.whatIf} posto(s) — nada foi gravado" style="font-size:.6rem;color:#7c4dff;border:1px solid #7c4dff55;border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:middle;">${p.whatIf > 0 ? '+' : ''}${p.whatIf}👤 simulado</span>`
+                : '') + (p.whatIfH
+                ? `<span title="simulação E-SE: ${p.whatIfH > 0 ? '+' : ''}${p.whatIfH}h/dia de jornada — nada foi gravado" style="font-size:.6rem;color:#7c4dff;border:1px solid #7c4dff55;border-radius:4px;padding:0 4px;margin-left:6px;vertical-align:middle;">${p.whatIfH > 0 ? '+' : ''}${p.whatIfH}h simulado</span>`
                 : '');
             return `<div style="display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid var(--border-color);cursor:pointer;"
                 onclick="toc._mostrarTop('${p.id}')">
@@ -5248,6 +5337,11 @@ const toc = {
 
         // Guarda procs para o top
         this._resultProcs = procs;
+
+        // sugestões de código para o E-SE de método: top peças do gargalo (maiores consumidoras)
+        const dl = document.getElementById('toc-tempo-dl');
+        const g0 = procs.find(p => !p.semDados);
+        if (dl && g0) dl.innerHTML = (g0.topPecas || []).map(x => `<option value="${escHTML(x.cod)}">${x.tempoUn.toFixed(0)} min/pç · ${(x.carga / 60).toFixed(0)}h no ${escHTML(g0.nome)}</option>`).join('');
 
         // Mostra top do gargalo por padrão
         if (gargalo) this._mostrarTop(gargalo.id);
@@ -5290,7 +5384,7 @@ const toc = {
             Object.entries(this._demandaAtual).forEach(([cod, qty]) => {
                 const dados = bancoMap[String(cod).toUpperCase()];
                 if (!dados) return;
-                cargaMin += this._getTempoMinutos(dados, p.cols) * qty * factor;
+                cargaMin += this._tempoSim(String(cod).toUpperCase(), p.id, dados, p.cols) * qty * factor;
             });
             const util = capMin > 0 ? cargaMin / capMin : null;
             return { ...p, cargaMin, capMin, util, semDados: cargaMin === 0 };
