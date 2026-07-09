@@ -116,7 +116,7 @@ const n1 = {
 
     tab(nome) {
         this._tab = nome;
-        ['painel','pulmoes','sugeridas','netting','gargalo','fila','pwa','apont','kpi','dbm','tempos','politica','roteiros','tcad','setup','bom'].forEach(t => {
+        ['painel','pulmoes','sugeridas','netting','gargalo','fila','pwa','apont','kpi','dbm','tempos','politica','estoque','kardex','roteiros','tcad','setup','bom'].forEach(t => {
             const pan = $('n1-pan-' + t); if (pan) pan.style.display = t === nome ? 'block' : 'none';
         });
         document.querySelectorAll('[data-n1tab]').forEach(li => li.classList.toggle('active', li.dataset.n1tab === nome));
