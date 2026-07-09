@@ -2680,6 +2680,7 @@ app.get('/api/n1/kardex', auth, async (req, res) => {
     const cod = String(req.query.codigo || '').trim().toUpperCase();
     let qy = supabase.from('estoque_movimento').select('*').order('criado_em', { ascending: false }).limit(Math.min(Number(req.query.limit) || 200, 500));
     if (cod) qy = qy.eq('codigo', cod);
+    if (req.query.tipo) qy = qy.eq('tipo', String(req.query.tipo));
     const r = await qy;
     if (n1ErroTabela(r.error)) return res.status(503).json({ erro: N1_EST_503 });
     if (r.error) return erro500(res, r.error);
@@ -2707,6 +2708,37 @@ app.post('/api/n1/estoque/ajuste', auth, sigsEscrita, async (req, res) => {
     if (n1ErroTabela(error)) return res.status(503).json({ erro: N1_EST_503 });
     if (error) return erro500(res, error);
     res.json({ ok: true, delta, de: atual, para: contado });
+});
+
+// ── F3: EXPEDIÇÃO — baixa de estoque por saída (manual ou colada em massa) ────
+// Gera movimentos saida_expedicao no kardex. Permite ficar negativo (a vida
+// real embarca mesmo com sistema desatualizado) — mas avisa.
+app.post('/api/n1/expedicao', auth, sigsEscrita, async (req, res) => {
+    const linhas = (Array.isArray(req.body?.linhas) ? req.body.linhas : [])
+        .map(l => ({ codigo: String(l.codigo || '').trim().toUpperCase(), qtd: Number(l.qtd) || 0, ref: String(l.ref || '').trim() }))
+        .filter(l => l.codigo && l.qtd > 0);
+    const confirmar = !!req.body?.confirmar;
+    if (!linhas.length) return res.status(400).json({ erro: 'linhas [{codigo, qtd, ref?}] obrigatório (qtd > 0)' });
+    let vivas;
+    try { vivas = await n1PosicoesVivas(); } catch (e) { return erro500(res, e); }
+    const preview = linhas.map(l => {
+        const disp = vivas[l.codigo]?.disponivel ?? null;
+        return { ...l, disponivel: disp, conhecido: disp != null,
+            ficara: disp != null ? Math.round((disp - l.qtd) * 1000) / 1000 : null,
+            negativo: disp != null && disp - l.qtd < 0 };
+    });
+    if (!confirmar) return res.json({ ok: true, preview: true, linhas: preview,
+        desconhecidos: preview.filter(p => !p.conhecido).map(p => p.codigo),
+        ficarao_negativos: preview.filter(p => p.negativo).map(p => p.codigo) });
+    const movs = linhas.map(l => ({ codigo: l.codigo, tipo: 'saida_expedicao', delta: -l.qtd,
+        motivo: l.ref ? `expedição · ${l.ref}` : 'expedição', usuario_nome: req.usuario?.nome || null }));
+    for (let i = 0; i < movs.length; i += 500) {
+        const { error } = await supabase.from('estoque_movimento').insert(movs.slice(i, i + 500));
+        if (n1ErroTabela(error)) return res.status(503).json({ erro: N1_EST_503 });
+        if (error) return erro500(res, error);
+    }
+    res.json({ ok: true, expedidas: movs.length,
+        avisos: preview.filter(p => p.negativo).map(p => `${p.codigo} ficou negativo (${p.ficara}) — confira o apontamento/inventário.`) });
 });
 
 // reconciliação: última rodada (divergências) + histórico de IRA por rodada

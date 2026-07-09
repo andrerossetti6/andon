@@ -116,13 +116,13 @@ const n1 = {
 
     tab(nome) {
         this._tab = nome;
-        ['painel','pulmoes','sugeridas','netting','gargalo','fila','pwa','apont','kpi','dbm','tempos','politica','estoque','kardex','inventario','reconc','roteiros','tcad','setup','bom'].forEach(t => {
+        ['painel','pulmoes','sugeridas','netting','gargalo','fila','pwa','apont','kpi','dbm','tempos','politica','estoque','kardex','inventario','reconc','expedicao','roteiros','tcad','setup','bom'].forEach(t => {
             const pan = $('n1-pan-' + t); if (pan) pan.style.display = t === nome ? 'block' : 'none';
         });
         document.querySelectorAll('[data-n1tab]').forEach(li => li.classList.toggle('active', li.dataset.n1tab === nome));
         const R = { painel:'_renderPainel', roteiros:'_renderRoteiros', tcad:'_renderTempos', setup:'_renderSetup', bom:'_renderBom',
             pulmoes:'_renderPulmoes', sugeridas:'_renderSugeridas', fila:'_renderFila', pwa:'_renderPwa', kpi:'_renderKpi', dbm:'_renderDbm',
-            politica:'_renderPolitica', netting:'_renderNetting', gargalo:'_renderGargalo', estoque:'_renderEstoque', kardex:'_renderKardex', inventario:'_renderInventario', reconc:'_renderReconc' };
+            politica:'_renderPolitica', netting:'_renderNetting', gargalo:'_renderGargalo', estoque:'_renderEstoque', kardex:'_renderKardex', inventario:'_renderInventario', reconc:'_renderReconc', expedicao:'_renderExpedicao' };
         if (R[nome]) this[R[nome]]();
         else this._placeholder(nome);
     },
@@ -242,7 +242,7 @@ const n1 = {
         el.innerHTML = `
         <div class="summary-card" style="margin-bottom:12px;border-left:3px solid var(--indigo-primary);">
             <div class="sec-title">${icon('gauge')} Acuracidade — última reconciliação <span class="hint">${new Date(d.ultima).toLocaleString('pt-BR')}</span></div>
-            <p style="font-size:var(--fs-caption);color:var(--text-dim);">divergência = o que o sistema calculava − o que o ERP trouxe. <strong>Enquanto a expedição não é movimentada (F3), divergência negativa ≈ vendas do período</strong> — o IRA fica estrito quando a saída entrar no kardex.</p>
+            <p style="font-size:var(--fs-caption);color:var(--text-dim);">divergência = o que o sistema calculava − o que o ERP trouxe. <strong>Registre as saídas na aba Expedição</strong> — com entrada (produção), consumo (BOM) e saída no kardex, a divergência passa a indicar erro real (apontamento errado, perda, furo de contagem).</p>
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
             <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:54vh;overflow-y:auto;">
@@ -255,6 +255,83 @@ const n1 = {
                 <tbody>${hist}</tbody></table>
             </div>
         </div>`;
+    },
+
+    // ═══ ESTOQUE F3 — expedição: a saída entra no kardex (IRA vira estrito) ═══
+    async _renderExpedicao() {
+        const el = $('n1-pan-expedicao'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando expedição…</div>';
+        const ult = await this._getOu503('/api/n1/kardex?tipo=saida_expedicao&limit=100', el); if (!ult) return;
+        const linhas = (ult || []).map(m => `<tr>
+            <td class="dim" style="white-space:nowrap;">${new Date(m.criado_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+            <td style="font-weight:700;color:var(--indigo-primary);">${esc(m.codigo)}</td>
+            <td class="num" style="font-weight:800;color:var(--bad);">${this._estq(m.delta)}</td>
+            <td class="dim">${esc(m.motivo || '')}</td>
+            <td class="dim" style="font-size:.74rem;">${esc(m.usuario_nome || '')}</td>
+        </tr>`).join('');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;border-left:3px solid var(--indigo-primary);">
+            <div class="sec-title">${icon('pacote')} Expedição <span class="hint">a saída entra no kardex — a posição cai na hora e a acuracidade (IRA) fica estrita</span></div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:6px;">
+                <div><span class="n1-label">CÓDIGO</span><input id="n1-exp-cod" class="n1-input" placeholder="ex: 12303" style="width:130px;"></div>
+                <div><span class="n1-label">QTD</span><input id="n1-exp-qtd" type="number" min="1" class="n1-input" style="width:90px;text-align:right;"></div>
+                <div style="flex:1;min-width:160px;"><span class="n1-label">REFERÊNCIA (NF / romaneio)</span><input id="n1-exp-ref" class="n1-input" placeholder="opcional"></div>
+                <button class="btn primary" style="font-size:.78rem;" onclick="n1._expedirUma()">Registrar saída</button>
+            </div>
+        </div>
+        <div class="summary-card" style="margin-bottom:12px;">
+            <div class="s-label" style="margin-bottom:6px;">EM MASSA (colar do Excel: código · qtd · referência)</div>
+            <textarea id="n1-exp-cola" class="n1-input" rows="4" placeholder="12303&#9;50&#9;NF 1234&#10;12603&#9;120&#9;NF 1234"></textarea>
+            <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
+                <button class="btn secondary sm" onclick="n1._expedirMassa(false)">Pré-visualizar</button>
+                <button class="btn primary sm" onclick="n1._expedirMassa(true)">Expedir</button>
+                <span id="n1-exp-prev" style="font-size:.74rem;color:var(--text-dim);"></span>
+            </div>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;">
+            <div class="s-label" style="padding:12px 14px 0;">ÚLTIMAS SAÍDAS</div>
+            <div style="max-height:44vh;overflow-y:auto;"><table class="data-table">
+                <thead><tr><th>Quando</th><th>Código</th><th class="num">Δ</th><th>Referência</th><th>Quem</th></tr></thead>
+                <tbody>${linhas || '<tr><td colspan="5" style="text-align:center;color:var(--text-dim);padding:20px;">Nenhuma expedição registrada ainda.</td></tr>'}</tbody>
+            </table></div>
+        </div>`;
+    },
+    _expParse() {
+        const txt = $('n1-exp-cola')?.value || '';
+        return txt.split(/\n/).map(l => l.trim()).filter(Boolean).map(l => {
+            const p = l.split(/\t|;/).map(x => x.trim());
+            return { codigo: p[0], qtd: parseFloat(String(p[1] || '0').replace(',', '.')) || 0, ref: p[2] || '' };
+        }).filter(x => x.codigo && x.qtd > 0);
+    },
+    async _expedirUma() {
+        const codigo = $('n1-exp-cod')?.value?.trim(), qtd = parseFloat($('n1-exp-qtd')?.value), ref = $('n1-exp-ref')?.value?.trim();
+        if (!codigo || !(qtd > 0)) return toast('Preencha código e quantidade.', 'aviso');
+        const prev = await api.post('/api/n1/expedicao', { linhas: [{ codigo, qtd, ref }], confirmar: false });
+        if (!prev?.ok) return toast(prev?.erro || 'Erro.', 'erro');
+        const p = prev.linhas[0];
+        const msg = p.conhecido ? `Saída de ${qtd} de ${codigo.toUpperCase()} (disponível ${p.disponivel} → ${p.ficara}${p.negativo ? ' ⚠ NEGATIVO' : ''}).\n\nConfirmar?`
+            : `${codigo.toUpperCase()} não tem posição no sistema — a saída deixará o saldo negativo.\n\nConfirmar mesmo assim?`;
+        if (!confirm(msg)) return;
+        const r = await api.post('/api/n1/expedicao', { linhas: [{ codigo, qtd, ref }], confirmar: true });
+        if (!r?.ok) return toast(r?.erro || 'Erro.', 'erro');
+        toast('✓ Saída registrada no kardex.');
+        (r.avisos || []).forEach(a => setTimeout(() => toast('⚠ ' + a, 'aviso'), 1200));
+        this._renderExpedicao();
+    },
+    async _expedirMassa(confirmar) {
+        const linhas = this._expParse();
+        if (!linhas.length) return toast('Nada reconhecido — formato: código · qtd · referência (TAB ou ;).', 'erro');
+        if (confirmar && !confirm(`Expedir ${linhas.length} linha(s)? As saídas entram no kardex.`)) return;
+        const r = await api.post('/api/n1/expedicao', { linhas, confirmar });
+        if (!r?.ok) return toast(r?.erro || 'Erro.', 'erro');
+        if (!confirmar) {
+            $('n1-exp-prev').innerHTML = `${r.linhas.length} linha(s)` +
+                (r.desconhecidos.length ? ` · <span style="color:var(--warn);">${r.desconhecidos.length} sem posição: ${r.desconhecidos.slice(0, 5).map(esc).join(', ')}</span>` : '') +
+                (r.ficarao_negativos.length ? ` · <span style="color:var(--bad);">${r.ficarao_negativos.length} ficarão negativos</span>` : ' · tudo ok ✓');
+            return;
+        }
+        toast(`✓ ${r.expedidas} saída(s) registradas.`);
+        (r.avisos || []).forEach((a, i) => setTimeout(() => toast('⚠ ' + a, 'aviso'), 1200 + i * 800));
+        this._renderExpedicao();
     },
 
     // ═══ F2 — NETTING PUSH (carteira firme = OPs do ERP, prio pela folga) ═══
