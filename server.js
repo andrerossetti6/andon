@@ -2289,6 +2289,33 @@ app.post('/api/n1/etl/sync', auth, sigsEscrita, async (_req, res) => {
         const wipDe = {}; (opsAtivas || []).forEach(o => { const c = codDe[o.produto_id]; if (c) wipDe[c] = (wipDe[c] || 0) + (Number(o.qtd_planejada) || 0); });
         const dispDe = {}; (estRows || []).forEach(e => { const c = String(e.codigo || '').trim().toUpperCase(); if (c) dispDe[c] = (dispDe[c] || 0) + (Number(e.quantidade) || 0); });
         const todos = [...new Set([...Object.keys(dispDe), ...Object.keys(wipDe)])];
+        // F2: reconciliação — o que o SISTEMA calculava × o que o ERP trouxe (antes de re-ancorar).
+        // Nota honesta: saídas por venda/expedição ainda não são movimentadas (F3) — divergência
+        // negativa esperada ≈ vendas do período; o IRA vira estrito quando a expedição entrar.
+        let reconc = null;
+        try {
+            const vivasAntes = await n1PosicoesVivas();
+            const agoraRun = new Date().toISOString();
+            const divs = [];
+            Object.entries(dispDe).forEach(([c, erp]) => {
+                const sis = vivasAntes[c] ? Number(vivasAntes[c].disponivel) : null;
+                if (sis == null) return;                          // código novo no ERP: nada a comparar
+                const d = Math.round((sis - (Number(erp) || 0)) * 1000) / 1000;
+                if (Math.abs(d) > 0.001) divs.push({ executado_em: agoraRun, codigo: c, sistema: sis, erp: Number(erp) || 0, divergencia: d });
+            });
+            const comparados = Object.keys(dispDe).filter(c => vivasAntes[c]).length;
+            if (divs.length) {
+                for (let i = 0; i < divs.length; i += 500) {
+                    const { error } = await supabase.from('estoque_reconciliacao').insert(divs.slice(i, i + 500));
+                    if (error) { if (!n1ErroTabela(error)) console.warn('reconciliacao:', error.message); break; }
+                }
+            }
+            reconc = { comparados, divergentes: divs.length,
+                ira_pct: comparados ? Math.round((1 - divs.length / comparados) * 1000) / 10 : null,
+                maiores: divs.sort((a, b) => Math.abs(b.divergencia) - Math.abs(a.divergencia)).slice(0, 5)
+                    .map(d => ({ codigo: d.codigo, sistema: d.sistema, erp: d.erp, divergencia: d.divergencia })) };
+        } catch (e) { console.warn('reconciliacao:', e.message); }
+
         const agoraISO = new Date().toISOString();
         const epRows = todos.map(c => ({ codigo: c, disponivel: dispDe[c] || 0, reservado: 0, wip: wipDe[c] || 0, atualizado_em: agoraISO, ancora_em: agoraISO }));
         for (let i = 0; i < epRows.length; i += 500) {
@@ -2297,7 +2324,7 @@ app.post('/api/n1/etl/sync', auth, sigsEscrita, async (_req, res) => {
             if (error) return erro500(res, error);
         }
         if (!vmRows.length) avisos.push('Nenhum movimento de venda com mês/ano reconhecível.');
-        res.json({ ok: true, movimentos: vmRows.length, skus_vendas: new Set(vmRows.map(r => r.codigo)).size, posicoes: epRows.length, com_wip: Object.keys(wipDe).length, avisos });
+        res.json({ ok: true, movimentos: vmRows.length, skus_vendas: new Set(vmRows.map(r => r.codigo)).size, posicoes: epRows.length, com_wip: Object.keys(wipDe).length, reconciliacao: reconc, avisos });
     } finally { n1Unlock('etl'); }
 });
 
@@ -2680,6 +2707,54 @@ app.post('/api/n1/estoque/ajuste', auth, sigsEscrita, async (req, res) => {
     if (n1ErroTabela(error)) return res.status(503).json({ erro: N1_EST_503 });
     if (error) return erro500(res, error);
     res.json({ ok: true, delta, de: atual, para: contado });
+});
+
+// reconciliação: última rodada (divergências) + histórico de IRA por rodada
+app.get('/api/n1/reconciliacao', auth, async (_req, res) => {
+    let rows;
+    try { rows = await fetchAllSelect('estoque_reconciliacao', '*'); }
+    catch (e) { return n1ErroTabela(e) ? res.status(503).json({ erro: 'Rode n1_estoque2.sql no Supabase.' }) : erro500(res, e); }
+    if (!rows?.length) return res.json({ ultima: null, divergencias: [], historico: [] });
+    const runs = {};
+    rows.forEach(r => { (runs[r.executado_em] = runs[r.executado_em] || []).push(r); });
+    const ordenadas = Object.keys(runs).sort().reverse();
+    const ultima = ordenadas[0];
+    const divergencias = runs[ultima].sort((a, b) => Math.abs(b.divergencia) - Math.abs(a.divergencia)).slice(0, 200);
+    const historico = ordenadas.slice(0, 20).map(t => ({ executado_em: t, divergentes: runs[t].length,
+        soma_abs: Math.round(runs[t].reduce((s2, r) => s2 + Math.abs(Number(r.divergencia)), 0) * 10) / 10 }));
+    res.json({ ultima, divergencias, historico });
+});
+
+// inventário cíclico guiado pelo ABC: A conta a cada 7 dias · B 30 · C 90
+app.get('/api/n1/inventario', auth, async (_req, res) => {
+    const FREQ = { A: 7, B: 30, C: 90 };
+    let vivas, ajustes = [], abcRows = [];
+    try { vivas = await n1PosicoesVivas(); } catch (e) { return erro500(res, e); }
+    try { ajustes = await fetchAllSelect('estoque_movimento', 'codigo,criado_em', q => q.eq('tipo', 'ajuste_inventario')); } catch { }
+    try { abcRows = await fetchAllSelect('roteamento_staging', 'codigo,abc,ciclo'); } catch { }
+    const ciclos = [...new Set(abcRows.map(r => r.ciclo))].sort();
+    const cicloAtual = ciclos[ciclos.length - 1];
+    const abcDe = {}; abcRows.filter(r => r.ciclo === cicloAtual).forEach(r => { abcDe[r.codigo] = r.abc; });
+    const ultDe = {}; (ajustes || []).forEach(a => { const t = new Date(a.criado_em).getTime();
+        if (!ultDe[a.codigo] || t > ultDe[a.codigo]) ultDe[a.codigo] = t; });
+    const agora = Date.now();
+    const itens = Object.entries(vivas).map(([codigo, v]) => {
+        const abc = abcDe[codigo] || 'C';
+        const freq = FREQ[abc] || 90;
+        const ult = ultDe[codigo] || null;
+        const dias = ult ? Math.floor((agora - ult) / 86400000) : null;
+        return { codigo, abc, freq_dias: freq, posicao: v.posicao, disponivel: v.disponivel,
+            ultima_contagem: ult ? new Date(ult).toISOString() : null, dias_desde: dias,
+            vencido: ult == null || dias >= freq };
+    });
+    const ordem = { A: 0, B: 1, C: 2 };
+    itens.sort((a, b) => (b.vencido - a.vencido) || (ordem[a.abc] - ordem[b.abc]) || (b.dias_desde ?? 9999) - (a.dias_desde ?? 9999));
+    const resumo = { vencidos: itens.filter(i => i.vencido).length,
+        vencidos_a: itens.filter(i => i.vencido && i.abc === 'A').length,
+        vencidos_b: itens.filter(i => i.vencido && i.abc === 'B').length,
+        vencidos_c: itens.filter(i => i.vencido && i.abc === 'C').length,
+        ciclo_abc: cicloAtual || null };
+    res.json({ itens: itens.slice(0, 400), resumo });
 });
 
 // ══════════════════ N1 · F2 — PLANEJAMENTO ═══════════════════════════════════

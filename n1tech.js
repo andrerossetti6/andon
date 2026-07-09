@@ -116,13 +116,13 @@ const n1 = {
 
     tab(nome) {
         this._tab = nome;
-        ['painel','pulmoes','sugeridas','netting','gargalo','fila','pwa','apont','kpi','dbm','tempos','politica','estoque','kardex','roteiros','tcad','setup','bom'].forEach(t => {
+        ['painel','pulmoes','sugeridas','netting','gargalo','fila','pwa','apont','kpi','dbm','tempos','politica','estoque','kardex','inventario','reconc','roteiros','tcad','setup','bom'].forEach(t => {
             const pan = $('n1-pan-' + t); if (pan) pan.style.display = t === nome ? 'block' : 'none';
         });
         document.querySelectorAll('[data-n1tab]').forEach(li => li.classList.toggle('active', li.dataset.n1tab === nome));
         const R = { painel:'_renderPainel', roteiros:'_renderRoteiros', tcad:'_renderTempos', setup:'_renderSetup', bom:'_renderBom',
             pulmoes:'_renderPulmoes', sugeridas:'_renderSugeridas', fila:'_renderFila', pwa:'_renderPwa', kpi:'_renderKpi', dbm:'_renderDbm',
-            politica:'_renderPolitica', netting:'_renderNetting', gargalo:'_renderGargalo', estoque:'_renderEstoque', kardex:'_renderKardex' };
+            politica:'_renderPolitica', netting:'_renderNetting', gargalo:'_renderGargalo', estoque:'_renderEstoque', kardex:'_renderKardex', inventario:'_renderInventario', reconc:'_renderReconc' };
         if (R[nome]) this[R[nome]]();
         else this._placeholder(nome);
     },
@@ -196,6 +196,65 @@ const n1 = {
             <table class="data-table"><thead><tr><th>Quando</th><th>Tipo</th><th>Código</th><th class="num">Δ</th><th>Origem</th><th>Motivo</th><th>Quem</th></tr></thead>
             <tbody>${linhas || '<tr><td colspan="7" style="text-align:center;color:var(--text-dim);padding:24px;">Nenhum movimento ainda — eles nascem quando o chão fecha sessões de apontamento (entrada de produção e consumo de fio via BOM) ou em ajustes de inventário.</td></tr>'}</tbody></table>
         </div></div>`;
+    },
+
+    // ═══ ESTOQUE F2 — inventário cíclico (ABC) e acuracidade (reconciliação) ═══
+    async _renderInventario() {
+        const el = $('n1-pan-inventario'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando inventário…</div>';
+        const d = await this._getOu503('/api/n1/inventario', el); if (!d) return;
+        const r = d.resumo || {};
+        const ABC = { A: 'badge--bad', B: 'badge--warn', C: 'badge--dim' };
+        const linhas = (d.itens || []).slice(0, 250).map(i => `<tr>
+            <td style="font-weight:700;color:var(--indigo-primary);">${esc(i.codigo)}</td>
+            <td><span class="badge ${ABC[i.abc]}">${esc(i.abc)}</span> <span class="dim" style="font-size:.68rem;">a cada ${i.freq_dias}d</span></td>
+            <td class="num" style="font-weight:700;">${this._estq(i.posicao)}</td>
+            <td class="dim">${i.ultima_contagem ? fmtData(i.ultima_contagem) + ` (${i.dias_desde}d)` : 'nunca contado'}</td>
+            <td>${i.vencido ? '<span class="badge badge--warn">contar</span>' : '<span class="badge badge--ok">em dia</span>'}</td>
+            <td><button class="btn ${i.vencido ? 'secondary' : 'ghost'} sm" onclick="n1._ajustar('${escJS(i.codigo)}', ${Number(i.disponivel) || 0})">contar</button></td>
+        </tr>`).join('');
+        el.innerHTML = `
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+            <div class="kpi ${r.vencidos ? 'kpi--warn' : 'kpi--ok'}"><div class="kpi__head">${icon('calendario')} A CONTAR</div><div class="kpi__value">${fmt(r.vencidos)}</div><div class="kpi__sub">vencidos pela frequência ABC</div></div>
+            <div class="kpi ${r.vencidos_a ? 'kpi--bad' : ''}"><div class="kpi__head">${icon('alerta')} CLASSE A</div><div class="kpi__value">${fmt(r.vencidos_a)}</div><div class="kpi__sub">semanais (7d) — prioridade</div></div>
+            <div class="kpi"><div class="kpi__head">${icon('camadas')} CLASSE B</div><div class="kpi__value">${fmt(r.vencidos_b)}</div><div class="kpi__sub">mensais (30d)</div></div>
+            <div class="kpi"><div class="kpi__head">${icon('pacote')} CLASSE C</div><div class="kpi__value">${fmt(r.vencidos_c)}</div><div class="kpi__sub">trimestrais (90d)</div></div>
+        </div>
+        <div class="summary-card" style="margin-bottom:12px;">
+            <span style="font-size:var(--fs-caption);color:var(--text-dim);">Contagem cíclica guiada pelo ABC${r.ciclo_abc ? ' (ciclo ' + esc(r.ciclo_abc) + ')' : ''}: classe A a cada 7 dias, B a cada 30, C a cada 90. "Contar" pede a quantidade física e registra o ajuste no kardex com motivo — ninguém edita saldo.</span>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:58vh;overflow-y:auto;">
+            <table class="data-table"><thead><tr><th>Código</th><th>Classe</th><th class="num">Posição viva</th><th>Última contagem</th><th>Status</th><th></th></tr></thead>
+            <tbody>${linhas || '<tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:20px;">Nada a contar.</td></tr>'}</tbody></table>
+        </div></div>`;
+    },
+    async _renderReconc() {
+        const el = $('n1-pan-reconc'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando acuracidade…</div>';
+        const d = await this._getOu503('/api/n1/reconciliacao', el, 'A reconciliação grava em estoque_reconciliacao (n1_estoque2.sql).'); if (!d) return;
+        if (!d.ultima) { el.innerHTML = `<div class="summary-card"><div class="sec-title">${icon('gauge')} Acuracidade (IRA)</div>
+            <p style="font-size:var(--fs-body);color:var(--text-dim);">Nenhuma reconciliação ainda — ela roda sozinha na próxima vez que o estoque for <strong>reimportado</strong> (SIGS › Estoque) ou que o ETL sincronizar (05:00): o sistema compara o que calculou com o que o ERP trouxe e registra as divergências aqui.</p></div>`; return; }
+        const linhas = (d.divergencias || []).map(x => `<tr>
+            <td style="font-weight:700;color:var(--indigo-primary);">${esc(x.codigo)}</td>
+            <td class="num">${this._estq(x.sistema)}</td>
+            <td class="num">${this._estq(x.erp)}</td>
+            <td class="num" style="font-weight:800;color:${x.divergencia > 0 ? 'var(--warn)' : 'var(--bad)'};">${x.divergencia > 0 ? '+' : ''}${this._estq(x.divergencia)}</td>
+        </tr>`).join('');
+        const hist = (d.historico || []).map(h => `<tr><td class="dim">${new Date(h.executado_em).toLocaleString('pt-BR')}</td><td class="num">${fmt(h.divergentes)}</td><td class="num dim">${this._estq(h.soma_abs)}</td></tr>`).join('');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;border-left:3px solid var(--indigo-primary);">
+            <div class="sec-title">${icon('gauge')} Acuracidade — última reconciliação <span class="hint">${new Date(d.ultima).toLocaleString('pt-BR')}</span></div>
+            <p style="font-size:var(--fs-caption);color:var(--text-dim);">divergência = o que o sistema calculava − o que o ERP trouxe. <strong>Enquanto a expedição não é movimentada (F3), divergência negativa ≈ vendas do período</strong> — o IRA fica estrito quando a saída entrar no kardex.</p>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:54vh;overflow-y:auto;">
+                <table class="data-table"><thead><tr><th>Código</th><th class="num">Sistema</th><th class="num">ERP</th><th class="num">Divergência</th></tr></thead>
+                <tbody>${linhas || '<tr><td colspan="4" style="text-align:center;color:var(--ok);padding:20px;">Nenhuma divergência — 100% de acuracidade nesta rodada ✓</td></tr>'}</tbody></table>
+            </div></div>
+            <div class="summary-card" style="padding:0;overflow:hidden;">
+                <div class="s-label" style="padding:12px 14px 0;">HISTÓRICO DE RODADAS</div>
+                <table class="data-table"><thead><tr><th>Quando</th><th class="num">Divergentes</th><th class="num">Σ |div|</th></tr></thead>
+                <tbody>${hist}</tbody></table>
+            </div>
+        </div>`;
     },
 
     // ═══ F2 — NETTING PUSH (carteira firme = OPs do ERP, prio pela folga) ═══
