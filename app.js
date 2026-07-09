@@ -325,6 +325,8 @@ function mostrarApp() {
         if (lastView && !_viewParam) navigateTo(lastView);
         // vendas carregadas: repopula os filtros do TOC (no boot eles nascem vazios)
         try { toc._popularAnos(); } catch {}
+        // se o usuário está no Cockpit, re-renderiza com os dados completos (evita zeros)
+        try { const v = document.getElementById('view-cockpit'); if (v && getComputedStyle(v).display !== 'none') cockpit.render(); } catch {}
         // Dashboard e dashboards dependentes atualizados após todos os módulos carregarem
         homeDash.render();
         alertas.verificar();
@@ -1074,12 +1076,14 @@ const cockpit = {
         const body = document.getElementById('cockpit-body');
         if (!body) return;
         body.innerHTML = `<div style="padding:48px;text-align:center;color:var(--text-dim);">Consolidando os dois domínios…</div>`;
-        const [maqUni, ind, andon, carteira, prods] = await Promise.all([
+        const [maqUni, ind, andon, carteira, prods, sugs, pulm] = await Promise.all([
             api.get('/api/maquinas-unificado').catch(() => []),
             api.get('/api/mf/indicadores').catch(() => null),
             api.get('/api/mf/andon').catch(() => []),
             api.get('/api/op-unificado').catch(() => []),
             api.get('/api/mf/produtos').catch(() => []),
+            api.get('/api/n1/sugeridas?status=PENDENTE').catch(() => []),
+            api.get('/api/n1/pulmoes').catch(() => null),
         ]);
         // ── EXECUÇÃO (MES) ──
         const teares = (maqUni || []).filter(m => /^stoll/i.test(m.id_maquina || '') && String(m.status || '').toLowerCase() !== 'inativo');
@@ -1099,44 +1103,95 @@ const cockpit = {
         const nEstoque = (estoque?.rawData?.length) || 0;
         const nBanco = (banco?.rawData?.length) || 0;
 
-        const card = (label, valor, cor, sub) => `
-            <div class="summary-card" style="text-align:center;padding:16px 10px;border-top:3px solid ${cor};">
-                <div style="font-size:1.7rem;font-weight:800;color:${cor};line-height:1.1;">${valor}</div>
-                <div style="font-size:.72rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:.04em;margin-top:6px;">${label}</div>
-                ${sub ? `<div style="font-size:.7rem;color:var(--text-dim);margin-top:3px;">${sub}</div>` : ''}
+        // ── dados de programação (N1) ──
+        const nSugs = Array.isArray(sugs) ? sugs.length : 0;
+        const pr = pulm?.resumo || {};
+        const rupturas = (pr.preto || 0), vermelhos = (pr.vermelho || 0);
+
+        // ── saudação + resumo do dia em prosa (linguagem de gente) ──
+        let nomeUser = '';
+        try { nomeUser = (JSON.parse(atob((localStorage.getItem('sin1_token') || '').split('.')[1])).nome || '').split(' ')[0]; } catch {}
+        const h = new Date().getHours();
+        const saud = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
+        const gargalo = toc._resultProcs?.filter(p => !p.semDados)[0];
+        const frases = [];
+        frases.push(`A fábrica tem <b>${cart.length.toLocaleString('pt-BR')} OPs na carteira</b>${emProd ? ` — <b>${emProd} em produção agora</b>` : ''}.`);
+        if (gargalo) frases.push(`O gargalo é a <b>${escHTML(gargalo.nome)}</b> a <span class="${gargalo.util >= 1 ? 'destaque-bad' : gargalo.util >= 0.8 ? 'destaque-bad' : 'destaque-ok'}">${(gargalo.util * 100).toFixed(0)}%</span> da capacidade.`);
+        else frases.push(`O gargalo ainda não foi calculado hoje — <a onclick="navigateTo('toc')" style="color:var(--indigo-primary);cursor:pointer;">abra o TOC</a> para ver onde a fábrica aperta.`);
+        if (rupturas) frases.push(`<span class="destaque-bad">${rupturas} produto${rupturas > 1 ? 's' : ''} em ruptura</span>${vermelhos ? ` e ${vermelhos} no vermelho` : ''} — ${nSugs ? `<b>${nSugs} reposições aguardam aprovação</b> no N1Tech.` : 'pulmões sob pressão.'}`);
+        else if (nSugs) frases.push(`<b>${nSugs} reposições</b> aguardam aprovação no N1Tech.`);
+        frases.push(andonAbertos ? `<span class="destaque-bad">${andonAbertos} chamado${andonAbertos > 1 ? 's' : ''} Andon aberto${andonAbertos > 1 ? 's' : ''}</span> no chão.` : `Nenhum chamado Andon aberto.`);
+        if (oee == null || !(oee > 0)) frases.push(`OEE e qualidade acendem quando o chão começar a apontar no MES.`);
+
+        const kpi = (id, icone, label, sub, tone) => `
+            <div class="kpi ${tone ? 'kpi--' + tone : ''} rise">
+                <div class="kpi__head">${icon(icone)} ${label}</div>
+                <div class="kpi__value" id="${id}">—</div>
+                <div class="kpi__sub">${sub}</div>
             </div>`;
-        const teaTab = Object.entries(porModelo).sort().map(([m, n]) =>
-            `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:.85rem;">
-                <span style="color:var(--text-primary);">Stoll ${m}</span><strong style="color:#ff5252;">${n} tear${n > 1 ? 'es' : ''}</strong></div>`).join('');
+        const linha = (rot, val) => `<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:var(--fs-body);">
+            <span style="color:var(--text-dim);">${rot}</span><strong style="font-variant-numeric:tabular-nums;">${val}</strong></div>`;
+        const teaTab = Object.entries(porModelo).sort().map(([m, n]) => linha(`Stoll ${m}`, `${n} tear${n > 1 ? 'es' : ''}`)).join('');
 
         body.innerHTML = `
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:22px;">
-                ${card('OPs na carteira', cart.length.toLocaleString('pt-BR'), '#26c6da', emProd + ' em produção')}
-                ${card('Qtd planejada', Math.round(qtdCarteira).toLocaleString('pt-BR'), '#7c4dff', 'unidades')}
-                ${card('Teares ativos', teares.length, '#ff5252', 'Tecelagem (Stoll)')}
-                ${card('Produtos (MES)', nProdMes, '#26a69a', 'catalogados')}
-                ${card('OEE médio', oeeTxt, '#ffab76', 'execução real')}
-                ${card('Andon aberto', andonAbertos, andonAbertos ? '#f06292' : '#3fb950', 'chamados agora')}
+            <div class="summary-card rise" style="margin-bottom:16px;">
+                <div style="font-family:'Outfit',sans-serif;font-size:var(--fs-title);font-weight:700;margin-bottom:8px;">${saud}${nomeUser ? ', ' + escHTML(nomeUser) : ''}.</div>
+                <div class="prose-brief">${frases.join(' ')}</div>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;">
-                <div class="summary-card">
-                    <div class="s-label" style="margin-bottom:12px;">🧠 PLANEJAMENTO — SIGS / Stoll</div>
-                    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);"><span style="color:var(--text-dim);">SKUs com histórico de vendas</span><strong>${nSkusVendas.toLocaleString('pt-BR')}</strong></div>
-                    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);"><span style="color:var(--text-dim);">Itens em estoque</span><strong>${nEstoque.toLocaleString('pt-BR')}</strong></div>
-                    <div style="display:flex;justify-content:space-between;padding:6px 0;"><span style="color:var(--text-dim);">Itens no banco de dados (cadastro)</span><strong>${nBanco.toLocaleString('pt-BR')}</strong></div>
-                    <div style="font-size:.72rem;color:var(--text-dim);margin-top:10px;">Decide <strong>o que</strong> e <strong>quanto</strong> produzir (Previsão · Política · Plano · TOC · Preactor).</div>
+
+            <div class="live-strip rise" style="margin-bottom:16px;">
+                <div class="live-strip__item"><span class="live-dot"></span> Agora na fábrica</div>
+                <div class="live-strip__item">${icon('pulso', 'icon sm')} <b>${emProd}</b> OP${emProd === 1 ? '' : 's'} em produção</div>
+                <div class="live-strip__item">${icon('alerta', 'icon sm')} <b>${andonAbertos}</b> Andon</div>
+                <div class="live-strip__item">${icon('pacote', 'icon sm')} <b>${nSugs}</b> reposições pendentes</div>
+                <div class="live-strip__item" style="margin-left:auto;">${icon('relogio', 'icon sm')} <b id="ck-relogio">--:--</b></div>
+            </div>
+
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
+                ${kpi('ck-cart', 'camadas', 'Carteira', emProd + ' em produção', 'info')}
+                ${kpi('ck-qtd', 'pacote', 'Qtd planejada', 'unidades na carteira')}
+                ${kpi('ck-teares', 'tear', 'Teares ativos', 'Tecelagem Stoll')}
+                ${kpi('ck-oee', 'gauge', 'OEE medido', (oee != null && oee > 0) ? 'média das máquinas' : 'aguardando apontamento', (oee != null && oee > 0) ? 'ok' : '')}
+                ${kpi('ck-rup', 'alerta', 'Rupturas', 'pulmões em preto (N1)', rupturas ? 'bad' : 'ok')}
+            </div>
+
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;">
+                <div class="summary-card rise">
+                    <div class="sec-title">${icon('cerebro')} Planejar <span class="hint">SIGS · o quê e quanto</span></div>
+                    ${linha('SKUs com histórico de vendas', nSkusVendas.toLocaleString('pt-BR'))}
+                    ${linha('Itens em estoque', nEstoque.toLocaleString('pt-BR'))}
+                    ${linha('Cadastro (banco de dados)', nBanco.toLocaleString('pt-BR'))}
+                    <div style="margin-top:12px;"><button class="btn secondary sm" onclick="navigateTo('toc')">${icon('gargalo', 'icon sm')} Onde a fábrica aperta?</button></div>
                 </div>
-                <div class="summary-card">
-                    <div class="s-label" style="margin-bottom:12px;">⚙️ EXECUÇÃO — MES / Malha Forte</div>
-                    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);"><span style="color:var(--text-dim);">Carteira (OPs do ERP)</span><strong>${cart.length}</strong></div>
-                    <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.05);"><span style="color:var(--text-dim);">Em produção agora</span><strong style="color:#26c6da;">${emProd}</strong></div>
-                    <div style="padding:8px 0 2px;"><div style="font-size:.72rem;color:var(--text-dim);margin-bottom:6px;">CAPACIDADE TECELAGEM</div>${teaTab || '<span style="color:var(--text-dim);">—</span>'}</div>
-                    <div style="font-size:.72rem;color:var(--text-dim);margin-top:10px;">Executa e <strong>mede</strong> o realizado (Apontamento · Andon · OEE · Qualidade).</div>
+                <div class="summary-card rise">
+                    <div class="sec-title">${icon('camadas')} Programar <span class="hint">APS · N1Tech · quando e em que ordem</span></div>
+                    ${linha('Reposições sugeridas (pendentes)', nSugs)}
+                    ${linha('Pulmões em ruptura / vermelho', `${rupturas} / ${vermelhos}`)}
+                    ${linha('Pulmões saudáveis (verde)', (pr.verde || 0))}
+                    <div style="margin-top:12px;"><button class="btn secondary sm" onclick="location.href='/n1tech.html?tab=sugeridas'">${icon('seta', 'icon sm')} O que produzir agora?</button></div>
+                </div>
+                <div class="summary-card rise">
+                    <div class="sec-title">${icon('fabrica')} Executar <span class="hint">MES · fazer e medir</span></div>
+                    ${linha('Em produção agora', emProd)}
+                    ${linha('OEE medido', (oee != null && oee > 0) ? (Math.round(oee * 10) / 10) + '%' : 'aguardando apontamento')}
+                    ${teaTab}
+                    <div style="margin-top:12px;"><button class="btn secondary sm" onclick="location.href='/mes.html?tab=apont'">${icon('costura', 'icon sm')} Apontar produção</button></div>
                 </div>
             </div>
-            <div style="font-size:.72rem;color:var(--text-dim);margin-top:16px;text-align:center;">
-                Fonte única integrada · carteira e capacidade vêm do MES Malha Forte; vendas/estoque/cadastro do SIGS. ${(oee == null || !(oee > 0)) ? 'OEE/qualidade aparecem quando a fábrica começar a apontar no MES.' : ''}
+            <div style="font-size:var(--fs-caption);color:var(--text-dim);margin-top:14px;text-align:center;">
+                Fonte única integrada — carteira e capacidade do MES · vendas/estoque/cadastro do SIGS · pulmões do N1Tech
             </div>`;
+
+        // números que contam + relógio vivo
+        contarAte(document.getElementById('ck-cart'), cart.length);
+        contarAte(document.getElementById('ck-qtd'), Math.round(qtdCarteira));
+        contarAte(document.getElementById('ck-teares'), teares.length);
+        contarAte(document.getElementById('ck-rup'), rupturas);
+        const elOee = document.getElementById('ck-oee');
+        if (elOee) { if (oee != null && oee > 0) contarAte(elOee, oee, { fmt: v => (Math.round(v * 10) / 10) + '%' }); else elOee.textContent = '—'; }
+        const relogio = document.getElementById('ck-relogio');
+        const tickR = () => { if (relogio) relogio.textContent = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
+        tickR(); clearInterval(this._relInt); this._relInt = setInterval(tickR, 30000);
     }
 };
 
