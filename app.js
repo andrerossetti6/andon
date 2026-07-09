@@ -323,6 +323,8 @@ function mostrarApp() {
         // restaura o último view da sessão — só se não veio deep-link por URL (tratado acima).
         const lastView = localStorage.getItem('sin1_lastView');
         if (lastView && !_viewParam) navigateTo(lastView);
+        // vendas carregadas: repopula os filtros do TOC (no boot eles nascem vazios)
+        try { toc._popularAnos(); } catch {}
         // Dashboard e dashboards dependentes atualizados após todos os módulos carregarem
         homeDash.render();
         alertas.verificar();
@@ -1256,6 +1258,7 @@ function navigateTo(viewName) {
     } else if (viewName === 'toc') {
         toc._popularAnos();
         toc._renderCapacidade();
+        toc._popularAnos();   // filtros (ano/mês/segmento/marca/modelo) — repopula com as vendas já carregadas
         // auto-calcula o gargalo na 1ª visita se a fonte de demanda escolhida tem dados
         if (!toc._resultProcs?.length && !toc._autoFeito && banco.rawData.length && toc._demandaPronta()) {
             toc._autoFeito = true; setTimeout(() => { try { toc.calcular(); } catch {} }, 60);
@@ -4439,6 +4442,13 @@ const toc = {
         this._renderCapacidade();
         this._loadCapConfig().catch(() => {}); // re-renderiza a capacidade quando o servidor responder
         this._popularAnos();
+        // defesa: se as vendas carregarem depois do boot, o 1º clique no filtro repopula
+        ['toc-ano-sel', 'toc-mes-sel', 'toc-seg-sel', 'toc-marca-sel', 'toc-modelo-sel'].forEach(id => {
+            document.getElementById(id)?.addEventListener('focus', () => {
+                const el = document.getElementById(id);
+                if (el && el.options.length <= 1) this._popularAnos();
+            });
+        });
         document.getElementById('toc-fonte-sel')?.addEventListener('change', () => {
             const fonte = document.getElementById('toc-fonte-sel').value;
             const wVxe   = document.getElementById('toc-vxe-periodo-wrap');
