@@ -4651,9 +4651,10 @@ const toc = {
             maqs.filter(m => String(m.status||'Ativo').toLowerCase() !== 'inativo').forEach(m => {
                 const pid = pidDe[m.processo_id];
                 if (!pid) return;
-                if (!porPid[pid]) porPid[pid] = { postos: 0, oees: [] };
+                if (!porPid[pid]) porPid[pid] = { postos: 0, oees: [], linhas: [] };
                 porPid[pid].postos += Math.max(Number(m.n_pessoas) || 1, 1);
                 if (m.oee != null) porPid[pid].oees.push(Number(m.oee));
+                porPid[pid].linhas.push({ rotulo: m.id_maquina || m.modelo || 'recurso', pessoas: Number(m.n_pessoas) || 0, oee: m.oee != null ? Number(m.oee) : null });
             });
         }
 
@@ -4679,6 +4680,7 @@ const toc = {
         });
         this._capCache  = cache;
         this._capOrigem = origem;
+        this._capArqDet = porPid;             // detalhe do cadastro (linhas/postos/OEE) p/ exibir nos cards
         this._capNaoMapeados = naoMapeados;   // B6: exposto para aviso no render
         if (naoMapeados.length) console.warn('TOC · processos sem etapa correspondente (máquinas ignoradas na capacidade):', naoMapeados);
         this._renderCapacidade();
@@ -4705,7 +4707,8 @@ const toc = {
             };
         });
         this._capCache = obj;
-        this._PROCS.forEach(p => { this._capOrigem[p.id] = 'servidor'; });
+        // origem 'arquitetura' fica — postos/OEE continuam nascendo do cadastro (só a jornada é editada aqui)
+        this._PROCS.forEach(p => { if (this._capOrigem[p.id] !== 'arquitetura') this._capOrigem[p.id] = 'servidor'; });
         localStorage.setItem('toc-cap', JSON.stringify(obj));
         // Persiste no servidor — fonte única para todos os navegadores/usuários
         api.post('/api/capacidade-config/bulk', {
@@ -4732,24 +4735,31 @@ const toc = {
             const org = this._capOrigem[p.id];
             const badge = org ? `<span title="Origem do valor: ${org === 'arquitetura' ? 'arquitetura de processos (Base de Dados › Processos): postos = Σ pessoas (máquina conta 1) · OEE = média das linhas · jornada (h/dia) editável aqui' : org === 'cadastro' ? 'derivado do cadastro de máquinas (Configuração › Processos)' : org === 'servidor' ? 'configuração salva no servidor' : org === 'local' ? 'apenas deste navegador — clique CALCULAR para salvar no servidor' : 'valor padrão — configure e calcule para salvar'}"
                 style="font-size:.58rem;font-weight:700;letter-spacing:.05em;color:${CORES_ORIGEM[org]};border:1px solid ${CORES_ORIGEM[org]}55;border-radius:4px;padding:1px 5px;">${org.toUpperCase()}</span>` : '';
+            const arq = org === 'arquitetura';
+            const det = this._capArqDet?.[p.id];
+            const travado = arq ? 'disabled style="width:48px;padding:4px 6px;background:var(--bg-card);border:1px dashed #7c4dff55;border-radius:6px;color:#b39dff;font-size:0.8rem;text-align:center;opacity:.9;cursor:not-allowed;"' : '';
+            const detLinha = arq && det ? `<span style="font-size:.62rem;color:#b39dff;" title="${escHTML(det.linhas.map(l => `${l.rotulo}${l.pessoas ? ` (${l.pessoas} pessoas)` : ''} · OEE ${l.oee ?? 100}%`).join(' | '))}">
+                ↳ do cadastro: ${det.linhas.length} linha(s) = ${det.postos} posto(s) · OEE médio ${c.oee}% ·
+                <a onclick="navigateTo('processos')" style="color:#26c6da;cursor:pointer;text-decoration:underline;">editar em Processos</a></span>` : '';
             return `<div style="display:flex;flex-direction:column;gap:8px;padding:10px 14px;background:var(--bg-input);border-radius:8px;border:1px solid var(--border-color);">
                 <span style="display:flex;align-items:center;justify-content:space-between;gap:6px;font-size:0.82rem;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${p.nome}">${p.nome} ${badge}</span>
                 <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;row-gap:8px;">
                     <input id="toc-maq-${p.id}" type="number" value="${c.maquinas}" min="0" step="0.5"
-                        style="width:48px;padding:4px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.8rem;text-align:center;"
-                        title="Máquinas/operadores">
-                    <span style="font-size:0.7rem;color:var(--text-dim);">máq</span>
+                        ${arq ? travado : 'style="width:48px;padding:4px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.8rem;text-align:center;"'}
+                        title="${arq ? 'Vem da arquitetura de processos (máquinas/pessoas cadastradas) — edite lá' : 'Máquinas/operadores'}">
+                    <span style="font-size:0.7rem;color:var(--text-dim);">${arq && det?.linhas.some(l => l.pessoas > 0) ? 'postos' : 'máq'}</span>
                     <span style="font-size:0.7rem;color:var(--text-dim);margin:0 1px;">×</span>
                     <input id="toc-hdia-${p.id}" type="number" value="${c.horasDia}" min="1" max="24" step="0.5"
                         style="width:48px;padding:4px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.8rem;text-align:center;"
-                        title="Horas por dia">
+                        title="Horas por dia (jornada do processo — sempre editável aqui)">
                     <span style="font-size:0.7rem;color:var(--text-dim);">h/dia</span>
                     <span style="font-size:0.7rem;color:var(--text-dim);margin:0 1px;">·</span>
                     <input id="toc-oee-${p.id}" type="number" value="${c.oee ?? 100}" min="10" max="100" step="1"
-                        style="width:48px;padding:4px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.8rem;text-align:center;"
-                        title="OEE nominal (planejado) usado no cálculo de capacidade — ${org === 'cadastro' ? 'média do OEE cadastrado das máquinas' : 'valor de planejamento'}. NÃO é o OEE medido em tempo real (esse aparece no Cockpit/Home, a partir dos apontamentos).">
+                        ${arq ? travado : 'style="width:48px;padding:4px 6px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:6px;color:var(--text-primary);font-size:0.8rem;text-align:center;"'}
+                        title="${arq ? 'OEE médio das linhas do cadastro (arquitetura de processos) — edite lá' : 'OEE nominal (planejado) usado no cálculo de capacidade. NÃO é o OEE medido em tempo real (esse aparece no Cockpit/Home).'}">
                     <span style="font-size:0.7rem;color:var(--text-dim);" title="OEE nominal de planejamento — distinto do OEE medido do Cockpit">% OEE<sup style="font-size:.5rem;color:var(--text-dim);">nom</sup></span>
                 </div>
+                ${detLinha}
                 ${p.id === 'tecelagem' ? `<span style="font-size:.62rem;color:#0ea5e9;" title="A capacidade da Tecelagem vem do OEE de cada tear (Processos › Tecelagem), não deste campo.">↳ OEE real por tear (Processos › Tecelagem)</span>` : ''}
             </div>`;
         }).join('');
@@ -9958,7 +9968,9 @@ const processosGerenciamento = {
         if (res?.ok) {
             document.getElementById('maq-modal').style.display = 'none';
             await this.carregarMaquinas(this._processoAtual.id);
-            mostrarToast(id ? '✓ Máquina atualizada' : '✓ Máquina adicionada');
+            // capacidade nasce daqui (arquitetura) → TOC e dashboard re-derivam na próxima visita
+            toc._capCache = null; if (typeof stollOcup !== 'undefined') stollOcup._archCache = null;
+            mostrarToast(id ? '✓ Máquina atualizada — TOC/dashboards vão recalcular' : '✓ Máquina adicionada — TOC/dashboards vão recalcular');
         }
     },
 
@@ -9966,6 +9978,7 @@ const processosGerenciamento = {
         if (!confirm('Excluir esta máquina?')) return;
         await api.delete(`/api/maquinas/${id}`);
         await this.carregarMaquinas(this._processoAtual.id);
+        toc._capCache = null; if (typeof stollOcup !== 'undefined') stollOcup._archCache = null;
     }
 };
 
