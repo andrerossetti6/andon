@@ -2183,6 +2183,74 @@ const n1Locks = {};
 function n1Lock(nome) { if (n1Locks[nome]) return false; n1Locks[nome] = Date.now(); return true; }
 function n1Unlock(nome) { delete n1Locks[nome]; }
 
+// ── ESTOQUE F1: posição VIVA = âncora (importação ERP) + Σ movimentos desde a âncora ──
+// estoque_movimento ausente → movs=[] e a posição degrada para a âncora (como antes).
+async function n1PosicoesVivas() {
+    let poss = [], movs = [];
+    try { poss = await fetchAllSelect('estoque_posicao', 'codigo,disponivel,reservado,wip,posicao,ancora_em'); }
+    catch {   // coluna ancora_em ainda não existe (n1_estoque.sql não rodado) → usa a fotografia como está
+        try { poss = await fetchAllSelect('estoque_posicao', 'codigo,disponivel,reservado,wip,posicao'); } catch { poss = []; }
+    }
+    try { movs = await fetchAllSelect('estoque_movimento', 'codigo,delta,criado_em'); } catch { movs = []; }
+    const anc = {}, base = {};
+    (poss || []).forEach(p => { anc[p.codigo] = p.ancora_em ? new Date(p.ancora_em).getTime() : 0; base[p.codigo] = p; });
+    const deltaDe = {}, ultMov = {};
+    (movs || []).forEach(m => {
+        const t = new Date(m.criado_em).getTime();
+        if (t <= (anc[m.codigo] || 0)) return;                     // anterior à âncora: já está na fotografia
+        deltaDe[m.codigo] = (deltaDe[m.codigo] || 0) + (Number(m.delta) || 0);
+        if (!ultMov[m.codigo] || t > ultMov[m.codigo]) ultMov[m.codigo] = t;
+    });
+    const out = {};   // codigo → { disponivel, wip, posicao (viva), delta_mov, ancora_em }
+    const todos = new Set([...Object.keys(base), ...Object.keys(deltaDe)]);
+    todos.forEach(c => {
+        const b = base[c] || { disponivel: 0, reservado: 0, wip: 0, posicao: 0, ancora_em: null };
+        const d = deltaDe[c] || 0;
+        out[c] = { disponivel: (Number(b.disponivel) || 0) + d, wip: Number(b.wip) || 0,
+                   posicao: (Number(b.posicao) || 0) + d, delta_mov: d, ancora_em: b.ancora_em,
+                   ult_mov: ultMov[c] ? new Date(ultMov[c]).toISOString() : null };
+    });
+    return out;
+}
+
+// hook do MES: sessão de apontamento fechou pela 1ª vez → movimentos de estoque.
+// ÚLTIMA etapa do roteiro → entrada do produto acabado (qtd boa).
+// PRIMEIRA etapa → consumo de fio via BOM × (boa+refugo+retrabalho).
+// Best-effort: falta de tabela/roteiro/BOM não quebra o fechamento da sessão.
+async function n1EstoqueDoApontamento(ap, usuario) {
+    try {
+        if (!ap?.op_id) return;
+        const { data: op } = await supabase.from('ordem_producao').select('numero,produto_id').eq('id', ap.op_id).maybeSingle();
+        if (!op?.produto_id) return;
+        const { data: prod } = await supabase.from('produto').select('codigo').eq('id', op.produto_id).maybeSingle();
+        const codigoPA = String(prod?.codigo || '').trim().toUpperCase();
+        const rot = await roteiroDaOp(ap.op_id);
+        if (!rot?.length) return;                                   // sem roteiro não dá para saber 1ª/última
+        let etapaId = ap.etapa_id;
+        if (!etapaId && ap.maquina_id) {
+            const { data: maq } = await supabase.from('maquina').select('etapa_id').eq('id', ap.maquina_id).maybeSingle();
+            etapaId = maq?.etapa_id;
+        }
+        if (!etapaId) return;
+        const boa = Number(ap.qtd_boa) || 0;
+        const total = boa + (Number(ap.qtd_refugo) || 0) + (Number(ap.qtd_retrabalho) || 0);
+        const movs = [];
+        if (etapaId === rot[rot.length - 1].id && boa > 0 && codigoPA)
+            movs.push({ codigo: codigoPA, tipo: 'entrada_producao', delta: boa, apontamento_id: ap.id, op_id: ap.op_id,
+                motivo: `OP ${op.numero} · ${rot[rot.length - 1].nome}`, usuario_nome: usuario?.nome || null });
+        if (etapaId === rot[0].id && total > 0) {
+            const { data: bom } = await supabase.from('bom').select('material_codigo,qtd_por_unidade').eq('produto_id', op.produto_id).eq('ativo', true);
+            (bom || []).forEach(b => movs.push({ codigo: String(b.material_codigo).trim().toUpperCase(), tipo: 'consumo_mp',
+                delta: -(Number(b.qtd_por_unidade) || 0) * total, apontamento_id: ap.id, op_id: ap.op_id,
+                motivo: `BOM ${codigoPA} × ${total} · ${rot[0].nome}`, usuario_nome: usuario?.nome || null }));
+        }
+        if (movs.length) {
+            const { error } = await supabase.from('estoque_movimento').insert(movs.filter(m => m.delta !== 0));
+            if (error && !n1ErroTabela(error)) console.warn('estoque_movimento:', error.message);
+        }
+    } catch (e) { console.warn('n1EstoqueDoApontamento:', e.message); }
+}
+
 // ── ① ETL: vendas(meses JSONB) → venda_movimento · estoque+WIP → estoque_posicao ─
 app.post('/api/n1/etl/sync', auth, sigsEscrita, async (_req, res) => {
     if (!n1Lock('etl')) return res.status(409).json({ erro: 'ETL já está rodando.' });
@@ -2221,7 +2289,8 @@ app.post('/api/n1/etl/sync', auth, sigsEscrita, async (_req, res) => {
         const wipDe = {}; (opsAtivas || []).forEach(o => { const c = codDe[o.produto_id]; if (c) wipDe[c] = (wipDe[c] || 0) + (Number(o.qtd_planejada) || 0); });
         const dispDe = {}; (estRows || []).forEach(e => { const c = String(e.codigo || '').trim().toUpperCase(); if (c) dispDe[c] = (dispDe[c] || 0) + (Number(e.quantidade) || 0); });
         const todos = [...new Set([...Object.keys(dispDe), ...Object.keys(wipDe)])];
-        const epRows = todos.map(c => ({ codigo: c, disponivel: dispDe[c] || 0, reservado: 0, wip: wipDe[c] || 0, atualizado_em: new Date().toISOString() }));
+        const agoraISO = new Date().toISOString();
+        const epRows = todos.map(c => ({ codigo: c, disponivel: dispDe[c] || 0, reservado: 0, wip: wipDe[c] || 0, atualizado_em: agoraISO, ancora_em: agoraISO }));
         for (let i = 0; i < epRows.length; i += 500) {
             const { error } = await supabase.from('estoque_posicao').upsert(epRows.slice(i, i + 500), { onConflict: 'codigo' });
             if (n1ErroTabela(error)) return res.status(503).json({ erro: N1_F1_503 });
@@ -2280,14 +2349,14 @@ app.post('/api/n1/motor/diario', auth, sigsEscrita, async (req, res) => {
 app.post('/api/n1/varredura', auth, sigsEscrita, async (_req, res) => {
     if (!n1Lock('varredura')) return res.status(409).json({ erro: 'Varredura já está rodando.' });
     try {
-        let params, poss;
+        let params, vivas;
         try {
-            [params, poss] = await Promise.all([
+            [params, vivas] = await Promise.all([
                 fetchAllSelect('parametro_reposicao', 'codigo,pulmao,zona,dias_vermelho', q => q.eq('ativo', true).gt('pulmao', 0)),
-                fetchAllSelect('estoque_posicao', 'codigo,posicao'),
+                n1PosicoesVivas(),                               // âncora ERP + movimentos (kardex)
             ]);
         } catch (e) { return n1ErroTabela(e) ? res.status(503).json({ erro: N1_F1_503 }) : erro500(res, e); }
-        const posDe = {}; (poss || []).forEach(p => { posDe[p.codigo] = Number(p.posicao) || 0; });
+        const posDe = {}; Object.entries(vivas).forEach(([c, v]) => { posDe[c] = v.posicao; });
         const { data: pendentes } = await supabase.from('ordem_sugerida').select('codigo').eq('status', 'PENDENTE');
         const jaPend = new Set((pendentes || []).map(x => x.codigo));
         let geradas = 0, jaExistiam = 0, verdes = 0;
@@ -2315,19 +2384,18 @@ app.post('/api/n1/varredura', auth, sigsEscrita, async (_req, res) => {
 
 // ── ② leitura: pulmões com posição/zona/penetração (tela + PWA cor) ──────────
 app.get('/api/n1/pulmoes', auth, async (_req, res) => {
-    let params, poss;
+    let params, posDe;
     try {
-        [params, poss] = await Promise.all([
+        [params, posDe] = await Promise.all([
             fetchAllSelect('parametro_reposicao', '*', q => q.eq('ativo', true)),
-            fetchAllSelect('estoque_posicao', 'codigo,disponivel,reservado,wip,posicao'),
+            n1PosicoesVivas(),                                   // âncora ERP + movimentos (kardex)
         ]);
     } catch (e) { return n1ErroTabela(e) ? res.status(503).json({ erro: N1_F1_503 }) : erro500(res, e); }
-    const posDe = {}; (poss || []).forEach(p => { posDe[p.codigo] = p; });
     const itens = (params || []).map(p => {
         const ep = posDe[p.codigo] || {}; const pos = Number(ep.posicao) || 0, pulmao = Number(p.pulmao) || 0, zona = pulmao / 3;
         const cor = pulmao <= 0 ? 'SEM_PULMAO' : pos <= 0 ? 'PRETO' : pos <= zona ? 'VERMELHO' : pos <= 2 * zona ? 'AMARELO' : 'VERDE';
         return { codigo: p.codigo, mu_mensal: p.mu_mensal, sigma_mensal: p.sigma_mensal, cv: p.cv, lt_dias: p.lt_dias,
-            pulmao, disponivel: Number(ep.disponivel) || 0, wip: Number(ep.wip) || 0, posicao: pos, cor,
+            pulmao, disponivel: Number(ep.disponivel) || 0, wip: Number(ep.wip) || 0, posicao: pos, cor, delta_mov: ep.delta_mov || 0,
             penetracao_pct: pulmao > 0 ? Math.round(Math.max(0, Math.min(1, 1 - pos / pulmao)) * 100) : null,
             dias_vermelho: p.dias_vermelho, dias_verde: p.dias_verde, ultimo_ajuste_em: p.ultimo_ajuste_em };
     }).sort((a, b) => (b.penetracao_pct || 0) - (a.penetracao_pct || 0));
@@ -2361,8 +2429,8 @@ app.post('/api/n1/sugeridas/:id/aprovar', auth, sigsEscrita, async (req, res) =>
     const { data: bomRows, error: eB } = await supabase.from('bom').select('material_codigo,qtd_por_unidade,unidade').eq('produto_id', prod.id).eq('ativo', true);
     if (!eB && bomRows?.length) {
         const necess = bomRows.map(b => ({ mat: String(b.material_codigo).toUpperCase(), qtd: (Number(b.qtd_por_unidade) || 0) * Number(sug.qtd) }));
-        const { data: estMat } = await supabase.from('estoque_posicao').select('codigo,disponivel').in('codigo', necess.map(x => x.mat));
-        const dispMat = {}; (estMat || []).forEach(e => { dispMat[e.codigo] = Number(e.disponivel) || 0; });
+        const vivasMat = await n1PosicoesVivas();
+        const dispMat = {}; necess.forEach(x => { dispMat[x.mat] = vivasMat[x.mat]?.disponivel || 0; });
         const falta = necess.filter(x => (dispMat[x.mat] || 0) < x.qtd);
         if (falta.length) return res.status(422).json({ erro: `Fio insuficiente: ${falta.map(f => `${f.mat} (precisa ${Math.ceil(f.qtd)}, tem ${Math.floor(dispMat[f.mat] || 0)})`).join(' · ')}`, check_fio: false });
     } else avisos.push('BOM vazia para o SKU — check de fio desligado (cadastre em Dados Mestres › BOM).');
@@ -2401,10 +2469,10 @@ app.post('/api/n1/sequenciar', auth, sigsEscrita, async (_req, res) => {
         // cor do pulmão por SKU (Rope: o chão enxerga a urgência da reposição)
         let corDe = {};
         try {
-            const [params, poss] = await Promise.all([
+            const [params, vivas] = await Promise.all([
                 fetchAllSelect('parametro_reposicao', 'codigo,pulmao', q => q.eq('ativo', true).gt('pulmao', 0)),
-                fetchAllSelect('estoque_posicao', 'codigo,posicao')]);
-            const posDe = {}; (poss || []).forEach(p => { posDe[p.codigo] = Number(p.posicao) || 0; });
+                n1PosicoesVivas()]);
+            const posDe = {}; Object.entries(vivas).forEach(([c, v]) => { posDe[c] = v.posicao; });
             (params || []).forEach(p => { const pos = posDe[p.codigo] ?? 0, z = Number(p.pulmao) / 3;
                 corDe[p.codigo] = pos <= 0 ? 'PRETO' : pos <= z ? 'VERMELHO' : pos <= 2 * z ? 'AMARELO' : 'VERDE'; });
         } catch { /* sem tabelas F1 ainda — fila sai sem cor */ }
@@ -2438,13 +2506,13 @@ app.post('/api/n1/fechamento', auth, sigsEscrita, async (_req, res) => {
     if (!n1Lock('fechamento')) return res.status(409).json({ erro: 'Fechamento já está rodando.' });
     try {
         const avisos = [];
-        let params, poss;
+        let params, vivas;
         try {
-            [params, poss] = await Promise.all([
+            [params, vivas] = await Promise.all([
                 fetchAllSelect('parametro_reposicao', '*', q => q.eq('ativo', true).gt('pulmao', 0)),
-                fetchAllSelect('estoque_posicao', 'codigo,posicao')]);
+                n1PosicoesVivas()]);
         } catch (e) { return n1ErroTabela(e) ? res.status(503).json({ erro: N1_F1_503 }) : erro500(res, e); }
-        const posDe = {}; (poss || []).forEach(p => { posDe[p.codigo] = Number(p.posicao) || 0; });
+        const posDe = {}; Object.entries(vivas).forEach(([c, v]) => { posDe[c] = v.posicao; });
         let ajustesUp = 0, ajustesDown = 0, rupturas = 0; const pens = [];
         for (const p of params || []) {
             const pos = posDe[p.codigo] ?? 0, pulmao = Number(p.pulmao), zona = pulmao / 3;
@@ -2558,6 +2626,60 @@ app.get('/api/n1/politica', auth, async (_req, res) => {
     if (n1ErroTabela(r.error)) return res.status(503).json({ erro: N1_F1_503 });
     if (r.error) return erro500(res, r.error);
     res.json({ itens: r.data || [], regra_f1: 'Sem linha na politica_item = PULL (MTS default provisório). Roteamento ABC-XYZ homologado entra no F2.' });
+});
+
+// ══════════════════ N1 · ESTOQUE F1 — posição viva + kardex ══════════════════
+const N1_EST_503 = 'Tabelas de estoque não existem — rode n1_estoque.sql no Supabase (SQL Editor).';
+
+// posição viva de todos os códigos (âncora + Δ movimentos)
+app.get('/api/n1/estoque', auth, async (req, res) => {
+    const q = String(req.query.q || '').trim().toUpperCase();
+    let vivas;
+    try { vivas = await n1PosicoesVivas(); } catch (e) { return erro500(res, e); }
+    let itens = Object.entries(vivas).map(([codigo, v]) => ({ codigo, ...v,
+        disponivel_ancora: (Number(v.disponivel) || 0) - (v.delta_mov || 0) }));
+    if (q) itens = itens.filter(i => i.codigo.includes(q));
+    itens.sort((a, b) => Math.abs(b.delta_mov) - Math.abs(a.delta_mov) || b.posicao - a.posicao);
+    const comMov = itens.filter(i => i.delta_mov !== 0);
+    res.json({ itens: itens.slice(0, 500), resumo: {
+        total: itens.length, com_movimento: comMov.length,
+        delta_entradas: comMov.reduce((s, i) => s + Math.max(0, i.delta_mov), 0),
+        delta_saidas: comMov.reduce((s, i) => s + Math.min(0, i.delta_mov), 0),
+        ancora: itens.map(i => i.ancora_em).filter(Boolean).sort().pop() || null } });
+});
+
+// kardex — extrato de movimentos (mais recentes primeiro)
+app.get('/api/n1/kardex', auth, async (req, res) => {
+    const cod = String(req.query.codigo || '').trim().toUpperCase();
+    let qy = supabase.from('estoque_movimento').select('*').order('criado_em', { ascending: false }).limit(Math.min(Number(req.query.limit) || 200, 500));
+    if (cod) qy = qy.eq('codigo', cod);
+    const r = await qy;
+    if (n1ErroTabela(r.error)) return res.status(503).json({ erro: N1_EST_503 });
+    if (r.error) return erro500(res, r.error);
+    const opIds = [...new Set((r.data || []).map(m => m.op_id).filter(Boolean))];
+    const numDe = {};
+    if (opIds.length) { const { data: ops } = await supabase.from('ordem_producao').select('id,numero').in('id', opIds);
+        (ops || []).forEach(o => { numDe[o.id] = o.numero; }); }
+    res.json((r.data || []).map(m => ({ ...m, op_numero: numDe[m.op_id] || null })));
+});
+
+// ajuste de inventário: informa a CONTAGEM física; o delta é calculado e registrado
+app.post('/api/n1/estoque/ajuste', auth, sigsEscrita, async (req, res) => {
+    const codigo = String(req.body?.codigo || '').trim().toUpperCase();
+    const contado = Number(req.body?.contado);
+    const motivo = String(req.body?.motivo || '').trim();
+    if (!codigo || !Number.isFinite(contado) || contado < 0) return res.status(400).json({ erro: 'codigo e contado (≥0) obrigatórios' });
+    if (!motivo) return res.status(400).json({ erro: 'Ajuste de inventário exige motivo.' });
+    let vivas;
+    try { vivas = await n1PosicoesVivas(); } catch (e) { return erro500(res, e); }
+    const atual = vivas[codigo]?.disponivel || 0;
+    const delta = Math.round((contado - atual) * 1000) / 1000;
+    if (delta === 0) return res.json({ ok: true, delta: 0, msg: 'Contagem igual à posição — nada a ajustar.' });
+    const { error } = await supabase.from('estoque_movimento').insert({ codigo, tipo: 'ajuste_inventario', delta,
+        motivo: `${motivo} (contado ${contado} vs sistema ${atual})`, usuario_nome: req.usuario?.nome || null });
+    if (n1ErroTabela(error)) return res.status(503).json({ erro: N1_EST_503 });
+    if (error) return erro500(res, error);
+    res.json({ ok: true, delta, de: atual, para: contado });
 });
 
 // ══════════════════ N1 · F2 — PLANEJAMENTO ═══════════════════════════════════
@@ -2909,6 +3031,8 @@ app.put('/api/mf/apontamentos/:id', auth, mfEscrita, async (req, res) => {
         const r = await supabase.from('apontamento').select('*').eq('id', req.params.id).single();
         data = r.data;
     }
+    // ESTOQUE F1: 1º fechamento da sessão → movimentos (entrada PA / consumo MP). Best-effort.
+    if (req.body.fechar && !jaFechada && data?.datahora_fim) await n1EstoqueDoApontamento(data, req.usuario);
     let avanco = null;
     // avança no fluxo só na PRIMEIRA vez que a sessão fecha (retry não pula etapa)
     if (req.body.avancar && data?.op_id && !jaFechada) {

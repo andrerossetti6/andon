@@ -122,6 +122,16 @@
                 </ul>
             </nav>
 
+            <nav class="nav-section" id="nav-section-estoque">
+                <h3 class="nav-section-header" data-key="n1-estoque" onclick="toggleNavSection(this)">
+                    ESTOQUE <span class="nav-toggle">▾</span>
+                </h3>
+                <ul class="nav-section-body">
+                    <li id="nav-estoque" data-n1tab="estoque" onclick="n1.tab('estoque')"><div class="item-content">Posição Viva</div></li>
+                    <li id="nav-kardex" data-n1tab="kardex" onclick="n1.tab('kardex')"><div class="item-content">Kardex (movimentos)</div></li>
+                </ul>
+            </nav>
+
             <nav class="nav-section" id="nav-section-sop">
                 <h3 class="nav-section-header" data-key="n1-sop" onclick="toggleNavSection(this)">
                     ⑦ S&OP LEVE <span class="nav-toggle">▾</span>
@@ -192,6 +202,8 @@
         <div id="n1-pan-kpi"       style="display:none;"></div>
         <div id="n1-pan-dbm"       style="display:none;"></div>
         <div id="n1-pan-tempos"    style="display:none;"></div>
+        <div id="n1-pan-estoque" style="display:none;"></div>
+        <div id="n1-pan-kardex" style="display:none;"></div>
         <div id="n1-pan-politica"  style="display:none;"></div>
         <div id="n1-pan-roteiros"  style="display:none;"></div>
         <div id="n1-pan-tcad"      style="display:none;"></div>

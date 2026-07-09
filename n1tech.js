@@ -122,9 +122,80 @@ const n1 = {
         document.querySelectorAll('[data-n1tab]').forEach(li => li.classList.toggle('active', li.dataset.n1tab === nome));
         const R = { painel:'_renderPainel', roteiros:'_renderRoteiros', tcad:'_renderTempos', setup:'_renderSetup', bom:'_renderBom',
             pulmoes:'_renderPulmoes', sugeridas:'_renderSugeridas', fila:'_renderFila', pwa:'_renderPwa', kpi:'_renderKpi', dbm:'_renderDbm',
-            politica:'_renderPolitica', netting:'_renderNetting', gargalo:'_renderGargalo' };
+            politica:'_renderPolitica', netting:'_renderNetting', gargalo:'_renderGargalo', estoque:'_renderEstoque', kardex:'_renderKardex' };
         if (R[nome]) this[R[nome]]();
         else this._placeholder(nome);
+    },
+
+    // ═══ ESTOQUE F1 — posição viva (âncora ERP + movimentos) e kardex ═══
+    _estq(v) { const n = Number(v) || 0; return n.toLocaleString('pt-BR', { maximumFractionDigits: 1 }); },
+    async _renderEstoque() {
+        const el = $('n1-pan-estoque'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando posição viva…</div>';
+        const q = this._estoqueBusca || '';
+        const d = await this._getOu503('/api/n1/estoque' + (q ? '?q=' + encodeURIComponent(q) : ''), el, 'A posição viva usa estoque_movimento (n1_estoque.sql).'); if (!d) return;
+        const r = d.resumo || {};
+        const linhas = (d.itens || []).slice(0, 300).map(i => `<tr>
+            <td style="font-weight:700;color:var(--indigo-primary);">${esc(i.codigo)}</td>
+            <td class="num dim">${this._estq(i.disponivel_ancora)}</td>
+            <td class="num" style="font-weight:700;color:${i.delta_mov > 0 ? 'var(--ok)' : i.delta_mov < 0 ? 'var(--bad)' : 'var(--text-dim)'};">${i.delta_mov ? (i.delta_mov > 0 ? '+' : '') + this._estq(i.delta_mov) : '—'}</td>
+            <td class="num dim">${this._estq(i.wip)}</td>
+            <td class="num" style="font-weight:800;">${this._estq(i.posicao)}</td>
+            <td class="dim" style="font-size:.72rem;">${i.ult_mov ? fmtData(i.ult_mov) : '—'}</td>
+            <td><button class="btn ghost sm" onclick="n1._ajustar('${escJS(i.codigo)}', ${Number(i.disponivel) || 0})">ajustar</button></td>
+        </tr>`).join('');
+        el.innerHTML = `
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+            <div class="kpi kpi--info"><div class="kpi__head">${icon('pacote')} CÓDIGOS</div><div class="kpi__value">${fmt(r.total)}</div><div class="kpi__sub">com posição ou movimento</div></div>
+            <div class="kpi ${r.com_movimento ? 'kpi--ok' : ''}"><div class="kpi__head">${icon('pulso')} COM MOVIMENTO</div><div class="kpi__value">${fmt(r.com_movimento)}</div><div class="kpi__sub">desde a âncora do ERP</div></div>
+            <div class="kpi kpi--ok"><div class="kpi__head">${icon('tendencia')} ENTRADAS</div><div class="kpi__value">+${this._estq(r.delta_entradas)}</div><div class="kpi__sub">produção apontada</div></div>
+            <div class="kpi ${r.delta_saidas < 0 ? 'kpi--warn' : ''}"><div class="kpi__head">${icon('fio')} CONSUMOS</div><div class="kpi__value">${this._estq(r.delta_saidas)}</div><div class="kpi__sub">fio via BOM + ajustes</div></div>
+        </div>
+        <div class="summary-card" style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <input id="n1-estq-q" class="n1-input" placeholder="buscar código…" value="${esc(q)}" style="max-width:220px;" onkeydown="if(event.key==='Enter'){n1._estoqueBusca=this.value;n1._renderEstoque();}">
+            <button class="btn secondary sm" onclick="n1._estoqueBusca=$('n1-estq-q').value;n1._renderEstoque()">Buscar</button>
+            <span style="font-size:var(--fs-caption);color:var(--text-dim);">posição viva = âncora (importação do ERP${r.ancora ? ' em ' + fmtData(r.ancora) : ''}) + movimentos do chão · reimportar o estoque re-ancora</span>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:56vh;overflow-y:auto;">
+            <table class="data-table"><thead><tr><th>Código</th><th class="num">Âncora (ERP)</th><th class="num">Δ movimentos</th><th class="num">WIP</th><th class="num">Posição viva</th><th>Última mov.</th><th></th></tr></thead>
+            <tbody>${linhas || '<tr><td colspan="7" style="text-align:center;color:var(--text-dim);padding:20px;">Nada encontrado.</td></tr>'}</tbody></table>
+        </div></div>`;
+    },
+    async _ajustar(codigo, atual) {
+        const contado = prompt(`Inventário de ${codigo}\n\nPosição no sistema: ${atual}\nQuantidade CONTADA fisicamente:`, atual);
+        if (contado == null) return;
+        const motivo = prompt('Motivo do ajuste (obrigatório):', 'contagem cíclica');
+        if (!motivo) return;
+        const r = await api.post('/api/n1/estoque/ajuste', { codigo, contado: Number(contado), motivo });
+        if (!r?.ok) return toast(r?.erro || 'Erro no ajuste.', 'erro');
+        toast(r.delta === 0 ? 'Contagem igual à posição — nada a ajustar.' : `✓ Ajuste registrado: ${r.delta > 0 ? '+' : ''}${r.delta} (${r.de} → ${r.para}).`);
+        this._renderEstoque();
+    },
+    async _renderKardex() {
+        const el = $('n1-pan-kardex'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando kardex…</div>';
+        const cod = this._kardexCod || '';
+        const d = await this._getOu503('/api/n1/kardex' + (cod ? '?codigo=' + encodeURIComponent(cod) : ''), el, 'O kardex é a tabela estoque_movimento (n1_estoque.sql).'); if (!d) return;
+        const TIPO = { entrada_producao: ['entrada produção', 'badge--ok'], consumo_mp: ['consumo fio (BOM)', 'badge--info'],
+            ajuste_inventario: ['ajuste inventário', 'badge--warn'], entrada_manual: ['entrada manual', 'badge--dim'], saida_expedicao: ['saída expedição', 'badge--dim'] };
+        const linhas = (d || []).map(m => { const [rot, cls] = TIPO[m.tipo] || [m.tipo, 'badge--dim'];
+            return `<tr>
+            <td class="dim" style="white-space:nowrap;">${new Date(m.criado_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+            <td><span class="badge ${cls}">${rot}</span></td>
+            <td style="font-weight:700;color:var(--indigo-primary);">${esc(m.codigo)}</td>
+            <td class="num" style="font-weight:800;color:${m.delta > 0 ? 'var(--ok)' : 'var(--bad)'};">${m.delta > 0 ? '+' : ''}${this._estq(m.delta)}</td>
+            <td class="dim">${m.op_numero ? 'OP ' + esc(m.op_numero) : '—'}</td>
+            <td class="dim" style="font-size:.74rem;">${esc(m.motivo || '')}</td>
+            <td class="dim" style="font-size:.74rem;">${esc(m.usuario_nome || 'sistema')}</td>
+        </tr>`; }).join('');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <div class="sec-title" style="margin:0;flex:1;">${icon('camadas')} Kardex <span class="hint">todo movimento é uma linha imutável — ninguém edita saldo</span></div>
+            <input id="n1-kdx-q" class="n1-input" placeholder="filtrar por código…" value="${esc(cod)}" style="max-width:200px;" onkeydown="if(event.key==='Enter'){n1._kardexCod=this.value;n1._renderKardex();}">
+            <button class="btn secondary sm" onclick="n1._kardexCod=$('n1-kdx-q').value;n1._renderKardex()">Filtrar</button>
+        </div>
+        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:62vh;overflow-y:auto;">
+            <table class="data-table"><thead><tr><th>Quando</th><th>Tipo</th><th>Código</th><th class="num">Δ</th><th>Origem</th><th>Motivo</th><th>Quem</th></tr></thead>
+            <tbody>${linhas || '<tr><td colspan="7" style="text-align:center;color:var(--text-dim);padding:24px;">Nenhum movimento ainda — eles nascem quando o chão fecha sessões de apontamento (entrada de produção e consumo de fio via BOM) ou em ajustes de inventário.</td></tr>'}</tbody></table>
+        </div></div>`;
     },
 
     // ═══ F2 — NETTING PUSH (carteira firme = OPs do ERP, prio pela folga) ═══
