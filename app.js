@@ -4498,6 +4498,119 @@ const toc = {
         }
     },
 
+    // ── ANÁLISE TOC PROFUNDA (5 passos de Goldratt) ──────────────────────────────
+    // A pergunta certa não é só "onde está o gargalo" e sim: quanto vale a hora
+    // dele, que produto merece essa hora, e o que ganho ao elevá-lo.
+    // Throughput aqui usa PREÇO de venda (vendas.valor/qtd) como proxy — sem o
+    // custo de MP (BOM vazia) é receita/h, não margem/h. Refina quando a BOM chegar.
+    _renderProfundo() {
+        const el = document.getElementById('toc-profundo'); if (!el) return;
+        if (el.innerHTML) { el.innerHTML = ''; return; }               // toggle
+        const procs = (this._resultProcs || []).filter(p => !p.semDados);
+        if (!procs.length || !this._demandaAtual) return mostrarToast('Calcule o gargalo primeiro.', 'aviso');
+        const g = procs[0];                                            // maior utilização
+        const procDef = this._PROCS.find(p => p.id === g.id);
+        const dias = parseFloat(document.getElementById('toc-dias')?.value) || 22;
+        const capP = this._getCap()[g.id] || { maquinas: 1, horasDia: 8, oee: 100 };
+
+        // preço por SKU (vendas: valor total ÷ quantidade)
+        const preco = {};
+        (vendas.rawData || []).forEach(r => { const c = String(r.codigo || '').trim().toUpperCase();
+            const q = Number(r.quantidade) || 0, v = Number(r.valor) || 0; if (c && q > 0 && v > 0) preco[c] = v / q; });
+        // banco map
+        const bancoMap = {};
+        banco.rawData.forEach(r => { const cod = String(r.dados?.['Código'] ?? '').trim().toUpperCase(); if (cod) bancoMap[cod] = r.dados; });
+
+        // por SKU que passa no gargalo: tempo, horas totais, receita, R$/hora-gargalo
+        const itens = [];
+        let horasTot = 0, receitaTot = 0, horasSemPreco = 0;
+        Object.entries(this._demandaAtual).forEach(([cod, qty]) => {
+            if (!(qty > 0)) return;
+            const dados = bancoMap[cod]; if (!dados) return;
+            const tMin = this._getTempoMinutos(dados, procDef.cols); if (!tMin) return;
+            const h = tMin * qty / 60;
+            horasTot += h;
+            const pr = preco[cod];
+            if (pr) { receitaTot += pr * qty; itens.push({ cod, qty, tMin, preco: pr, rHora: pr * 60 / tMin, horas: h, receita: pr * qty }); }
+            else horasSemPreco += h;
+        });
+        if (!itens.length) { el.innerHTML = `<div class="summary-card" style="color:#ffca28;font-size:.8rem;">Sem preços nas vendas para calcular R$/hora do gargalo — importe Vendas com a coluna de valor.</div>`; return; }
+        const valorHora = receitaTot / (horasTot - horasSemPreco || 1);   // R$ por hora de gargalo (dos itens com preço)
+        const porRHora = [...itens].sort((a, b) => b.rHora - a.rHora);
+        const top5 = porRHora.slice(0, 5), bottom5 = porRHora.slice(-5).reverse();
+
+        // ELEVAR: +1 posto no gargalo
+        const extraH = capP.horasDia * dias * (Math.min(capP.oee || 100, 100) / 100);
+        const deficitH = Math.max(0, (g.cargaMin - g.capMin) / 60);
+        const ganhoMes = Math.min(deficitH, extraH) * valorHora;
+        const utilDepois = g.capMin > 0 ? g.cargaMin / (g.capMin * (capP.maquinas + 1) / capP.maquinas) : 0;
+
+        // ordem de estouro (headroom de demanda até cada processo bater 100%)
+        const estouro = procs.filter(p => p.util > 0).map(p => ({ nome: p.nome, util: p.util, headroom: (1 / p.util - 1) * 100 }))
+            .sort((a, b) => a.headroom - b.headroom);
+
+        const fmt$ = v => 'R$ ' + Math.round(v).toLocaleString('pt-BR');
+        const linhaSku = (x, cor) => `<tr style="border-bottom:1px solid rgba(255,255,255,.04);">
+            <td style="padding:5px 8px;font-weight:700;color:${cor};">${escHTML(x.cod)}</td>
+            <td style="padding:5px 8px;text-align:right;font-weight:800;color:${cor};">${fmt$(x.rHora)}/h</td>
+            <td style="padding:5px 8px;text-align:right;color:var(--text-dim);">${x.tMin.toFixed(1)} min/pç</td>
+            <td style="padding:5px 8px;text-align:right;color:var(--text-dim);">R$ ${x.preco.toFixed(0)}/pç</td>
+            <td style="padding:5px 8px;text-align:right;color:var(--text-dim);">${Math.round(x.qty).toLocaleString('pt-BR')} pç · ${x.horas.toFixed(0)}h</td>
+        </tr>`;
+        const cobertura = horasTot > 0 ? (1 - horasSemPreco / horasTot) * 100 : 0;
+
+        el.innerHTML = `
+        <div class="summary-card" style="border-left:3px solid #7c4dff;">
+            <div class="s-label" style="margin-bottom:12px;">🧠 TOC PROFUNDO — os 5 passos de focalização · gargalo: <span style="color:#f06292;">${escHTML(g.nome)}</span></div>
+
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+                <div class="summary-card" style="flex:1;min-width:190px;border-top:3px solid #f06292;">
+                    <span class="s-label">💰 VALOR DA HORA DO GARGALO</span>
+                    <span class="s-value" style="color:#f06292;font-size:1.5rem;">${fmt$(valorHora)}/h</span>
+                    <span class="s-sub">receita que atravessa o gargalo ÷ horas dele · 1h parada ≈ ${fmt$(valorHora)} que a FÁBRICA INTEIRA deixa de faturar</span></div>
+                <div class="summary-card" style="flex:1;min-width:190px;border-top:3px solid #26a69a;">
+                    <span class="s-label">⬆ ELEVAR: +1 POSTO NO GARGALO</span>
+                    <span class="s-value" style="color:#26a69a;font-size:1.5rem;">+${Math.round(extraH)}h/mês</span>
+                    <span class="s-sub">${deficitH > 0 ? `déficit atual ${Math.round(deficitH)}h → destrava ≈ ${fmt$(ganhoMes)}/mês de receita represada` : `sem déficit neste recorte (${(g.util * 100).toFixed(0)}%) — o ganho aparece nos meses de pico (filtre Abr/26)`} · utilização iria a ${(utilDepois * 100).toFixed(0)}%</span></div>
+                <div class="summary-card" style="flex:1;min-width:190px;border-top:3px solid #ffca28;">
+                    <span class="s-label">📐 COBERTURA DA ANÁLISE</span>
+                    <span class="s-value" style="color:${cobertura >= 80 ? '#26a69a' : '#ffca28'};font-size:1.5rem;">${cobertura.toFixed(0)}%</span>
+                    <span class="s-sub">das horas do gargalo têm preço de venda · sem custo de MP (BOM), R$/h = receita/h, não margem/h</span></div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+                <div>
+                    <div class="s-label" style="margin-bottom:6px;">② EXPLORAR — quem MERECE a hora do gargalo (maior R$/h)</div>
+                    <table style="width:100%;border-collapse:collapse;font-size:.76rem;">${top5.map(x => linhaSku(x, '#26a69a')).join('')}</table>
+                    <div style="font-size:.66rem;color:var(--text-dim);margin-top:4px;">priorize estes na fila do gargalo — cada hora dedicada a eles rende mais</div>
+                </div>
+                <div>
+                    <div class="s-label" style="margin-bottom:6px;">quem CONSOME a hora rendendo pouco (menor R$/h)</div>
+                    <table style="width:100%;border-collapse:collapse;font-size:.76rem;">${bottom5.map(x => linhaSku(x, '#f06292')).join('')}</table>
+                    <div style="font-size:.66rem;color:var(--text-dim);margin-top:4px;">candidatos a reprecificar, lotear fora de pico ou repensar — só se o gargalo estiver estourado</div>
+                </div>
+            </div>
+
+            <div style="margin-bottom:14px;">
+                <div class="s-label" style="margin-bottom:6px;">⑤ REPETIR — ordem de estouro (quanto a demanda pode crescer até cada processo virar o gargalo)</div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">${estouro.map((e2, i) => `
+                    <span style="border:1px solid ${i === 0 ? '#f0629255' : 'var(--border-color)'};border-radius:8px;padding:6px 12px;font-size:.76rem;${i === 0 ? 'background:rgba(240,98,146,.08);' : ''}">
+                        <strong>${i + 1}º</strong> ${escHTML(e2.nome)} <span style="color:${e2.headroom <= 0 ? '#f06292' : e2.headroom < 25 ? '#ffca28' : '#26a69a'};font-weight:800;">${e2.headroom <= 0 ? 'JÁ ESTOUROU' : '+' + e2.headroom.toFixed(0) + '%'}</span>
+                    </span>`).join('')}</div>
+            </div>
+
+            <div style="padding:12px 14px;background:var(--bg-input);border-radius:8px;font-size:.74rem;color:var(--text-dim);line-height:1.7;">
+                <strong style="color:var(--text-primary);">Os 5 passos aplicados a hoje:</strong><br>
+                ① <strong>Identificar</strong>: ${escHTML(g.nome)} (${(g.util * 100).toFixed(0)}%). ✓ feito acima.<br>
+                ② <strong>Explorar</strong> (antes de gastar 1 real): priorizar os SKUs de maior R$/h na fila · garantir que o gargalo NUNCA pare (almoço/troca escalonados, material sempre à mão) · qualidade ANTES dele (peça ruim que consome hora do gargalo é perda dupla).<br>
+                ③ <strong>Subordinar</strong>: os outros processos trabalham no RITMO do gargalo — pulmão de WIP na frente dele (o N1Tech já faz isso com a fila por cor); OEE alto em não-gargalo NÃO é meta (só cria estoque).<br>
+                ④ <strong>Elevar</strong> (só depois de ② e ③): +1 posto = +${Math.round(extraH)}h/mês${deficitH > 0 ? ` ≈ ${fmt$(ganhoMes)}/mês` : ''} — use o E-SE acima para simular.<br>
+                ⑤ <strong>Repetir</strong>: elevou? O gargalo MUDA (veja a ordem de estouro) — recomece o ciclo nele. Não deixe a inércia virar o novo gargalo.
+            </div>
+        </div>`;
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+
     // ── exporta o resultado atual em CSV (Excel abre direto) ──
     _exportCsv() {
         if (!this._resultProcs?.length) return mostrarToast('Calcule o gargalo primeiro.', 'aviso');

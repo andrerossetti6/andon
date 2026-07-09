@@ -2786,11 +2786,13 @@
             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
                 <div class="s-label" style="margin:0;">UTILIZAÇÃO POR PROCESSO</div>
                 <div style="display:flex;gap:8px;">
+                    <button class="btn secondary" style="font-size:.74rem;" onclick="toc._renderProfundo()" title="Análise TOC profunda (5 passos de Goldratt): valor da hora do gargalo, R$/h por SKU, elevar capacidade, próximos gargalos">🧠 TOC profundo</button>
                     <button class="btn secondary" style="font-size:.74rem;" onclick="toc._renderMatriz()" title="Utilização de TODOS os processos mês a mês (heatmap) — respeita os filtros de segmento/marca/modelo e o E-SE de capacidade">📅 Matriz mensal</button>
                     <button class="btn secondary" style="font-size:.74rem;" onclick="toc._exportCsv()" title="Baixa o resultado em CSV (Excel)">⬇ CSV</button>
                 </div>
             </div>
             <div id="toc-barras"></div>
+            <div id="toc-profundo" style="margin-top:16px;"></div>
             <div id="toc-matriz" style="margin-top:16px;"></div>
         </div>
 
