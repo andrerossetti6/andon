@@ -32,6 +32,7 @@
         grafico:   '<path d="M4 20V10M10 20V4M16 20v-8M21 20H3"/>',
         moeda:     '<circle cx="12" cy="12" r="9"/><path d="M15 9c-.6-1-1.7-1.5-3-1.5-1.8 0-3 1-3 2.2 0 3 6 1.6 6 4.6 0 1.2-1.2 2.2-3 2.2-1.3 0-2.4-.5-3-1.5M12 5.5v13"/>',
     };
+    window.iconNames = Object.keys(P);   // p/ galeria do styleguide
     window.icon = function (nome, cls) {
         const d = P[nome];
         if (!d) return '';

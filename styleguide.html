@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Styleguide | Gestão Stoll</title>
+    <meta name="description" content="Design system vivo dos 4 sistemas — componentes, cores, tipografia e regras">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <meta name="theme-color" content="#0D1117">
+    <style>
+        body{display:block;overflow-y:auto;}
+        .sg{max-width:1060px;margin:0 auto;padding:40px 24px 100px;}
+        .sg h1{font-family:'Outfit';font-size:1.8rem;margin-bottom:4px;}
+        .sg h1 span{color:var(--indigo-primary);}
+        .sg>p.lead{color:var(--text-dim);font-size:var(--fs-med);margin-bottom:8px;}
+        .sg-sec{margin:40px 0 14px;font-family:'Outfit';font-size:1.1rem;font-weight:700;padding-bottom:8px;border-bottom:1px solid var(--border-color);}
+        .sg-grid{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;}
+        .sw{width:150px;border:1px solid var(--border-color);border-radius:10px;overflow:hidden;}
+        .sw i{display:block;height:52px;}
+        .sw div{padding:8px 10px;font-size:.72rem;}
+        .sw code{color:var(--text-dim);font-size:.66rem;}
+        .ic-cell{width:96px;text-align:center;padding:12px 4px;border:1px solid var(--border-color);border-radius:10px;font-size:.66rem;color:var(--text-dim);}
+        .ic-cell svg{display:block;margin:0 auto 8px;width:22px;height:22px;stroke:var(--text-main);}
+        .regra{display:flex;gap:10px;align-items:flex-start;padding:9px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:var(--fs-body);color:var(--text-dim);}
+        .regra b{color:var(--text-main);}
+        .regra .ok{color:var(--ok);font-weight:800;} .regra .nao{color:var(--bad);font-weight:800;}
+        .demo{background:var(--bg-card);border:1px solid var(--border-color);border-radius:12px;padding:18px;margin-bottom:12px;}
+        .type-row{display:flex;align-items:baseline;gap:16px;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.04);}
+        .type-row code{width:110px;color:var(--text-dim);font-size:.7rem;}
+    </style>
+</head>
+<body class="sin1-layout">
+<div class="sg">
+    <h1>Design System — <span>Gestão Stoll</span></h1>
+    <p class="lead">O manual vivo dos 4 sistemas (SIGS · APS · MES · N1Tech). Tudo que nascer novo usa o que está aqui — nada de reinventar botão, tabela ou cor.</p>
+    <p class="lead" style="font-size:var(--fs-caption);">Fonte: <code>style.css</code> (seção "Fundação Profissional") + <code>ui-icons.js</code>. Guia de uso do produto: <a href="/guia_integrado.html" style="color:var(--indigo-primary);">Guia Integrado</a>.</p>
+
+    <div class="sg-sec">1 · Princípios</div>
+    <div class="regra"><span class="ok">✓</span><span><b>Cor é estado, não decoração.</b> Verde = OK · âmbar = atenção · vermelho = estourado/ruptura · teal = ação/informação. Superfícies são neutras.</span></div>
+    <div class="regra"><span class="ok">✓</span><span><b>Ícone é SVG do sprite</b> (<code>icon('tear')</code>) — traço 1.8, monocromático, herda a cor do texto. <span class="nao">Nunca emoji na UI.</span></span></div>
+    <div class="regra"><span class="ok">✓</span><span><b>Número grande é Outfit + tabular</b> (<code>font-variant-numeric</code>) — colunas alinham. Texto corrente é Inter 14px.</span></div>
+    <div class="regra"><span class="ok">✓</span><span><b>Falar como gente:</b> títulos podem ser perguntas ("Onde a fábrica aperta?"); números vêm com tradução ("176% = faltam 2 pessoas").</span></div>
+    <div class="regra"><span class="ok">✓</span><span><b>Nada de estilo inline novo</b> para o que já existe como componente: use <code>.kpi .data-table .badge .meter .btn .sec-title .live-strip .prose-brief</code>.</span></div>
+
+    <div class="sg-sec">2 · Cores</div>
+    <div class="sg-grid" id="sg-cores"></div>
+
+    <div class="sg-sec">3 · Tipografia (escala fechada — só estes tamanhos)</div>
+    <div class="demo" id="sg-type">
+        <div class="type-row"><code>--fs-hero 28</code><span style="font-family:'Outfit';font-size:var(--fs-hero);font-weight:700;">12.456 pç</span></div>
+        <div class="type-row"><code>--fs-title 20</code><span style="font-family:'Outfit';font-size:var(--fs-title);font-weight:700;">Título de seção</span></div>
+        <div class="type-row"><code>--fs-med 15</code><span style="font-size:var(--fs-med);">Texto destacado / prosa do resumo</span></div>
+        <div class="type-row"><code>--fs-body 14</code><span style="font-size:var(--fs-body);">Texto corrente e células de tabela</span></div>
+        <div class="type-row"><code>--fs-caption 12</code><span style="font-size:var(--fs-caption);color:var(--text-dim);">Legendas, subtítulos de KPI e notas</span></div>
+    </div>
+
+    <div class="sg-sec">4 · Ícones (<code>icon('nome')</code>)</div>
+    <div class="sg-grid" id="sg-icones"></div>
+
+    <div class="sg-sec">5 · Botões</div>
+    <div class="demo" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <button class="btn primary">Ação principal</button>
+        <button class="btn secondary">Secundário</button>
+        <button class="btn ghost">Ghost</button>
+        <button class="btn secondary sm">Pequeno</button>
+        <button class="btn primary" disabled>Desabilitado</button>
+        <button class="btn secondary" id="sg-btn-icone">com ícone</button>
+    </div>
+
+    <div class="sg-sec">6 · Badges de estado</div>
+    <div class="demo" style="display:flex;gap:10px;flex-wrap:wrap;">
+        <span class="badge badge--ok">OK · 64%</span>
+        <span class="badge badge--warn">ATENÇÃO · 92%</span>
+        <span class="badge badge--bad">GARGALO · 176%</span>
+        <span class="badge badge--info">ARQUITETURA</span>
+        <span class="badge badge--dim">sem dados</span>
+    </div>
+
+    <div class="sg-sec">7 · KPI (card de número)</div>
+    <div class="demo" style="display:flex;gap:12px;flex-wrap:wrap;">
+        <div class="kpi kpi--info"><div class="kpi__head" id="sg-kpi-h1">CARTEIRA</div><div class="kpi__value">259</div><div class="kpi__sub">27 em produção</div></div>
+        <div class="kpi kpi--ok"><div class="kpi__head" id="sg-kpi-h2">OEE MEDIDO</div><div class="kpi__value">74,2%</div><div class="kpi__sub">média das máquinas</div></div>
+        <div class="kpi kpi--bad"><div class="kpi__head" id="sg-kpi-h3">RUPTURAS</div><div class="kpi__value">74</div><div class="kpi__sub">pulmões em preto</div></div>
+    </div>
+
+    <div class="sg-sec">8 · Tabela padrão (.data-table)</div>
+    <div class="demo" style="padding:0;overflow:hidden;">
+        <table class="data-table">
+            <thead><tr><th>Código</th><th>Produto</th><th class="num">Qtd</th><th class="num">Carga (h)</th><th>Estado</th></tr></thead>
+            <tbody>
+                <tr><td style="font-weight:600;color:var(--indigo-primary);">12303</td><td>Joelheira Estabilizadora</td><td class="num">623</td><td class="num">207,7</td><td><span class="badge badge--bad">estourado</span></td></tr>
+                <tr><td style="font-weight:600;color:var(--indigo-primary);">12603</td><td>Joelheira Elástica</td><td class="num">962</td><td class="num">64,1</td><td><span class="badge badge--ok">ok</span></td></tr>
+                <tr><td style="font-weight:600;color:var(--indigo-primary);">90533</td><td>Munhequeira Curta</td><td class="num">1</td><td class="num">0,1</td><td><span class="badge badge--dim">baixo giro</span></td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="sg-sec">9 · Medidor de utilização (.meter)</div>
+    <div class="demo" style="display:flex;flex-direction:column;gap:12px;">
+        <div style="display:flex;align-items:center;gap:12px;"><span style="width:130px;font-size:var(--fs-body);">Tecelagem</span><div class="meter meter--ok"><i style="width:34%"></i></div><b style="width:48px;text-align:right;color:var(--ok);">34%</b></div>
+        <div style="display:flex;align-items:center;gap:12px;"><span style="width:130px;font-size:var(--fs-body);">Costura Auto</span><div class="meter meter--warn"><i style="width:68%"></i></div><b style="width:48px;text-align:right;color:var(--warn);">92%</b></div>
+        <div style="display:flex;align-items:center;gap:12px;"><span style="width:130px;font-size:var(--fs-body);">Costura Manual</span><div class="meter meter--bad"><i style="width:100%"></i></div><b style="width:48px;text-align:right;color:var(--bad);">176%</b></div>
+    </div>
+
+    <div class="sg-sec">10 · Faixa viva + prosa</div>
+    <div class="live-strip" style="margin-bottom:12px;">
+        <div class="live-strip__item"><span class="live-dot"></span> Agora na fábrica</div>
+        <div class="live-strip__item" id="sg-live1"><b>27</b> OPs em produção</div>
+        <div class="live-strip__item" id="sg-live2"><b>1</b> Andon</div>
+    </div>
+    <div class="demo"><div class="prose-brief"><b>Boa tarde, André.</b> A fábrica tem <b>259 OPs na carteira</b> — 27 em produção agora. O gargalo é a <b>Costura Manual</b> a <span class="destaque-bad">176%</span> — para abril, o pacote é método + hora extra + antecipação. <b>107 reposições</b> aguardam aprovação.</div></div>
+
+    <div class="sg-sec">11 · Como usar (para qualquer tela nova)</div>
+    <div class="regra"><span class="ok">1</span><span>Número de destaque → <code>&lt;div class="kpi kpi--{ok|warn|bad|info}"&gt;</code> com <code>contarAte(el, valor)</code> para contar.</span></div>
+    <div class="regra"><span class="ok">2</span><span>Lista/tabela → <code>&lt;table class="data-table"&gt;</code>; números com <code>class="num"</code>; texto de apoio com <code>class="dim"</code>.</span></div>
+    <div class="regra"><span class="ok">3</span><span>Estado → <code>.badge badge--*</code>; utilização → <code>.meter meter--*</code>. Título de bloco → <code>.sec-title</code> com <code>icon()</code>.</span></div>
+    <div class="regra"><span class="ok">4</span><span>Entrada de blocos → classe <code>.rise</code> (anima em cascata). Respeita <code>prefers-reduced-motion</code>.</span></div>
+</div>
+<script src="ui-icons.js"></script>
+<script>
+    // paleta (lida das variáveis reais do CSS)
+    const cores = [['--indigo-primary','ação / informação'],['--ok','OK / saudável'],['--warn','atenção'],['--bad','estourado / ruptura'],
+        ['--text-main','texto principal'],['--text-dim','texto de apoio'],['--bg-obsidian','fundo'],['--bg-sidebar','sidebar'],['--border-color','bordas']];
+    document.getElementById('sg-cores').innerHTML = cores.map(([v, uso]) => {
+        const val = getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+        return `<div class="sw"><i style="background:${val};"></i><div><b>${uso}</b><br><code>${v}</code><br><code>${val}</code></div></div>`;
+    }).join('');
+    // galeria de ícones
+    document.getElementById('sg-icones').innerHTML = (window.iconNames || []).map(n =>
+        `<div class="ic-cell">${icon(n)}<div>${n}</div></div>`).join('');
+    // exemplos com ícone
+    document.getElementById('sg-btn-icone').innerHTML = icon('baixar', 'icon sm') + ' com ícone';
+    document.getElementById('sg-kpi-h1').innerHTML = icon('camadas') + ' CARTEIRA';
+    document.getElementById('sg-kpi-h2').innerHTML = icon('gauge') + ' OEE MEDIDO';
+    document.getElementById('sg-kpi-h3').innerHTML = icon('alerta') + ' RUPTURAS';
+    document.getElementById('sg-live1').innerHTML = icon('pulso','icon sm') + ' <b>27</b> OPs em produção';
+    document.getElementById('sg-live2').innerHTML = icon('alerta','icon sm') + ' <b>1</b> Andon';
+</script>
+</body>
+</html>
