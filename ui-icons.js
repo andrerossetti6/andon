@@ -51,4 +51,27 @@
         };
         requestAnimationFrame(tick);
     };
+    // ── Mapa da fábrica: renderer compartilhado (Cockpit e Modo TV) ──
+    const ICONE_ETAPA = [[/tecel/i,'tear'],[/costura/i,'costura'],[/solda/i,'config'],[/silicone/i,'fio'],
+        [/passad/i,'gauge'],[/revis/i,'olho'],[/embal/i,'pacote']];
+    const ESTADO_ROTULO = { rodando: ['RODANDO','badge--ok'], fila: ['FILA PARADA','badge--warn'],
+        andon: ['ANDON','badge--bad'], parada: ['SEM ATIVIDADE','badge--dim'] };
+    window.renderMapaFabrica = function (el, etapas) {
+        if (!el) return;
+        const esc2 = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+        el.innerHTML = `<div class="mapa-fab">` + (etapas || []).map((e, i) => {
+            const ic = (ICONE_ETAPA.find(([re]) => re.test(e.nome)) || [null, 'fabrica'])[1];
+            const [rot, cls] = ESTADO_ROTULO[e.estado] || ESTADO_ROTULO.parada;
+            return (i ? `<div class="mapa-seta">${icon('seta', 'icon sm')}</div>` : '') + `
+            <div class="mapa-est mapa-est--${e.estado}" title="${esc2(e.nome)}: ${rot}">
+                <span class="mapa-est__badge badge ${cls}">${rot}</span>
+                ${icon(ic)}
+                <div class="mapa-est__nome">${esc2(e.nome)}</div>
+                <div class="mapa-est__dados">
+                    <b>${e.wip}</b> OP${e.wip === 1 ? '' : 's'} na fila<br>
+                    <b>${e.sessoes}</b> sess${e.sessoes === 1 ? 'ão ativa' : 'ões ativas'}<br>
+                    <b>${e.maquinas}</b> máq${e.pessoas ? ` · <b>${e.pessoas}</b> pessoas` : ''}</div>
+            </div>`;
+        }).join('') + `</div>`;
+    };
 })();

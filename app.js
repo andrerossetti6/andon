@@ -1076,7 +1076,7 @@ const cockpit = {
         const body = document.getElementById('cockpit-body');
         if (!body) return;
         body.innerHTML = `<div style="padding:48px;text-align:center;color:var(--text-dim);">Consolidando os dois domínios…</div>`;
-        const [maqUni, ind, andon, carteira, prods, sugs, pulm] = await Promise.all([
+        const [maqUni, ind, andon, carteira, prods, sugs, pulm, mapa] = await Promise.all([
             api.get('/api/maquinas-unificado').catch(() => []),
             api.get('/api/mf/indicadores').catch(() => null),
             api.get('/api/mf/andon').catch(() => []),
@@ -1084,6 +1084,7 @@ const cockpit = {
             api.get('/api/mf/produtos').catch(() => []),
             api.get('/api/n1/sugeridas?status=PENDENTE').catch(() => []),
             api.get('/api/n1/pulmoes').catch(() => null),
+            api.get('/api/mf/mapa').catch(() => null),
         ]);
         // ── EXECUÇÃO (MES) ──
         const teares = (maqUni || []).filter(m => /^stoll/i.test(m.id_maquina || '') && String(m.status || '').toLowerCase() !== 'inativo');
@@ -1147,6 +1148,11 @@ const cockpit = {
                 <div class="live-strip__item" style="margin-left:auto;">${icon('relogio', 'icon sm')} <b id="ck-relogio">--:--</b></div>
             </div>
 
+            <div class="summary-card rise" style="margin-bottom:16px;">
+                <div class="sec-title">${icon('fabrica')} Mapa da fábrica <span class="hint">estado vivo por estação — verde rodando · âmbar fila parada · vermelho Andon</span></div>
+                <div id="ck-mapa"></div>
+            </div>
+
             <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px;">
                 ${kpi('ck-cart', 'camadas', 'Carteira', emProd + ' em produção', 'info')}
                 ${kpi('ck-qtd', 'pacote', 'Qtd planejada', 'unidades na carteira')}
@@ -1181,6 +1187,9 @@ const cockpit = {
             <div style="font-size:var(--fs-caption);color:var(--text-dim);margin-top:14px;text-align:center;">
                 Fonte única integrada — carteira e capacidade do MES · vendas/estoque/cadastro do SIGS · pulmões do N1Tech
             </div>`;
+
+        if (mapa?.etapas) renderMapaFabrica(document.getElementById('ck-mapa'), mapa.etapas);
+        else { const m = document.getElementById('ck-mapa'); if (m) m.innerHTML = '<span style="font-size:var(--fs-caption);color:var(--text-dim);">mapa indisponível</span>'; }
 
         // números que contam + relógio vivo
         contarAte(document.getElementById('ck-cart'), cart.length);

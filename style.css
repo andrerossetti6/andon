@@ -2237,3 +2237,33 @@ html { -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; 
 .rise { animation: riseIn .45s cubic-bezier(.22,1,.36,1) both; }
 .rise:nth-child(2) { animation-delay: .06s; } .rise:nth-child(3) { animation-delay: .12s; }
 .rise:nth-child(4) { animation-delay: .18s; } .rise:nth-child(5) { animation-delay: .24s; }
+
+/* ── MAPA DA FÁBRICA (Cockpit + Modo TV) ── */
+.mapa-fab { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 6px 2px; }
+.mapa-est { min-width: 132px; flex: 1; background: var(--bg-card); border: 1px solid var(--border-color);
+    border-radius: 12px; padding: 12px 10px; text-align: center; position: relative; box-shadow: var(--shadow-1); }
+.mapa-est .icon { width: 26px; height: 26px; margin-bottom: 6px; }
+.mapa-est__nome { font-size: .74rem; font-weight: 700; letter-spacing: .02em; margin-bottom: 6px; white-space: nowrap; }
+.mapa-est__dados { font-size: .66rem; color: var(--text-dim); line-height: 1.6; }
+.mapa-est__dados b { color: var(--text-main); font-variant-numeric: tabular-nums; }
+.mapa-est__badge { position: absolute; top: -8px; right: -6px; }
+.mapa-seta { display: flex; align-items: center; padding: 0 4px; color: var(--text-dim); opacity: .5; flex-shrink: 0; }
+.mapa-est--rodando { border-color: rgba(63,185,80,.5); }
+.mapa-est--rodando .icon { color: var(--ok); }
+.mapa-est--rodando::after { content: ''; position: absolute; inset: 0; border-radius: 12px; pointer-events: none;
+    animation: mapaPulseOk 2.4s ease-in-out infinite; }
+@keyframes mapaPulseOk { 0%,100% { box-shadow: 0 0 0 0 rgba(63,185,80,.28); } 50% { box-shadow: 0 0 0 7px rgba(63,185,80,0); } }
+.mapa-est--fila { border-color: rgba(210,153,34,.5); }
+.mapa-est--fila .icon { color: var(--warn); }
+.mapa-est--andon { border-color: rgba(248,81,73,.65); }
+.mapa-est--andon .icon { color: var(--bad); }
+.mapa-est--andon::after { content: ''; position: absolute; inset: 0; border-radius: 12px; pointer-events: none;
+    animation: mapaPulseBad 1.6s ease-in-out infinite; }
+@keyframes mapaPulseBad { 0%,100% { box-shadow: 0 0 0 0 rgba(248,81,73,.4); } 50% { box-shadow: 0 0 0 8px rgba(248,81,73,0); } }
+.mapa-est--parada { opacity: .62; }
+.mapa-est--parada .icon { color: var(--text-dim); }
+/* modo TV: tudo maior */
+.tv .mapa-est { min-width: 170px; padding: 18px 12px; }
+.tv .mapa-est .icon { width: 38px; height: 38px; }
+.tv .mapa-est__nome { font-size: 1rem; }
+.tv .mapa-est__dados { font-size: .82rem; }

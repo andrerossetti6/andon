@@ -4142,6 +4142,33 @@ async function avancarOpFluxo(op_id) {
     return { concluida: true };
 }
 // quadro: por etapa, as OPs cujo etapa_atual = etapa; sessão aberta = "em processo". Lead/throughput vêm do apontamento.
+// ── MAPA DA FÁBRICA: estado vivo por etapa (Cockpit + Modo TV) ────────────────
+// verde = rodando (sessão aberta) · âmbar = fila parada (WIP sem sessão) ·
+// vermelho = Andon aberto na etapa · cinza = sem atividade.
+app.get('/api/mf/mapa', auth, async (_q, res) => {
+    const [etR, maqR, apR, andR, opR] = await Promise.all([
+        supabase.from('etapa_processo').select('id,nome,ordem').eq('ativo', true).order('ordem'),
+        supabase.from('maquina').select('id,etapa_id,n_pessoas').eq('ativo', true),
+        supabase.from('apontamento').select('id,maquina_id,etapa_id,qtd_boa,datahora_inicio').is('datahora_fim', null),
+        supabase.from('chamado_andon').select('id,etapa_id,status').neq('status', 'resolvido'),
+        supabase.from('ordem_producao').select('etapa_atual_id', { count: 'exact', head: false }).not('etapa_atual_id', 'is', null).in('status', ['liberada', 'em_producao', 'pausada']),
+    ]);
+    if (etR.error) return erro500(res, etR.error);
+    const etapaDeMaq = {}; (maqR.data || []).forEach(m => { if (m.etapa_id) etapaDeMaq[m.id] = m.etapa_id; });
+    const porEtapa = {};
+    const ini = id => (porEtapa[id] = porEtapa[id] || { maquinas: 0, pessoas: 0, sessoes: 0, andon: 0, wip: 0, pecas_turno: 0 });
+    (maqR.data || []).forEach(m => { if (!m.etapa_id) return; const e = ini(m.etapa_id); e.maquinas++; e.pessoas += Number(m.n_pessoas) || 0; });
+    (apR.data || []).forEach(a => { const eid = a.etapa_id || etapaDeMaq[a.maquina_id]; if (!eid) return; const e = ini(eid); e.sessoes++; e.pecas_turno += Number(a.qtd_boa) || 0; });
+    (andR.data || []).forEach(a => { if (a.etapa_id) ini(a.etapa_id).andon++; });
+    (opR.data || []).forEach(o => { ini(o.etapa_atual_id).wip++; });
+    const etapas = (etR.data || []).map(e => {
+        const d = porEtapa[e.id] || { maquinas: 0, pessoas: 0, sessoes: 0, andon: 0, wip: 0, pecas_turno: 0 };
+        const estado = d.andon > 0 ? 'andon' : d.sessoes > 0 ? 'rodando' : d.wip > 0 ? 'fila' : 'parada';
+        return { id: e.id, nome: e.nome, ordem: e.ordem, ...d, estado };
+    });
+    res.json({ etapas, agora: new Date().toISOString() });
+});
+
 app.get('/api/mf/wip', auth, async (_q, res) => {
     const etapasR = await supabase.from('etapa_processo').select('id,nome,ordem,cor,limite_wip').eq('ativo', true).order('ordem');
     if (etapasR.error && /schema cache|does not exist|column/i.test(etapasR.error.message || '')) return res.status(503).json({ erro: 'WIP não inicializado. Rode mes_wip_unificado.sql.' });
