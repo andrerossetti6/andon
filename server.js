@@ -2248,6 +2248,19 @@ async function n1EstoqueDoApontamento(ap, usuario) {
             const { error } = await supabase.from('estoque_movimento').insert(movs.filter(m => m.delta !== 0));
             if (error && !n1ErroTabela(error)) console.warn('estoque_movimento:', error.message);
         }
+        // FASE C (sequenciador): a sessão fechada INFERE o estado atual do tear —
+        // os atributos do produto que acabou de rodar viram o "de" do próximo setup.
+        if (ap.maquina_id) {
+            const { data: prodAttrs } = await supabase.from('produto').select('galga,cor_base,titulo_fio,programa_maquina').eq('id', op.produto_id).maybeSingle();
+            const attrs = {};
+            ['galga', 'cor_base', 'titulo_fio', 'programa_maquina'].forEach(k => { if (prodAttrs?.[k]) attrs[k] = String(prodAttrs[k]); });
+            if (Object.keys(attrs).length) {
+                const { error: eEst } = await supabase.from('estado_recurso').upsert({ recurso_id: ap.maquina_id,
+                    atributo_atual: attrs, livre_em: ap.datahora_fim || new Date().toISOString(),
+                    origem: 'apontamento', atualizado_em: new Date().toISOString() }, { onConflict: 'recurso_id' });
+                if (eEst && !n1ErroTabela(eEst)) console.warn('estado_recurso:', eEst.message);
+            }
+        }
     } catch (e) { console.warn('n1EstoqueDoApontamento:', e.message); }
 }
 
@@ -2526,111 +2539,163 @@ async function n1JanelasTecelagem(agoraMs, diasHorizonte = 14) {
 }
 
 // ── ④ APS heurístico F1: prio DESC, cego à origem → fila_maquina versionada ──
+// monta os INSUMOS do plano (pool, recursos, setup, janelas, cores) — 1× por rodada
+async function n1PlanoInputs() {
+    const avisos = [];
+    const agoraMs = Date.now();
+    let ops;
+    ops = await fetchAllSelect('ordem_producao', 'id,numero,prioridade,data_prevista,qtd_planejada,status,origem, produto:produto_id(id,codigo,galga,cor_base,titulo_fio,programa_maquina)', q => q.in('status', ['liberada', 'em_producao']));
+    const { data: etTec } = await supabase.from('etapa_processo').select('id').ilike('nome', '%tecel%').limit(1).maybeSingle();
+    const { data: maqs } = await supabase.from('maquina').select('id,id_maquina,modelo,oee,etapa_id').eq('ativo', true).eq('etapa_id', etTec?.id || '00000000-0000-0000-0000-000000000000');
+    const { data: oms } = await supabase.from('ordem_manutencao').select('maquina_id,status').eq('status', 'em_execucao');
+    const emManut = new Set((oms || []).map(o => o.maquina_id).filter(Boolean));
+    const { data: estados } = await supabase.from('estado_recurso').select('*');
+    const estadoDe = {}; (estados || []).forEach(e => { estadoDe[e.recurso_id] = e; });
+    const recursos = (maqs || []).map(m => ({ id: m.id, nome: m.id_maquina || m.modelo || 'tear',
+        eficiencia: m.oee == null ? 100 : Number(m.oee),
+        attrsIniciais: estadoDe[m.id]?.atributo_atual || null,
+        livreEm: estadoDe[m.id]?.livre_em ? new Date(estadoDe[m.id].livre_em).getTime() : agoraMs,
+        indisponivel: emManut.has(m.id) }));
+    const forasM = recursos.filter(r => r.indisponivel).map(r => r.nome);
+    if (forasM.length) avisos.push(`Fora do plano (manutenção em execução): ${forasM.join(', ')}.`);
+    if (!Object.keys(estadoDe).length) avisos.push('Nenhum estado de tear informado — 1º setup de cada tear assumido zero. Edite em "Estado dos teares".');
+    const setup = { transicao: new Map(), porAtributo: new Map() };
+    try { const st = await fetchAllSelect('setup_transicao', 'atributo,de_valor,para_valor,tempo_min');
+        (st || []).forEach(t => setup.transicao.set(`${t.atributo}|${t.de_valor}|${t.para_valor}`, Number(t.tempo_min) || 0)); } catch { }
+    const { data: sg } = await supabase.from('setup_troca_atributo').select('atributo,minutos');
+    (sg || []).forEach(t => setup.porAtributo.set(t.atributo, Number(t.minutos) || 0));
+    if (!setup.transicao.size && ![...setup.porAtributo.values()].some(v => v > 0))
+        avisos.push('Tempos de troca zerados — a regra de setup não influencia (preencha setup_transicao ou Produtos & Setup).');
+    const tempos = await n1TemposTecelagemPlanilha();
+    const fimDiaSP = d => Date.parse(String(d).slice(0, 10) + 'T23:59:00-03:00');
+    const pool = [], semTempo = [];
+    (ops || []).forEach(o => {
+        const cod = String(o.produto?.codigo || '').trim().toUpperCase();
+        const tMin = tempos[cod];
+        const item = { id: o.id, numero: o.numero, codigo: cod, qtd: Number(o.qtd_planejada) || 0,
+            prioridade: Math.round((Number(o.prioridade) || 0) / 9 * 100),
+            due: o.data_prevista ? fimDiaSP(o.data_prevista) : null,
+            procMinBase: tMin ? tMin * (Number(o.qtd_planejada) || 0) : 0,
+            attrs: { galga: o.produto?.galga || null, cor_base: o.produto?.cor_base || null,
+                     titulo_fio: o.produto?.titulo_fio || null, programa_maquina: o.produto?.programa_maquina || null } };
+        (tMin ? pool : semTempo).push(item);
+    });
+    if (semTempo.length) avisos.push(`${semTempo.length} OP(s) sem tempo de tecelagem no Banco — entram no fim do plano, sem horário.`);
+    const { janelas, horasDia } = await n1JanelasTecelagem(agoraMs, 21);
+    let corDe = {};
+    try {
+        const [params, vivas] = await Promise.all([
+            fetchAllSelect('parametro_reposicao', 'codigo,pulmao', q => q.eq('ativo', true).gt('pulmao', 0)),
+            n1PosicoesVivas()]);
+        const posDe = {}; Object.entries(vivas).forEach(([c, v]) => { posDe[c] = v.posicao; });
+        (params || []).forEach(p => { const pos = posDe[p.codigo] ?? 0, z = Number(p.pulmao) / 3;
+            corDe[p.codigo] = pos <= 0 ? 'PRETO' : pos <= z ? 'VERMELHO' : pos <= 2 * z ? 'AMARELO' : 'VERDE'; });
+    } catch { }
+    const opStatus = {}; (ops || []).forEach(o => { opStatus[o.id] = o.status; });
+    return { agoraMs, pool, semTempo, recursos, setup, janelas, horasDia, corDe, opStatus, avisos };
+}
+
+// roda o motor e devolve KPIs completos + linhas prontas p/ fila_maquina (sem versão)
+function n1RodarMotor(inp, pesos) {
+    const r = seqMotor.sequenciar({ pool: inp.pool, recursos: inp.recursos, setup: inp.setup,
+        janelas: inp.janelas, agoraMs: inp.agoraMs, pesos });
+    const janelaTotalMin = inp.janelas.reduce((s2, j) => s2 + (j.fimMs - j.iniMs) / 60000, 0);
+    const busy = {};
+    r.alocacoes.forEach(a => { busy[a.recurso.id] = (busy[a.recurso.id] || 0) + a.setupMin + a.procMin; });
+    const top = Object.entries(busy).sort((a, b) => b[1] - a[1])[0];
+    if (r.kpis && top && janelaTotalMin > 0) r.kpis.utilizacao_gargalo_pct = Math.round(top[1] / janelaTotalMin * 1000) / 10;
+    const rows = r.alocacoes.map(a => ({ processo: a.recurso.nome, recurso_id: a.recurso.id, posicao: a.posicao,
+        op_id: a.ordem.id, numero: a.ordem.numero, codigo: a.ordem.codigo, qtd: a.ordem.qtd,
+        cor_pulmao: inp.corDe[a.ordem.codigo] || null,
+        inicio: new Date(a.iniMs).toISOString(), fim: new Date(a.fimMs).toISOString(), setup_min: a.setupMin }));
+    [...inp.semTempo].sort((a, b) => b.prioridade - a.prioridade).forEach((o, i) => rows.push({ processo: '(sem tempo)', recurso_id: null,
+        posicao: i + 1, op_id: o.id, numero: o.numero, codigo: o.codigo, qtd: o.qtd, cor_pulmao: inp.corDe[o.codigo] || null }));
+    return { r, rows };
+}
+
+// materializa um plano: fila_maquina v+1 + eventos SEQUENCIADA no ledger
+async function n1MaterializarPlano(rows, opStatus, rotulo) {
+    const { data: vMax, error: eV } = await supabase.from('fila_maquina').select('versao').order('versao', { ascending: false }).limit(1).maybeSingle();
+    if (eV) throw eV;
+    const versao = (vMax?.versao || 0) + 1;
+    const comVersao = rows.map(x => ({ ...x, versao }));
+    for (let i = 0; i < comVersao.length; i += 500) {
+        const { error } = await supabase.from('fila_maquina').insert(comVersao.slice(i, i + 500));
+        if (error) throw error;
+    }
+    for (const x of comVersao) {
+        if (!x.op_id || !x.recurso_id) continue;
+        await apsLog(x.op_id, opStatus[x.op_id] || null, opStatus[x.op_id] || null, { origem: 'sequenciador',
+            motivo: `SEQUENCIADA · ${rotulo || 'plano'} v${versao} · ${x.processo} #${x.posicao}` });
+    }
+    return versao;
+}
+
 app.post('/api/n1/sequenciar', auth, sigsEscrita, async (req, res) => {
     if (!n1Lock('seq')) return res.status(409).json({ erro: 'Sequenciamento já está rodando.' });
     try {
-        const avisos = [];
-        const agoraMs = Date.now();
         const pesos = { urgencia: Number(req.body?.peso_urgencia) || 0.7, setup: Number(req.body?.peso_setup) || 0.3 };
-
-        // pool: OPs LIBERADAS (gate ok) + em produção, com atributos do produto
-        let ops;
-        try { ops = await fetchAllSelect('ordem_producao', 'id,numero,prioridade,data_prevista,qtd_planejada,status,origem, produto:produto_id(id,codigo,galga,cor_base,titulo_fio,programa_maquina)', q => q.in('status', ['liberada', 'em_producao'])); }
-        catch (e) { return erro500(res, e); }
-        if (!ops?.length) return res.json({ ok: true, itens: 0, avisos: ['Nenhuma OP liberada/em produção — libere pelo gate do APS.'] });
-
-        // recursos: TEARES (etapa tecelagem), OEE da arquitetura; OM em execução = indisponível
-        const { data: etTec } = await supabase.from('etapa_processo').select('id').ilike('nome', '%tecel%').limit(1).maybeSingle();
-        const { data: maqs } = await supabase.from('maquina').select('id,id_maquina,modelo,oee,etapa_id').eq('ativo', true).eq('etapa_id', etTec?.id || '00000000-0000-0000-0000-000000000000');
-        if (!maqs?.length) return res.status(422).json({ erro: 'Nenhum tear cadastrado na etapa Tecelagem.' });
-        const { data: oms } = await supabase.from('ordem_manutencao').select('maquina_id,status').eq('status', 'em_execucao');
-        const emManut = new Set((oms || []).map(o => o.maquina_id).filter(Boolean));
-        const { data: estados } = await supabase.from('estado_recurso').select('*');
-        const estadoDe = {}; (estados || []).forEach(e => { estadoDe[e.recurso_id] = e; });
-        const recursos = maqs.map(m => ({ id: m.id, nome: m.id_maquina || m.modelo || 'tear',
-            eficiencia: m.oee == null ? 100 : Number(m.oee),
-            attrsIniciais: estadoDe[m.id]?.atributo_atual || null,
-            livreEm: estadoDe[m.id]?.livre_em ? new Date(estadoDe[m.id].livre_em).getTime() : agoraMs,
-            indisponivel: emManut.has(m.id) }));
-        const forasM = recursos.filter(r => r.indisponivel).map(r => r.nome);
-        if (forasM.length) avisos.push(`Fora do plano (manutenção em execução): ${forasM.join(', ')}.`);
-        if (!Object.keys(estadoDe).length) avisos.push('Nenhum estado de tear informado — 1º setup de cada tear assumido zero. Edite em "Estado dos teares".');
-
-        // setup: matriz direcional (setup_transicao) + genérico por atributo (setup_troca_atributo)
-        const setup = { transicao: new Map(), porAtributo: new Map() };
-        try { const st = await fetchAllSelect('setup_transicao', 'atributo,de_valor,para_valor,tempo_min');
-            (st || []).forEach(t => setup.transicao.set(`${t.atributo}|${t.de_valor}|${t.para_valor}`, Number(t.tempo_min) || 0)); } catch { }
-        const { data: sg } = await supabase.from('setup_troca_atributo').select('atributo,minutos');
-        (sg || []).forEach(t => setup.porAtributo.set(t.atributo, Number(t.minutos) || 0));
-        if (!setup.transicao.size && ![...setup.porAtributo.values()].some(v => v > 0))
-            avisos.push('Tempos de troca zerados — a regra de setup não influencia (preencha setup_transicao ou Produtos & Setup).');
-
-        // tempos de processamento: planilha do Banco (tecelagem) — mesma fonte do TOC
-        const tempos = await n1TemposTecelagemPlanilha();
-        const fimDiaSP = d => Date.parse(String(d).slice(0, 10) + 'T23:59:00-03:00');
-        const pool = [], semTempo = [];
-        ops.forEach(o => {
-            const cod = String(o.produto?.codigo || '').trim().toUpperCase();
-            const tMin = tempos[cod];
-            const item = { id: o.id, numero: o.numero, codigo: cod, qtd: Number(o.qtd_planejada) || 0,
-                prioridade: Math.round((Number(o.prioridade) || 0) / 9 * 100),
-                due: o.data_prevista ? fimDiaSP(o.data_prevista) : null,
-                procMinBase: tMin ? tMin * (Number(o.qtd_planejada) || 0) : 0,
-                attrs: { galga: o.produto?.galga || null, cor_base: o.produto?.cor_base || null,
-                         titulo_fio: o.produto?.titulo_fio || null, programa_maquina: o.produto?.programa_maquina || null } };
-            (tMin ? pool : semTempo).push(item);
-        });
-        if (semTempo.length) avisos.push(`${semTempo.length} OP(s) sem tempo de tecelagem no Banco — entram no fim do plano, sem horário.`);
-
-        // janelas de calendário (dias úteis × jornada)
-        const { janelas, horasDia } = await n1JanelasTecelagem(agoraMs, 21);
-
-        // ── MOTOR (determinístico — seq_motor.js, coberto pelo golden test) ──
-        const r = seqMotor.sequenciar({ pool, recursos, setup, janelas, agoraMs, pesos });
-        avisos.push(...r.avisos);
-
-        // utilização do gargalo: recurso mais carregado ÷ janela total
-        const janelaTotalMin = janelas.reduce((s2, j) => s2 + (j.fimMs - j.iniMs) / 60000, 0);
-        const busyPorRec = {};
-        r.alocacoes.forEach(a => { busyPorRec[a.recurso.id] = (busyPorRec[a.recurso.id] || 0) + a.setupMin + a.procMin; });
-        const maisCarregado = Object.entries(busyPorRec).sort((a, b) => b[1] - a[1])[0];
-        if (r.kpis && maisCarregado && janelaTotalMin > 0)
-            r.kpis.utilizacao_gargalo_pct = Math.round(maisCarregado[1] / janelaTotalMin * 1000) / 10;
-
-        // cor do pulmão (Rope) — posição viva
-        let corDe = {};
-        try {
-            const [params, vivas] = await Promise.all([
-                fetchAllSelect('parametro_reposicao', 'codigo,pulmao', q => q.eq('ativo', true).gt('pulmao', 0)),
-                n1PosicoesVivas()]);
-            const posDe = {}; Object.entries(vivas).forEach(([c, v]) => { posDe[c] = v.posicao; });
-            (params || []).forEach(p => { const pos = posDe[p.codigo] ?? 0, z = Number(p.pulmao) / 3;
-                corDe[p.codigo] = pos <= 0 ? 'PRETO' : pos <= z ? 'VERMELHO' : pos <= 2 * z ? 'AMARELO' : 'VERDE'; });
-        } catch { }
-
-        // materializa fila_maquina v+1 (por TEAR, com horários) + ledger
-        const { data: vMax, error: eV } = await supabase.from('fila_maquina').select('versao').order('versao', { ascending: false }).limit(1).maybeSingle();
-        if (n1ErroTabela(eV)) return res.status(503).json({ erro: N1_F1_503 });
-        const versao = (vMax?.versao || 0) + 1;
-        const rows = r.alocacoes.map(a => ({ versao, processo: a.recurso.nome, recurso_id: a.recurso.id, posicao: a.posicao,
-            op_id: a.ordem.id, numero: a.ordem.numero, codigo: a.ordem.codigo, qtd: a.ordem.qtd,
-            cor_pulmao: corDe[a.ordem.codigo] || null,
-            inicio: new Date(a.iniMs).toISOString(), fim: new Date(a.fimMs).toISOString(), setup_min: a.setupMin }));
-        semTempo.sort((a, b) => b.prioridade - a.prioridade).forEach((o, i) => rows.push({ versao, processo: '(sem tempo)', recurso_id: null,
-            posicao: i + 1, op_id: o.id, numero: o.numero, codigo: o.codigo, qtd: o.qtd, cor_pulmao: corDe[o.codigo] || null }));
-        for (let i = 0; i < rows.length; i += 500) {
-            const { error } = await supabase.from('fila_maquina').insert(rows.slice(i, i + 500));
-            if (n1ErroTabela(error)) return res.status(503).json({ erro: N1_F1_503 });
-            if (error) return erro500(res, error);
-        }
-        // ledger: evento SEQUENCIADA (não muda status — registra o fato)
-        const opStatus = {}; ops.forEach(o => { opStatus[o.id] = o.status; });
-        for (const a of r.alocacoes)
-            await apsLog(a.ordem.id, opStatus[a.ordem.id], opStatus[a.ordem.id], { origem: 'sequenciador',
-                motivo: `SEQUENCIADA · plano v${versao} · ${a.recurso.nome} #${a.posicao} · início ${new Date(a.iniMs).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}` });
-        res.json({ ok: true, versao, itens: rows.length, teares: recursos.filter(x => !x.indisponivel).length,
-            horizonte_dias_uteis: janelas.length, jornada_h: horasDia, kpis: r.kpis, avisos });
+        let inp;
+        try { inp = await n1PlanoInputs(); } catch (e) { return erro500(res, e); }
+        if (!inp.pool.length && !inp.semTempo.length) return res.json({ ok: true, itens: 0, avisos: ['Nenhuma OP liberada/em produção — libere pelo gate do APS.'] });
+        if (!inp.recursos.length) return res.status(422).json({ erro: 'Nenhum tear cadastrado na etapa Tecelagem.' });
+        const { r, rows } = n1RodarMotor(inp, pesos);
+        let versao;
+        try { versao = await n1MaterializarPlano(rows, inp.opStatus, 'plano'); }
+        catch (e) { return n1ErroTabela(e) ? res.status(503).json({ erro: 'Rode n1_seq.sql no Supabase (colunas novas da fila_maquina).' }) : erro500(res, e); }
+        res.json({ ok: true, versao, itens: rows.length, teares: inp.recursos.filter(x => !x.indisponivel).length,
+            horizonte_dias_uteis: inp.janelas.length, jornada_h: inp.horasDia, kpis: r.kpis, avisos: [...inp.avisos, ...r.avisos] });
     } finally { n1Unlock('seq'); }
+});
+
+// ── FASE B: cenários A/B/C — rodar, comparar, publicar (duas etapas) ─────────
+const N1_CENARIOS = [
+    { nome: 'campanha', pesos: { urgencia: 0.3, setup: 0.7 }, desc: 'agrupa setups (campanha de cor/galga)' },
+    { nome: 'prazo',    pesos: { urgencia: 0.9, setup: 0.1 }, desc: 'ataca o prazo (CR quase puro)' },
+    { nome: 'composto', pesos: { urgencia: 0.7, setup: 0.3 }, desc: 'equilíbrio (default do PCP)' },
+];
+app.post('/api/n1/cenarios/rodar', auth, sigsEscrita, async (_req, res) => {
+    if (!n1Lock('cenarios')) return res.status(409).json({ erro: 'Cenários já estão rodando.' });
+    try {
+        let inp;
+        try { inp = await n1PlanoInputs(); } catch (e) { return erro500(res, e); }
+        if (!inp.pool.length) return res.json({ ok: true, cenarios: 0, avisos: ['Nenhuma OP com tempo no pool — nada a comparar.'] });
+        const rodada = 'r' + Date.now();
+        const out = [];
+        for (const c of N1_CENARIOS) {
+            const { r, rows } = n1RodarMotor(inp, c.pesos);
+            const { data, error } = await supabase.from('cenario_comparacao').insert({
+                rodada_id: rodada, nome_cenario: c.nome, regra: { pesos: c.pesos, desc: c.desc },
+                setup_total_min: r.kpis.setup_total_min, ordens_atrasadas: r.kpis.ordens_atrasadas,
+                atraso_max_min: r.kpis.atraso_max_min, utilizacao_gargalo_pct: r.kpis.utilizacao_gargalo_pct,
+                makespan_min: r.kpis.makespan_min, fila: rows }).select('id').single();
+            if (error) return n1ErroTabela(error) ? res.status(503).json({ erro: 'Rode n1_seq.sql no Supabase.' }) : erro500(res, error);
+            out.push({ id: data.id, nome: c.nome, kpis: r.kpis });
+        }
+        res.json({ ok: true, rodada_id: rodada, cenarios: out, avisos: inp.avisos });
+    } finally { n1Unlock('cenarios'); }
+});
+app.get('/api/n1/cenarios', auth, async (_req, res) => {
+    let rows;
+    try { rows = await fetchAllSelect('cenario_comparacao', 'id,rodada_id,nome_cenario,regra,setup_total_min,ordens_atrasadas,atraso_max_min,utilizacao_gargalo_pct,makespan_min,publicado,criado_em'); }
+    catch (e) { return n1ErroTabela(e) ? res.status(503).json({ erro: 'Rode n1_seq.sql no Supabase.' }) : erro500(res, e); }
+    if (!rows?.length) return res.json({ rodada: null, cenarios: [] });
+    const ultima = rows.map(r => r.rodada_id).sort().pop();
+    res.json({ rodada: ultima, cenarios: rows.filter(r => r.rodada_id === ultima).sort((a, b) => a.nome_cenario.localeCompare(b.nome_cenario)) });
+});
+app.post('/api/n1/cenarios/publicar', auth, sigsEscrita, async (req, res) => {
+    if (!apsUuid(req.body?.id)) return res.status(400).json({ erro: 'id do cenário obrigatório' });
+    const { data: cen, error: eC } = await supabase.from('cenario_comparacao').select('*').eq('id', req.body.id).maybeSingle();
+    if (eC) return erro500(res, eC);
+    if (!cen) return res.status(404).json({ erro: 'Cenário não encontrado.' });
+    if (cen.publicado) return res.status(409).json({ erro: 'Cenário já publicado.' });
+    const rows = Array.isArray(cen.fila) ? cen.fila : [];
+    const opStatus = {};   // ledger sem estado (evento) — status atual não é necessário aqui
+    let versao;
+    try { versao = await n1MaterializarPlano(rows, opStatus, `cenário ${cen.nome_cenario}`); }
+    catch (e) { return erro500(res, e); }
+    await supabase.from('cenario_comparacao').update({ publicado: true }).eq('id', cen.id);
+    res.json({ ok: true, versao, cenario: cen.nome_cenario, itens: rows.length });
 });
 
 // estado corrente dos teares (para o lookup de setup do 1º item)

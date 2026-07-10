@@ -116,13 +116,13 @@ const n1 = {
 
     tab(nome) {
         this._tab = nome;
-        ['painel','pulmoes','sugeridas','netting','gargalo','fila','pwa','apont','kpi','dbm','tempos','politica','estoque','kardex','inventario','reconc','expedicao','roteiros','tcad','setup','bom'].forEach(t => {
+        ['painel','pulmoes','sugeridas','netting','gargalo','fila','pwa','apont','kpi','dbm','tempos','politica','estoque','kardex','inventario','reconc','expedicao','cenarios','roteiros','tcad','setup','bom'].forEach(t => {
             const pan = $('n1-pan-' + t); if (pan) pan.style.display = t === nome ? 'block' : 'none';
         });
         document.querySelectorAll('[data-n1tab]').forEach(li => li.classList.toggle('active', li.dataset.n1tab === nome));
         const R = { painel:'_renderPainel', roteiros:'_renderRoteiros', tcad:'_renderTempos', setup:'_renderSetup', bom:'_renderBom',
             pulmoes:'_renderPulmoes', sugeridas:'_renderSugeridas', fila:'_renderFila', pwa:'_renderPwa', kpi:'_renderKpi', dbm:'_renderDbm',
-            politica:'_renderPolitica', netting:'_renderNetting', gargalo:'_renderGargalo', estoque:'_renderEstoque', kardex:'_renderKardex', inventario:'_renderInventario', reconc:'_renderReconc', expedicao:'_renderExpedicao' };
+            politica:'_renderPolitica', netting:'_renderNetting', gargalo:'_renderGargalo', estoque:'_renderEstoque', kardex:'_renderKardex', inventario:'_renderInventario', reconc:'_renderReconc', expedicao:'_renderExpedicao', cenarios:'_renderCenarios' };
         if (R[nome]) this[R[nome]]();
         else this._placeholder(nome);
     },
@@ -536,6 +536,42 @@ const n1 = {
         if (!r?.ok) return toast(r?.erro || 'Erro.', 'erro');
         toast('✓ Estado do tear atualizado — o próximo plano parte dele.');
         this._renderFila();
+    },
+
+    // ── ④b CENÁRIOS: rodar A/B/C, comparar KPIs lado a lado, publicar 1 ──
+    async _renderCenarios() {
+        const el = $('n1-pan-cenarios'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando cenários…</div>';
+        const d = await this._getOu503('/api/n1/cenarios', el, 'Os cenários gravam em cenario_comparacao (n1_seq.sql).'); if (!d) return;
+        const NOMES = { campanha: ['Campanha', 'agrupa setups (menos troca, prazo sofre)'], prazo: ['Prazo', 'ataca atraso (CR quase puro)'], composto: ['Composto', 'equilíbrio — default do PCP'] };
+        const fmtMin = m => m == null ? '—' : m >= 1440 ? (m / 1440).toFixed(1) + ' d' : m >= 60 ? (m / 60).toFixed(1) + ' h' : Math.round(m) + ' min';
+        const cards = (d.cenarios || []).map(c => {
+            const [rot, sub] = NOMES[c.nome_cenario] || [c.nome_cenario, ''];
+            const kpi = (l, v, cor) => `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:var(--fs-body);">
+                <span style="color:var(--text-dim);">${l}</span><b style="color:${cor || 'var(--text-main)'};font-variant-numeric:tabular-nums;">${v}</b></div>`;
+            return `<div class="summary-card rise" style="flex:1;min-width:250px;${c.publicado ? 'border-color:rgba(63,185,80,.5);' : ''}">
+                <div class="sec-title">${icon('grafico')} ${rot} ${c.publicado ? '<span class="badge badge--ok">publicado</span>' : ''}</div>
+                <p style="font-size:var(--fs-caption);color:var(--text-dim);margin-bottom:8px;">${sub} · pesos ${c.regra?.pesos?.urgencia ?? '—'}/${c.regra?.pesos?.setup ?? '—'}</p>
+                ${kpi('Setup total', fmtMin(c.setup_total_min), Number(c.setup_total_min) > 0 ? 'var(--warn)' : 'var(--ok)')}
+                ${kpi('Ordens atrasadas', c.ordens_atrasadas ?? '—', c.ordens_atrasadas ? 'var(--bad)' : 'var(--ok)')}
+                ${kpi('Atraso máximo', fmtMin(c.atraso_max_min), c.atraso_max_min ? 'var(--bad)' : 'var(--ok)')}
+                ${kpi('Utilização do gargalo', c.utilizacao_gargalo_pct != null ? c.utilizacao_gargalo_pct + '%' : '—')}
+                ${kpi('Makespan (fim do plano)', fmtMin(c.makespan_min))}
+                <div style="margin-top:12px;">${c.publicado ? '' : `<button class="btn primary sm" onclick="n1._publicarCenario('${escJS(c.id)}','${escJS(c.nome_cenario)}')">Publicar este</button>`}</div>
+            </div>`; }).join('');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <div style="flex:1;"><div class="sec-title" style="margin:0 0 4px;">${icon('camadas')} Cenários <span class="hint">mesmo pool, três regras — você escolhe com número, não com opinião</span></div>
+            <p style="font-size:var(--fs-caption);color:var(--text-dim);margin:0;">Rodar simula os 3 (nada é publicado). Publicar materializa o escolhido como nova versão da fila e registra no ledger.</p></div>
+            <button class="btn primary" style="font-size:.74rem;" onclick="n1._acao('Cenários','/api/n1/cenarios/rodar',{},'cenarios')">Rodar 3 cenários</button>
+        </div>
+        ${cards ? `<div style="display:flex;gap:12px;flex-wrap:wrap;">${cards}</div>` : '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Nenhuma rodada ainda — clique em "Rodar 3 cenários".</div>'}`;
+    },
+    async _publicarCenario(id, nome) {
+        if (!confirm(`Publicar o cenário "${nome}"?\n\nEle vira a NOVA versão da fila da máquina (o chão passa a ver este plano) e as OPs recebem o evento SEQUENCIADA no ledger.`)) return;
+        const r = await api.post('/api/n1/cenarios/publicar', { id });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao publicar.', 'erro');
+        toast(`✓ Cenário "${r.cenario}" publicado — fila v${r.versao} (${r.itens} itens).`);
+        this._renderCenarios();
     },
 
     // ── ⑤ PWA (operador): mesma fila, cartões grandes ──
