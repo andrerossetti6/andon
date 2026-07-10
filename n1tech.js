@@ -485,27 +485,57 @@ const n1 = {
         this._renderSugeridas();
     },
 
-    // ── ④ Fila da máquina (versionada) ──
+    // ── ④ Fila da máquina — plano fino por TEAR (motor determinístico) ──
+    _hhmm(iso) { return iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'; },
     async _renderFila() {
-        const el = $('n1-pan-fila'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando fila…</div>';
-        const d = await this._getOu503('/api/n1/fila', el); if (!d) return;
-        const CORES = { PRETO:'#e0e0e0', VERMELHO:'#f06292', AMARELO:'#ffca28', VERDE:'#26a69a' };
-        const linhas = (d.itens || []).map(i => `<tr>
-            <td class="n1-td" style="text-align:center;font-weight:800;color:var(--text-dim);">${i.posicao}</td>
-            <td class="n1-td" style="font-weight:700;color:var(--indigo-primary);">${esc(i.numero || '')}</td>
-            <td class="n1-td">${esc(i.codigo || '')}</td>
-            <td class="n1-td" style="text-align:right;">${fmt(i.qtd)}</td>
-            <td class="n1-td">${i.cor_pulmao ? `<span style="font-size:.66rem;font-weight:700;padding:1px 8px;border-radius:5px;background:${CORES[i.cor_pulmao]}22;color:${CORES[i.cor_pulmao]};border:1px solid ${CORES[i.cor_pulmao]}55;">${i.cor_pulmao}</span>` : '<span style="color:var(--text-dim);font-size:.7rem;">—</span>'}</td>
-        </tr>`).join('');
+        const el = $('n1-pan-fila'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando plano…</div>';
+        const [d, estados] = await Promise.all([this._getOu503('/api/n1/fila', el), api.get('/api/n1/estado-recurso').catch(() => null)]);
+        if (!d) return;
+        const CORES = { PRETO: '#e0e0e0', VERMELHO: '#f06292', AMARELO: '#ffca28', VERDE: '#26a69a' };
+        // agrupa por tear (processo)
+        const porTear = {};
+        (d.itens || []).forEach(i => { (porTear[i.processo] = porTear[i.processo] || []).push(i); });
+        const grupos = Object.entries(porTear).map(([tear, itens]) => `
+            <div class="summary-card rise" style="padding:0;overflow:hidden;">
+                <div class="sec-title" style="padding:12px 14px 0;">${icon('tear')} ${esc(tear)} <span class="hint">${itens.length} OP(s)</span></div>
+                <table class="data-table"><thead><tr><th style="width:34px;">#</th><th>OP</th><th>SKU</th><th class="num">Qtd</th><th>Início</th><th>Fim</th><th class="num">Setup</th><th>Pulmão</th></tr></thead>
+                <tbody>${itens.map(i => `<tr>
+                    <td class="dim" style="font-weight:800;">${i.posicao}</td>
+                    <td style="font-weight:700;color:var(--indigo-primary);">${esc(i.numero || '')}</td>
+                    <td class="dim">${esc(i.codigo || '')}</td>
+                    <td class="num">${fmt(i.qtd)}</td>
+                    <td class="dim">${this._hhmm(i.inicio)}</td>
+                    <td class="dim">${this._hhmm(i.fim)}</td>
+                    <td class="num" style="color:${Number(i.setup_min) > 0 ? 'var(--warn)' : 'var(--ok)'};">${i.setup_min != null ? fmt(Math.round(i.setup_min)) + ' min' : '—'}</td>
+                    <td>${i.cor_pulmao ? `<span class="badge" style="color:${CORES[i.cor_pulmao]};border-color:${CORES[i.cor_pulmao]}55;">${i.cor_pulmao}</span>` : '<span class="dim">—</span>'}</td>
+                </tr>`).join('')}</tbody></table>
+            </div>`).join('');
+        const estCards = Array.isArray(estados) ? estados.map(e => {
+            const a = e.atributo_atual || {};
+            const attrsTxt = ['galga', 'cor_base', 'titulo_fio', 'programa_maquina'].filter(k => a[k]).map(k => `${k.replace('_', ' ')}: <b>${esc(String(a[k]))}</b>`).join(' · ');
+            return `<div style="border:1px solid var(--border-color);border-radius:8px;padding:8px 12px;font-size:.74rem;color:var(--text-dim);display:flex;align-items:center;gap:8px;">
+                ${icon('tear', 'icon sm')} <b style="color:var(--text-main);">${esc(e.nome)}</b>
+                <span>${attrsTxt || 'estado não informado'}</span>
+                <button class="btn ghost sm" onclick="n1._editarEstado('${escJS(e.recurso_id)}','${escJS(e.nome)}')">editar</button>
+            </div>`; }).join('') : '';
         el.innerHTML = `
         <div class="summary-card" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
-            <div style="flex:1;"><div class="s-label" style="margin:0 0 4px;">④ FILA DA MÁQUINA ${d.versao ? `· versão ${d.versao}` : ''}</div>
-            <p style="font-size:.74rem;color:var(--text-dim);margin:0;">Prioridade DESC, cega à origem (pull e push na mesma régua). Versionada — o PWA consome a última.</p></div>
-            <button class="btn primary" style="font-size:.74rem;" onclick="n1._acao('Sequenciar','/api/n1/sequenciar',null,'fila')">Sequenciar (nova versão)</button>
+            <div style="flex:1;"><div class="sec-title" style="margin:0 0 4px;">${icon('camadas')} Plano fino por tear ${d.versao ? `<span class="hint">versão ${d.versao}</span>` : ''}</div>
+            <p style="font-size:var(--fs-caption);color:var(--text-dim);margin:0;">Motor determinístico: PRETO fura a fila · índice composto (urgência CR + custo de troca) · setup pela matriz de→para a partir do estado ATUAL do tear · calendário de dias úteis × jornada · eficiência (OEE) por tear.</p></div>
+            <button class="btn primary" style="font-size:.74rem;" onclick="n1._acao('Sequenciar','/api/n1/sequenciar',{},'fila')">Sequenciar (nova versão)</button>
         </div>
-        <div class="summary-card" style="padding:0;overflow:hidden;"><div style="max-height:58vh;overflow-y:auto;"><table style="width:100%;border-collapse:collapse;">
-            <thead><tr style="position:sticky;top:0;background:var(--bg-obsidian);z-index:1;"><th class="n1-th" style="text-align:center;">#</th><th class="n1-th">OP</th><th class="n1-th">SKU</th><th class="n1-th" style="text-align:right;">QTD</th><th class="n1-th">COR DO PULMÃO</th></tr></thead>
-            <tbody>${linhas || '<tr><td class="n1-td" colspan="5" style="text-align:center;color:var(--text-dim);padding:20px;">Sem fila — sequencie (precisa de OPs liberadas).</td></tr>'}</tbody></table></div></div>`;
+        ${estCards ? `<div class="summary-card" style="margin-bottom:12px;"><div class="s-label" style="margin-bottom:8px;">ESTADO ATUAL DOS TEARES (para o 1º setup)</div><div style="display:flex;gap:8px;flex-wrap:wrap;">${estCards}</div></div>` : ''}
+        ${grupos || '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Sem plano — sequencie (precisa de OPs liberadas pelo gate do APS).</div>'}`;
+    },
+    async _editarEstado(recursoId, nome) {
+        const galga = prompt(`${nome} — galga atual (vazio = não sei):`) ?? null; if (galga === null) return;
+        const cor = prompt(`${nome} — cor base atual:`) ?? '';
+        const fio = prompt(`${nome} — título do fio atual:`) ?? '';
+        const attrs = {}; if (galga) attrs.galga = galga.trim(); if (cor) attrs.cor_base = cor.trim(); if (fio) attrs.titulo_fio = fio.trim();
+        const r = await api.post('/api/n1/estado-recurso', { recurso_id: recursoId, atributo_atual: attrs });
+        if (!r?.ok) return toast(r?.erro || 'Erro.', 'erro');
+        toast('✓ Estado do tear atualizado — o próximo plano parte dele.');
+        this._renderFila();
     },
 
     // ── ⑤ PWA (operador): mesma fila, cartões grandes ──
