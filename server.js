@@ -2711,6 +2711,41 @@ app.post('/api/n1/cenarios/publicar', auth, sigsEscrita, async (req, res) => {
     res.json({ ok: true, versao, cenario: cen.nome_cenario, itens: rows.length });
 });
 
+// ── MATRIZ DE SETUP (de→para) — a tela que alimenta o sequenciador ───────────
+app.get('/api/n1/setup-transicao', auth, async (_req, res) => {
+    let itens = [];
+    try { itens = await fetchAllSelect('setup_transicao', '*'); }
+    catch (e) { return n1ErroTabela(e) ? res.status(503).json({ erro: 'Rode n1_seq.sql no Supabase.' }) : erro500(res, e); }
+    // valores reais em uso nos produtos → sugestões nos selects (nada digitado no escuro)
+    const { data: prods } = await supabase.from('produto').select('galga,cor_base,titulo_fio,programa_maquina').eq('ativo', true);
+    const valores = { galga: new Set(), cor_base: new Set(), titulo_fio: new Set(), programa_maquina: new Set() };
+    (prods || []).forEach(p => Object.keys(valores).forEach(k => { if (p[k]) valores[k].add(String(p[k]).trim()); }));
+    const { data: gen } = await supabase.from('setup_troca_atributo').select('atributo,minutos');
+    const genericos = {}; (gen || []).forEach(g => { genericos[g.atributo] = Number(g.minutos) || 0; });
+    itens.sort((a, b) => a.atributo.localeCompare(b.atributo) || String(a.de_valor).localeCompare(String(b.de_valor)));
+    res.json({ itens, valores: Object.fromEntries(Object.entries(valores).map(([k, v]) => [k, [...v].sort()])), genericos });
+});
+app.post('/api/n1/setup-transicao', auth, sigsEscrita, async (req, res) => {
+    const b = req.body || {};
+    const atributo = String(b.atributo || '').trim();
+    const de = String(b.de_valor || '').trim(), para = String(b.para_valor || '').trim();
+    const tempo = Number(b.tempo_min);
+    if (!['galga', 'cor_base', 'titulo_fio', 'programa_maquina'].includes(atributo)) return res.status(400).json({ erro: 'atributo inválido' });
+    if (!de || !para || de === para) return res.status(400).json({ erro: 'de_valor e para_valor obrigatórios e diferentes' });
+    if (!Number.isFinite(tempo) || tempo < 0) return res.status(400).json({ erro: 'tempo_min inválido' });
+    const rows = [{ atributo, de_valor: de, para_valor: para, tempo_min: tempo }];
+    if (b.ida_volta) rows.push({ atributo, de_valor: para, para_valor: de, tempo_min: tempo });
+    const { error } = await supabase.from('setup_transicao').upsert(rows, { onConflict: 'atributo,de_valor,para_valor' });
+    if (n1ErroTabela(error)) return res.status(503).json({ erro: 'Rode n1_seq.sql no Supabase.' });
+    if (error) return erro500(res, error);
+    res.json({ ok: true, gravadas: rows.length });
+});
+app.delete('/api/n1/setup-transicao/:id', auth, sigsEscrita, async (req, res) => {
+    const { error } = await supabase.from('setup_transicao').delete().eq('id', req.params.id);
+    if (error) return erro500(res, error);
+    res.json({ ok: true });
+});
+
 // estado corrente dos teares (para o lookup de setup do 1º item)
 app.get('/api/n1/estado-recurso', auth, async (_req, res) => {
     const { data: etTec } = await supabase.from('etapa_processo').select('id').ilike('nome', '%tecel%').limit(1).maybeSingle();

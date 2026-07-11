@@ -116,13 +116,13 @@ const n1 = {
 
     tab(nome) {
         this._tab = nome;
-        ['painel','pulmoes','sugeridas','netting','gargalo','fila','pwa','apont','kpi','dbm','tempos','politica','estoque','kardex','inventario','reconc','expedicao','cenarios','roteiros','tcad','setup','bom'].forEach(t => {
+        ['painel','pulmoes','sugeridas','netting','gargalo','fila','pwa','apont','kpi','dbm','tempos','politica','estoque','kardex','inventario','reconc','expedicao','cenarios','setupm','roteiros','tcad','setup','bom'].forEach(t => {
             const pan = $('n1-pan-' + t); if (pan) pan.style.display = t === nome ? 'block' : 'none';
         });
         document.querySelectorAll('[data-n1tab]').forEach(li => li.classList.toggle('active', li.dataset.n1tab === nome));
         const R = { painel:'_renderPainel', roteiros:'_renderRoteiros', tcad:'_renderTempos', setup:'_renderSetup', bom:'_renderBom',
             pulmoes:'_renderPulmoes', sugeridas:'_renderSugeridas', fila:'_renderFila', pwa:'_renderPwa', kpi:'_renderKpi', dbm:'_renderDbm',
-            politica:'_renderPolitica', netting:'_renderNetting', gargalo:'_renderGargalo', estoque:'_renderEstoque', kardex:'_renderKardex', inventario:'_renderInventario', reconc:'_renderReconc', expedicao:'_renderExpedicao', cenarios:'_renderCenarios' };
+            politica:'_renderPolitica', netting:'_renderNetting', gargalo:'_renderGargalo', estoque:'_renderEstoque', kardex:'_renderKardex', inventario:'_renderInventario', reconc:'_renderReconc', expedicao:'_renderExpedicao', cenarios:'_renderCenarios', setupm:'_renderSetupM' };
         if (R[nome]) this[R[nome]]();
         else this._placeholder(nome);
     },
@@ -518,12 +518,46 @@ const n1 = {
                 <span>${attrsTxt || 'estado não informado'}</span>
                 <button class="btn ghost sm" onclick="n1._editarEstado('${escJS(e.recurso_id)}','${escJS(e.nome)}')">editar</button>
             </div>`; }).join('') : '';
+        // ── GANTT: barras por tear na linha do tempo (14 dias visíveis) ──
+        const comHorario = (d.itens || []).filter(i => i.inicio && i.fim && i.processo !== '(sem tempo)');
+        let gantt = '';
+        if (comHorario.length) {
+            const t0 = Math.min(...comHorario.map(i => new Date(i.inicio).getTime()));
+            const tFimReal = Math.max(...comHorario.map(i => new Date(i.fim).getTime()));
+            const tJanela = Math.min(tFimReal, t0 + 14 * 86400000);
+            const span = Math.max(1, tJanela - t0);
+            const pct = ms => Math.max(0, Math.min(100, (ms - t0) / span * 100));
+            const CORESG = { PRETO: '#e0e0e0', VERMELHO: '#f06292', AMARELO: '#ffca28', VERDE: '#26a69a' };
+            const dias = [];
+            for (let t = t0; t <= tJanela; t += 86400000) dias.push(t);
+            const eixo = dias.map(t => `<div style="position:absolute;left:${pct(t)}%;top:0;bottom:0;border-left:1px solid rgba(255,255,255,.05);"><span style="position:absolute;top:-16px;left:2px;font-size:.6rem;color:var(--text-dim);white-space:nowrap;">${new Date(t).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}</span></div>`).join('');
+            const linhas = Object.entries(porTear).filter(([tear]) => tear !== '(sem tempo)').map(([tear, itens]) => `
+                <div style="display:flex;align-items:center;gap:10px;padding:3px 0;">
+                    <div style="width:82px;font-size:.7rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(tear)}</div>
+                    <div style="flex:1;position:relative;height:16px;background:rgba(255,255,255,.03);border-radius:4px;">
+                        ${itens.filter(i => i.inicio && i.fim).map(i => {
+                            const a = new Date(i.inicio).getTime(), b = new Date(i.fim).getTime();
+                            if (a > tJanela) return '';
+                            const l = pct(a), w = Math.max(0.4, pct(Math.min(b, tJanela)) - l);
+                            const cor = CORESG[i.cor_pulmao] || 'var(--indigo-primary)';
+                            return `<div title="OP ${esc(i.numero)} · ${esc(i.codigo || '')} · ${this._hhmm(i.inicio)} → ${this._hhmm(i.fim)}${Number(i.setup_min) > 0 ? ` · setup ${Math.round(i.setup_min)}min` : ''}" style="position:absolute;left:${l}%;width:${w}%;top:2px;bottom:2px;background:${cor};border-radius:3px;opacity:.85;border-right:1px solid rgba(0,0,0,.5);"></div>`;
+                        }).join('')}
+                    </div>
+                </div>`).join('');
+            gantt = `<div class="summary-card rise" style="margin-bottom:12px;">
+                <div class="sec-title">${icon('grafico')} Gantt do plano <span class="hint">primeiros 14 dias${tFimReal > tJanela ? ' — o plano segue além' : ''} · cor = pulmão do SKU · passe o mouse</span></div>
+                <div style="position:relative;padding-top:18px;">${'<div style="position:relative;">' + eixo + '</div>'}${linhas}</div>
+            </div>`;
+        }
+
         el.innerHTML = `
+        ${''}
         <div class="summary-card" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
             <div style="flex:1;"><div class="sec-title" style="margin:0 0 4px;">${icon('camadas')} Plano fino por tear ${d.versao ? `<span class="hint">versão ${d.versao}</span>` : ''}</div>
             <p style="font-size:var(--fs-caption);color:var(--text-dim);margin:0;">Motor determinístico: PRETO fura a fila · índice composto (urgência CR + custo de troca) · setup pela matriz de→para a partir do estado ATUAL do tear · calendário de dias úteis × jornada · eficiência (OEE) por tear.</p></div>
             <button class="btn primary" style="font-size:.74rem;" onclick="n1._acao('Sequenciar','/api/n1/sequenciar',{},'fila')">Sequenciar (nova versão)</button>
         </div>
+        ${gantt}
         ${estCards ? `<div class="summary-card" style="margin-bottom:12px;"><div class="s-label" style="margin-bottom:8px;">ESTADO ATUAL DOS TEARES (para o 1º setup)</div><div style="display:flex;gap:8px;flex-wrap:wrap;">${estCards}</div></div>` : ''}
         ${grupos || '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Sem plano — sequencie (precisa de OPs liberadas pelo gate do APS).</div>'}`;
     },
@@ -572,6 +606,65 @@ const n1 = {
         if (!r?.ok) return toast(r?.erro || 'Erro ao publicar.', 'erro');
         toast(`✓ Cenário "${r.cenario}" publicado — fila v${r.versao} (${r.itens} itens).`);
         this._renderCenarios();
+    },
+
+    // ── ④c MATRIZ DE SETUP (de→para) — alimenta o motor; sem ela cenários empatam ──
+    _ATTR_ROTULO: { galga: 'Galga', cor_base: 'Cor base', titulo_fio: 'Título do fio', programa_maquina: 'Programa' },
+    async _renderSetupM() {
+        const el = $('n1-pan-setupm'); el.innerHTML = '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Carregando matriz…</div>';
+        const d = await this._getOu503('/api/n1/setup-transicao', el, 'A matriz vive em setup_transicao (n1_seq.sql).'); if (!d) return;
+        this._setupmValores = d.valores || {};
+        const porAttr = {};
+        (d.itens || []).forEach(i => { (porAttr[i.atributo] = porAttr[i.atributo] || []).push(i); });
+        const grupos = Object.entries(porAttr).map(([attr, itens]) => `
+            <div class="summary-card rise" style="padding:0;overflow:hidden;">
+                <div class="sec-title" style="padding:12px 14px 0;">${icon('config')} ${esc(this._ATTR_ROTULO[attr] || attr)} <span class="hint">${itens.length} transição(ões)${d.genericos?.[attr] ? ` · genérico ${d.genericos[attr]} min` : ''}</span></div>
+                <table class="data-table"><thead><tr><th>De</th><th></th><th>Para</th><th class="num">Tempo</th><th></th></tr></thead>
+                <tbody>${itens.map(i => `<tr>
+                    <td style="font-weight:700;">${esc(String(i.de_valor))}</td><td class="dim">→</td>
+                    <td style="font-weight:700;">${esc(String(i.para_valor))}</td>
+                    <td class="num" style="color:var(--warn);font-weight:700;">${fmt(i.tempo_min)} min</td>
+                    <td><button class="btn ghost sm" onclick="n1._setupmExcluir('${escJS(i.id)}')">excluir</button></td>
+                </tr>`).join('')}</tbody></table>
+            </div>`).join('');
+        const optsAttr = Object.keys(this._ATTR_ROTULO).map(a => `<option value="${a}">${this._ATTR_ROTULO[a]}</option>`).join('');
+        el.innerHTML = `
+        <div class="summary-card" style="margin-bottom:12px;border-left:3px solid var(--indigo-primary);">
+            <div class="sec-title">${icon('config')} Matriz de setup (de → para) <span class="hint">o que faz os cenários divergirem e o motor agrupar trocas</span></div>
+            <p style="font-size:var(--fs-caption);color:var(--text-dim);margin-bottom:10px;">Tempo de trocar o tear de um valor para outro. Direcional: branco→preto pode ≠ preto→branco. Par ausente cai no tempo genérico do atributo (APS › Produtos &amp; Setup). Os valores sugeridos vêm dos SEUS produtos.</p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+                <div><span class="n1-label">ATRIBUTO</span><select id="sm-attr" class="n1-input" onchange="n1._setupmDatalist()">${optsAttr}</select></div>
+                <div><span class="n1-label">DE</span><input id="sm-de" class="n1-input" list="sm-dl" style="width:110px;"></div>
+                <div><span class="n1-label">PARA</span><input id="sm-para" class="n1-input" list="sm-dl" style="width:110px;"></div>
+                <datalist id="sm-dl"></datalist>
+                <div><span class="n1-label">TEMPO (min)</span><input id="sm-min" type="number" min="0" step="5" class="n1-input" style="width:90px;text-align:right;"></div>
+                <label style="display:flex;align-items:center;gap:6px;font-size:.76rem;color:var(--text-dim);padding-bottom:8px;"><input type="checkbox" id="sm-iv" checked> criar ida e volta</label>
+                <button class="btn primary" style="font-size:.78rem;" onclick="n1._setupmSalvar()">Adicionar</button>
+            </div>
+            <div id="sm-vals" style="margin-top:8px;font-size:.72rem;color:var(--text-dim);"></div>
+        </div>
+        ${grupos || '<div class="summary-card" style="color:var(--text-dim);padding:16px;">Matriz vazia — enquanto estiver vazia, os 3 cenários do sequenciador EMPATAM (setup zero). Comece pelas trocas mais caras: galga e cor.</div>'}`;
+        this._setupmDatalist();
+    },
+    _setupmDatalist() {
+        const attr = $('sm-attr')?.value;
+        const vals = (this._setupmValores || {})[attr] || [];
+        const dl = $('sm-dl'); if (dl) dl.innerHTML = vals.map(v => `<option value="${esc(v)}">`).join('');
+        const vv = $('sm-vals'); if (vv) vv.innerHTML = vals.length ? `valores em uso nos produtos: ${vals.map(esc).join(' · ')}` : 'nenhum produto tem esse atributo preenchido ainda (APS › Produtos & Setup)';
+    },
+    async _setupmSalvar() {
+        const body = { atributo: $('sm-attr').value, de_valor: $('sm-de').value.trim(), para_valor: $('sm-para').value.trim(),
+            tempo_min: parseFloat($('sm-min').value), ida_volta: $('sm-iv').checked };
+        const r = await api.post('/api/n1/setup-transicao', body);
+        if (!r?.ok) return toast(r?.erro || 'Erro ao salvar.', 'erro');
+        toast(`✓ ${r.gravadas} transição(ões) gravadas — o próximo plano/cenário já usa.`);
+        this._renderSetupM();
+    },
+    async _setupmExcluir(id) {
+        if (!confirm('Excluir esta transição da matriz?')) return;
+        const r = await api.delete('/api/n1/setup-transicao/' + id);
+        if (!r?.ok) return toast('Erro ao excluir.', 'erro');
+        this._renderSetupM();
     },
 
     // ── ⑤ PWA (operador): mesma fila, cartões grandes ──
