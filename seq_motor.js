@@ -93,30 +93,41 @@ function sequenciar({ pool, recursos, setup, janelas, agoraMs, pesos = { urgenci
         alocacoes.push({ ordem, recurso: r, iniMs: enc.ini, fimMs: enc.fim, setupMin, procMin });
     };
 
+    const podeIr = (o, r) => !o.compativeis || o.compativeis.has(r.id);
     // PRETO primeiro: no recurso que TERMINA antes (determinístico; empate por id)
     for (const o of fixas) {
         let melhor = null, melhorFim = Infinity;
         for (const r of rs) {
+            if (!podeIr(o, r)) continue;
             const st = estado[r.id];
             const sMin = lookupSetup(st.attrs, o.attrs, setup);
             const pMin = o.procMinBase / ((r.eficiencia || 100) / 100);
             const enc = encaixarNoCalendario(Math.max(st.livreEm, agoraMs), sMin + pMin, janelas);
             if (enc.fim < melhorFim || (enc.fim === melhorFim && melhor && String(r.id) < String(melhor.id))) { melhor = r; melhorFim = enc.fim; }
         }
+        if (!melhor) { melhor = rs[0]; avisos.push(`${o.numero}: nenhum tear compatível (galga) — alocada em ${melhor.nome} com ressalva.`); }
         aloca(o, melhor);
     }
 
-    // gulosas: menor índice composto entre todos os pares (ordem × recurso)
+    // gulosas: menor índice composto entre todos os pares (ordem × recurso).
+    // Urgência (CR) é da ORDEM (relógio global) — o recurso entra pelo custo de
+    // setup e pelo desempate por término mais cedo (senão o guloso empilharia
+    // tudo no mesmo tear: CR calculado no livre_em do recurso favorece o ocupado).
     while (livres.length) {
         let best = null;
         for (const o of livres) for (const r of rs) {
+            if (!podeIr(o, r)) continue;
             const st = estado[r.id];
-            const idx = indiceComposto(o, st.attrs, Math.max(st.livreEm, agoraMs), setup, pesos, maxSetup);
+            const idx = indiceComposto(o, st.attrs, agoraMs, setup, pesos, maxSetup);
+            const sMin = lookupSetup(st.attrs, o.attrs, setup);
+            const fimEst = Math.max(st.livreEm, agoraMs) + (sMin + o.procMinBase / ((r.eficiencia || 100) / 100)) * 60000;
             if (!best || idx < best.idx - 1e-9 ||
-                (Math.abs(idx - best.idx) <= 1e-9 && (desempate(o, best.o) < 0 || (desempate(o, best.o) === 0 && String(r.id) < String(best.r.id))))) {
-                best = { o, r, idx };
+                (Math.abs(idx - best.idx) <= 1e-9 && (fimEst < best.fimEst - 1 ||
+                    (Math.abs(fimEst - best.fimEst) <= 1 && (desempate(o, best.o) < 0 || (desempate(o, best.o) === 0 && String(r.id) < String(best.r.id))))))) {
+                best = { o, r, idx, fimEst };
             }
         }
+        if (!best) { const o = livres[0]; avisos.push(`${o.numero}: nenhum tear compatível (galga) — alocada em ${rs[0].nome} com ressalva.`); best = { o, r: rs[0], fimEst: 0 }; }
         aloca(best.o, best.r);
         livres = livres.filter(x => x !== best.o);
     }

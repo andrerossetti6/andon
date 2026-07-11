@@ -1,4 +1,5 @@
 require('dotenv').config({ quiet: true });  // {quiet} evita o banner do dotenv poluir o stdout do LaunchAgent
+const seqMotor = require('./seq_motor');
 const express  = require('express');
 const path     = require('path');
 const jwt      = require('jsonwebtoken');
@@ -2546,13 +2547,14 @@ async function n1PlanoInputs() {
     let ops;
     ops = await fetchAllSelect('ordem_producao', 'id,numero,prioridade,data_prevista,qtd_planejada,status,origem, produto:produto_id(id,codigo,galga,cor_base,titulo_fio,programa_maquina)', q => q.in('status', ['liberada', 'em_producao']));
     const { data: etTec } = await supabase.from('etapa_processo').select('id').ilike('nome', '%tecel%').limit(1).maybeSingle();
-    const { data: maqs } = await supabase.from('maquina').select('id,id_maquina,modelo,oee,etapa_id').eq('ativo', true).eq('etapa_id', etTec?.id || '00000000-0000-0000-0000-000000000000');
+    const { data: maqs } = await supabase.from('maquina').select('id,codigo,nome,modelo,oee_padrao,galga_min,galga_max,etapa_id').eq('ativo', true).eq('etapa_id', etTec?.id || '00000000-0000-0000-0000-000000000000');
     const { data: oms } = await supabase.from('ordem_manutencao').select('maquina_id,status').eq('status', 'em_execucao');
     const emManut = new Set((oms || []).map(o => o.maquina_id).filter(Boolean));
     const { data: estados } = await supabase.from('estado_recurso').select('*');
     const estadoDe = {}; (estados || []).forEach(e => { estadoDe[e.recurso_id] = e; });
-    const recursos = (maqs || []).map(m => ({ id: m.id, nome: m.id_maquina || m.modelo || 'tear',
-        eficiencia: m.oee == null ? 100 : Number(m.oee),
+    const recursos = (maqs || []).map(m => ({ id: m.id, nome: m.codigo || m.nome || m.modelo || 'tear',
+        eficiencia: m.oee_padrao == null ? 100 : Number(m.oee_padrao),
+        galgaMin: m.galga_min != null ? Number(m.galga_min) : null, galgaMax: m.galga_max != null ? Number(m.galga_max) : null,
         attrsIniciais: estadoDe[m.id]?.atributo_atual || null,
         livreEm: estadoDe[m.id]?.livre_em ? new Date(estadoDe[m.id].livre_em).getTime() : agoraMs,
         indisponivel: emManut.has(m.id) }));
@@ -2581,6 +2583,15 @@ async function n1PlanoInputs() {
         (tMin ? pool : semTempo).push(item);
     });
     if (semTempo.length) avisos.push(`${semTempo.length} OP(s) sem tempo de tecelagem no Banco — entram no fim do plano, sem horário.`);
+    // compatibilidade tear×ordem por GALGA (limites galga_min/max do cadastro da máquina)
+    const comLimites = recursos.filter(r => r.galgaMin != null || r.galgaMax != null);
+    if (comLimites.length) pool.forEach(o => {
+        const g = parseFloat(String(o.attrs?.galga ?? '').replace(',', '.'));
+        if (isNaN(g)) return;                                    // sem galga na ordem: vai em qualquer tear
+        const ok = new Set(recursos.filter(r =>
+            (r.galgaMin == null || g >= r.galgaMin) && (r.galgaMax == null || g <= r.galgaMax)).map(r => r.id));
+        if (ok.size && ok.size < recursos.length) o.compativeis = ok;
+    });
     const { janelas, horasDia } = await n1JanelasTecelagem(agoraMs, 21);
     let corDe = {};
     try {
@@ -2665,9 +2676,11 @@ app.post('/api/n1/cenarios/rodar', auth, sigsEscrita, async (_req, res) => {
         for (const c of N1_CENARIOS) {
             const { r, rows } = n1RodarMotor(inp, c.pesos);
             const { data, error } = await supabase.from('cenario_comparacao').insert({
-                rodada_id: rodada, nome_cenario: c.nome, regra: { pesos: c.pesos, desc: c.desc },
+                rodada_id: rodada, nome_cenario: c.nome,
+                regra: { pesos: c.pesos, desc: c.desc, utilizacao_real_pct: r.kpis.utilizacao_gargalo_pct },
                 setup_total_min: r.kpis.setup_total_min, ordens_atrasadas: r.kpis.ordens_atrasadas,
-                atraso_max_min: r.kpis.atraso_max_min, utilizacao_gargalo_pct: r.kpis.utilizacao_gargalo_pct,
+                atraso_max_min: r.kpis.atraso_max_min,
+                utilizacao_gargalo_pct: r.kpis.utilizacao_gargalo_pct != null ? Math.min(999.99, r.kpis.utilizacao_gargalo_pct) : null,   // NUMERIC(5,2); valor real na regra
                 makespan_min: r.kpis.makespan_min, fila: rows }).select('id').single();
             if (error) return n1ErroTabela(error) ? res.status(503).json({ erro: 'Rode n1_seq.sql no Supabase.' }) : erro500(res, error);
             out.push({ id: data.id, nome: c.nome, kpis: r.kpis });
@@ -2701,12 +2714,12 @@ app.post('/api/n1/cenarios/publicar', auth, sigsEscrita, async (req, res) => {
 // estado corrente dos teares (para o lookup de setup do 1º item)
 app.get('/api/n1/estado-recurso', auth, async (_req, res) => {
     const { data: etTec } = await supabase.from('etapa_processo').select('id').ilike('nome', '%tecel%').limit(1).maybeSingle();
-    const { data: maqs } = await supabase.from('maquina').select('id,id_maquina,modelo,oee').eq('ativo', true).eq('etapa_id', etTec?.id || '00000000-0000-0000-0000-000000000000');
+    const { data: maqs } = await supabase.from('maquina').select('id,codigo,nome,modelo,oee_padrao').eq('ativo', true).eq('etapa_id', etTec?.id || '00000000-0000-0000-0000-000000000000');
     let estados = [];
     try { estados = await fetchAllSelect('estado_recurso', '*'); }
     catch (e) { return n1ErroTabela(e) ? res.status(503).json({ erro: 'Rode n1_seq.sql no Supabase.' }) : erro500(res, e); }
     const estDe = {}; (estados || []).forEach(x => { estDe[x.recurso_id] = x; });
-    res.json((maqs || []).map(m => ({ recurso_id: m.id, nome: m.id_maquina || m.modelo || 'tear', oee: m.oee,
+    res.json((maqs || []).map(m => ({ recurso_id: m.id, nome: m.codigo || m.nome || m.modelo || 'tear', oee: m.oee_padrao,
         atributo_atual: estDe[m.id]?.atributo_atual || null, livre_em: estDe[m.id]?.livre_em || null,
         origem: estDe[m.id]?.origem || null })));
 });
