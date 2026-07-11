@@ -2504,7 +2504,7 @@ async function n1TemposTecelagemPlanilha() {
     const { data: imp } = await supabase.from('importacoes_banco').select('id').order('criado_em', { ascending: false }).limit(1).maybeSingle();
     if (!imp) return {};
     const rows = await fetchAllRows('dados_banco', imp.id);
-    const out = {};
+    const tempos = {}, modelos = {};
     (rows || []).forEach(r => {
         const d = r.dados || {};
         const cod = String(d['Código'] ?? d['Codigo'] ?? '').trim().toUpperCase();
@@ -2515,9 +2515,15 @@ async function n1TemposTecelagemPlanilha() {
             const v = parseFloat(String(d[c] ?? norm[c.toLowerCase()] ?? '').replace(',', '.'));
             if (!isNaN(v) && v > 0) t += v;
         }
-        if (t > 0) out[cod] = t;
+        if (t > 0) tempos[cod] = t;
+        // coluna "Stoll" = modelo(s) de tear aptos ("530", "330/530"…) — mesma regra do TOC
+        const st = String(d['Stoll'] ?? norm['stoll'] ?? '').trim();
+        if (st) {
+            const mods = st.split(/[,;\/|]+/).map(x => (String(x).match(/\d+/) || [])[0]).filter(Boolean);
+            if (mods.length) modelos[cod] = [...new Set(mods)];
+        }
     });
-    return out;
+    return { tempos, modelos };
 }
 // janelas de disponibilidade da tecelagem: próximos N dias úteis × jornada
 async function n1JanelasTecelagem(agoraMs, diasHorizonte = 14) {
@@ -2554,6 +2560,7 @@ async function n1PlanoInputs() {
     const estadoDe = {}; (estados || []).forEach(e => { estadoDe[e.recurso_id] = e; });
     const recursos = (maqs || []).map(m => ({ id: m.id, nome: m.codigo || m.nome || m.modelo || 'tear',
         eficiencia: m.oee_padrao == null ? 100 : Number(m.oee_padrao),
+        modeloNorm: (String(m.modelo || '').match(/\d+/) || [])[0] || null,
         galgaMin: m.galga_min != null ? Number(m.galga_min) : null, galgaMax: m.galga_max != null ? Number(m.galga_max) : null,
         attrsIniciais: estadoDe[m.id]?.atributo_atual || null,
         livreEm: estadoDe[m.id]?.livre_em ? new Date(estadoDe[m.id].livre_em).getTime() : agoraMs,
@@ -2568,7 +2575,7 @@ async function n1PlanoInputs() {
     (sg || []).forEach(t => setup.porAtributo.set(t.atributo, Number(t.minutos) || 0));
     if (!setup.transicao.size && ![...setup.porAtributo.values()].some(v => v > 0))
         avisos.push('Tempos de troca zerados — a regra de setup não influencia (preencha setup_transicao ou Produtos & Setup).');
-    const tempos = await n1TemposTecelagemPlanilha();
+    const { tempos, modelos: modelosDe } = await n1TemposTecelagemPlanilha();
     const fimDiaSP = d => Date.parse(String(d).slice(0, 10) + 'T23:59:00-03:00');
     const pool = [], semTempo = [];
     (ops || []).forEach(o => {
@@ -2583,15 +2590,25 @@ async function n1PlanoInputs() {
         (tMin ? pool : semTempo).push(item);
     });
     if (semTempo.length) avisos.push(`${semTempo.length} OP(s) sem tempo de tecelagem no Banco — entram no fim do plano, sem horário.`);
-    // compatibilidade tear×ordem por GALGA (limites galga_min/max do cadastro da máquina)
-    const comLimites = recursos.filter(r => r.galgaMin != null || r.galgaMax != null);
-    if (comLimites.length) pool.forEach(o => {
+    // compatibilidade tear×ordem: 1º por MODELO STOLL (coluna "Stoll" do Banco × maquina.modelo
+    // — dados 100% reais, mesma regra do TOC); depois a GALGA refina quando existir.
+    let semModeloCompat = 0;
+    pool.forEach(o => {
+        const mods = modelosDe[o.codigo];
+        if (mods?.length) {
+            const ok = new Set(recursos.filter(r => r.modeloNorm && mods.includes(r.modeloNorm)).map(r => r.id));
+            if (ok.size) { if (ok.size < recursos.length) o.compativeis = ok; }
+            else semModeloCompat++;                               // produto declara modelo sem tear ativo — sem restrição, com aviso
+        }
         const g = parseFloat(String(o.attrs?.galga ?? '').replace(',', '.'));
-        if (isNaN(g)) return;                                    // sem galga na ordem: vai em qualquer tear
-        const ok = new Set(recursos.filter(r =>
-            (r.galgaMin == null || g >= r.galgaMin) && (r.galgaMax == null || g <= r.galgaMax)).map(r => r.id));
-        if (ok.size && ok.size < recursos.length) o.compativeis = ok;
+        if (!isNaN(g)) {
+            const base = o.compativeis || new Set(recursos.map(r => r.id));
+            const ok2 = new Set(recursos.filter(r => base.has(r.id) &&
+                (r.galgaMin == null || g >= r.galgaMin) && (r.galgaMax == null || g <= r.galgaMax)).map(r => r.id));
+            if (ok2.size && ok2.size < recursos.length) o.compativeis = ok2;
+        }
     });
+    if (semModeloCompat) avisos.push(`${semModeloCompat} OP(s) de modelo Stoll sem tear ativo correspondente — alocadas sem restrição.`);
     const { janelas, horasDia } = await n1JanelasTecelagem(agoraMs, 21);
     let corDe = {};
     try {
