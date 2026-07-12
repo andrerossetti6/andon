@@ -1,5 +1,6 @@
 require('dotenv').config({ quiet: true });  // {quiet} evita o banner do dotenv poluir o stdout do LaunchAgent
 const seqMotor = require('./seq_motor');
+const vsmMotor = require('./vsm_motor');
 const express  = require('express');
 const path     = require('path');
 const jwt      = require('jsonwebtoken');
@@ -4411,6 +4412,163 @@ async function avancarOpFluxo(op_id) {
     return { concluida: true };
 }
 // quadro: por etapa, as OPs cujo etapa_atual = etapa; sessão aberta = "em processo". Lead/throughput vêm do apontamento.
+// ══════════════════ MES · VSM (Mapa de Fluxo de Valor) ═══════════════════════
+// Diagnóstico: deriva VA/espera/lead do apontamento (foto, não filme). Só lê
+// estoque/pulmão. Degrada com 503 até rodar mes_vsm.sql.
+const VSM_503 = 'VSM não inicializado — rode mes_vsm.sql no Supabase (SQL Editor).';
+
+app.get('/api/mf/vsm/familias', auth, async (_req, res) => {
+    let fams;
+    try { fams = await fetchAllSelect('vsm_familia', '*', q => q.eq('ativo', true).order('nome')); }
+    catch (e) { return /schema cache|does not exist|relation/i.test(e.message || '') ? res.status(503).json({ erro: VSM_503 }) : erro500(res, e); }
+    res.json(fams || []);
+});
+// cria família por marca/segmento/skus (semeia os pilotos sem SQL)
+app.post('/api/mf/vsm/familias', auth, sigsEscrita, async (req, res) => {
+    const b = req.body || {};
+    const tipo = ['marca', 'segmento', 'skus'].includes(b.filtro_tipo) ? b.filtro_tipo : 'marca';
+    if (!b.nome) return res.status(400).json({ erro: 'nome obrigatório' });
+    const row = { nome: String(b.nome).trim(), filtro_tipo: tipo,
+        filtro_valor: tipo === 'skus' ? null : String(b.filtro_valor || '').trim(),
+        skus: tipo === 'skus' ? (Array.isArray(b.skus) ? b.skus.map(x => String(x).trim().toUpperCase()) : []) : [],
+        sequencia_etapas: Array.isArray(b.sequencia_etapas) ? b.sequencia_etapas : [] };
+    const { data, error } = await supabase.from('vsm_familia').insert(row).select().single();
+    if (/schema cache|does not exist|relation/i.test(error?.message || '')) return res.status(503).json({ erro: VSM_503 });
+    if (error) return erro500(res, error);
+    res.json({ ok: true, familia: data });
+});
+app.delete('/api/mf/vsm/familias/:id', auth, sigsEscrita, async (req, res) => {
+    const { error } = await supabase.from('vsm_familia').update({ ativo: false }).eq('id', req.params.id);
+    if (error) return erro500(res, error);
+    res.json({ ok: true });
+});
+
+// resolve os SKUs (códigos) de uma família
+async function vsmSkusDaFamilia(fam) {
+    if (fam.filtro_tipo === 'skus') return new Set((fam.skus || []).map(x => String(x).toUpperCase()));
+    const col = fam.filtro_tipo === 'segmento' ? 'segmento' : 'marca';
+    // produtos do MES (marca) e, para segmento, cruza com vendas (que tem segmento)
+    if (col === 'marca') {
+        const prods = await fetchAllSelect('produto', 'codigo', q => q.ilike('marca', fam.filtro_valor || ''));
+        return new Set((prods || []).map(p => String(p.codigo).toUpperCase()));
+    }
+    const vs = await fetchAllSelect('vendas', 'codigo,segmento');
+    return new Set((vs || []).filter(v => String(v.segmento || '').trim().toLowerCase() === String(fam.filtro_valor || '').trim().toLowerCase()).map(v => String(v.codigo).toUpperCase()));
+}
+
+// RODAR: reconstrói o caminho das OPs concluídas no período (apontamento + parada
+// + ledger) e calcula o VSM da família. Grava snapshot + etapas. Cross-check pulmão.
+app.post('/api/mf/vsm/rodar', auth, sigsEscrita, async (req, res) => {
+    const famId = req.body?.familia_id;
+    const dias = Math.min(Math.max(Number(req.body?.dias) || 90, 7), 365);
+    if (!apsUuid(famId)) return res.status(400).json({ erro: 'familia_id obrigatório' });
+    let fam;
+    try { const { data } = await supabase.from('vsm_familia').select('*').eq('id', famId).maybeSingle(); fam = data; }
+    catch (e) { return /schema cache|does not exist|relation/i.test(e.message || '') ? res.status(503).json({ erro: VSM_503 }) : erro500(res, e); }
+    if (!fam) return res.status(404).json({ erro: 'Família não encontrada.' });
+
+    const fimP = new Date(); const iniP = new Date(Date.now() - dias * 86400000);
+    const skus = await vsmSkusDaFamilia(fam);
+    // OPs da família concluídas no período (via ledger: última linha para 'concluida')
+    const prods = await fetchAllSelect('produto', 'id,codigo');
+    const idDeSku = {}, skuDeId = {}; (prods || []).forEach(p => { const c = String(p.codigo || '').toUpperCase(); idDeSku[c] = p.id; skuDeId[p.id] = c; });
+    const prodIds = new Set([...skus].map(c => idDeSku[c]).filter(Boolean));
+    let ops = await fetchAllSelect('ordem_producao', 'id,numero,produto_id,status', q => q.eq('status', 'concluida'));
+    ops = (ops || []).filter(o => prodIds.has(o.produto_id));
+    if (!ops.length) return res.json({ ok: true, vazio: true, avisos: [`Nenhuma OP concluída da família "${fam.nome}" no período — o VSM real acende quando o chão apontar de ponta a ponta.`] });
+
+    const opIds = ops.map(o => o.id);
+    // apontamentos + paradas + etapas
+    const [aps, etapasCad, ledger] = await Promise.all([
+        fetchAllSelect('apontamento', 'id,op_id,etapa_id,maquina_id,datahora_inicio,datahora_fim,qtd_boa,qtd_refugo', q => q.in('op_id', opIds).not('datahora_fim', 'is', null)),
+        fetchAllSelect('etapa_processo', 'id,nome,ordem', q => q.eq('ativo', true).order('ordem')),
+        fetchAllSelect('op_state_log', 'op_id,para,criado_em', q => q.in('op_id', opIds).eq('para', 'liberada')),
+    ]);
+    const nomeEtapa = {}, ordemEtapa = {}; (etapasCad || []).forEach(e => { nomeEtapa[e.id] = e.nome; ordemEtapa[e.nome] = e.ordem; });
+    const etapaDeMaqCache = {};
+    async function etapaDaMaquina(mid) { if (!mid) return null; if (etapaDeMaqCache[mid] !== undefined) return etapaDeMaqCache[mid];
+        const { data } = await supabase.from('maquina').select('etapa_id').eq('id', mid).maybeSingle();
+        return (etapaDeMaqCache[mid] = data?.etapa_id || null); }
+    // paradas por apontamento (soma minutos)
+    const paradas = await fetchAllSelect('parada', 'apontamento_id,duracao_segundos', q => q.in('apontamento_id', (aps || []).map(a => a.id)));
+    const paradaMin = {}; (paradas || []).forEach(p => { paradaMin[p.apontamento_id] = (paradaMin[p.apontamento_id] || 0) + (Number(p.duracao_segundos) || 0) / 60; });
+    const liberadaDe = {}; (ledger || []).forEach(l => { const t = new Date(l.criado_em).getTime(); if (!liberadaDe[l.op_id] || t < liberadaDe[l.op_id]) liberadaDe[l.op_id] = t; });
+
+    // monta ordens {liberadaMs, etapas:{nome:{inicioMs,fimMs,paradaMin}}}
+    const etapasVistas = new Set(); const refugoPorEtapa = {};
+    const ordens = [];
+    for (const op of ops) {
+        const meus = (aps || []).filter(a => a.op_id === op.id);
+        const porEtapa = {};
+        for (const a of meus) {
+            let eid = a.etapa_id || await etapaDaMaquina(a.maquina_id);
+            const en = nomeEtapa[eid]; if (!en) continue;
+            etapasVistas.add(en);
+            const ini = new Date(a.datahora_inicio).getTime(), fim = new Date(a.datahora_fim).getTime();
+            const cur = porEtapa[en];
+            porEtapa[en] = { inicioMs: cur ? Math.min(cur.inicioMs, ini) : ini, fimMs: cur ? Math.max(cur.fimMs, fim) : fim,
+                paradaMin: (cur?.paradaMin || 0) + (paradaMin[a.id] || 0) };
+            const tot = (Number(a.qtd_boa) || 0) + (Number(a.qtd_refugo) || 0);
+            const rr = refugoPorEtapa[en] || (refugoPorEtapa[en] = { boa: 0, ref: 0 });
+            rr.boa += Number(a.qtd_boa) || 0; rr.ref += Number(a.qtd_refugo) || 0;
+        }
+        ordens.push({ id: op.id, numero: op.numero, liberadaMs: liberadaDe[op.id] || null, etapas: porEtapa });
+    }
+    // sequência: override da família OU ordem observada (por etapa_processo.ordem)
+    const seq = (fam.sequencia_etapas && fam.sequencia_etapas.length)
+        ? fam.sequencia_etapas
+        : [...etapasVistas].sort((a, b) => (ordemEtapa[a] || 99) - (ordemEtapa[b] || 99));
+
+    const r = vsmMotor.calcularVSM({ ordens, sequencia: seq });
+
+    // WIP atual por etapa (mf/wip) e refugo medido
+    let wipDe = {};
+    try { const wip = await supabase.from('ordem_producao').select('etapa_atual_id').in('id', ops.map(o => o.id));
+        (wip.data || []).forEach(o => { const en = nomeEtapa[o.etapa_atual_id]; if (en) wipDe[en] = (wipDe[en] || 0) + 1; }); } catch { }
+
+    // grava snapshot + etapas
+    const { data: snap, error: eS } = await supabase.from('vsm_snapshot').insert({
+        familia_id: fam.id, tipo: 'ATUAL', periodo_inicio: iniP.toISOString().slice(0, 10), periodo_fim: fimP.toISOString().slice(0, 10),
+        lead_time_min: r.lead_time_min, va_total_min: r.va_total_min, n_ordens_amostra: r.n_ordens, baixa_confianca: r.baixa_confianca }).select().single();
+    if (/schema cache|does not exist|relation/i.test(eS?.message || '')) return res.status(503).json({ erro: VSM_503 });
+    if (eS) return erro500(res, eS);
+    const linhasEt = r.etapas.map(e => { const rr = refugoPorEtapa[e.etapa];
+        return { snapshot_id: snap.id, ordem_seq: e.ordem_seq, etapa: e.etapa, tempo_va_min: e.tempo_va_min,
+            tempo_proc_min: e.tempo_proc_min, tempo_espera_min: e.tempo_espera_min, wip_atual: wipDe[e.etapa] || 0,
+            refugo_pct: rr && (rr.boa + rr.ref) > 0 ? Math.round(rr.ref / (rr.boa + rr.ref) * 10000) / 100 : null }; });
+    if (linhasEt.length) await supabase.from('vsm_snapshot_etapa').insert(linhasEt);
+
+    res.json({ ok: true, snapshot: { ...snap, pct_va: r.lead_time_min > 0 ? Math.round(r.va_total_min / r.lead_time_min * 1000) / 10 : 0 }, etapas: linhasEt,
+        avisos: [r.baixa_confianca ? `Amostra baixa (${r.n_ordens} OP) — mapa indicativo.` : null].filter(Boolean) });
+});
+
+// último snapshot da família + CROSS-CHECK do lead medido × lead assumido no pulmão (a joia)
+app.get('/api/mf/vsm/snapshot', auth, async (req, res) => {
+    const famId = req.query.familia_id;
+    if (!apsUuid(famId)) return res.status(400).json({ erro: 'familia_id obrigatório' });
+    let snap;
+    try { const { data } = await supabase.from('vsm_snapshot').select('*').eq('familia_id', famId).order('criado_em', { ascending: false }).limit(1).maybeSingle(); snap = data; }
+    catch (e) { return /schema cache|does not exist|relation/i.test(e.message || '') ? res.status(503).json({ erro: VSM_503 }) : erro500(res, e); }
+    if (!snap) return res.json({ snapshot: null, etapas: [], cross_check: null });
+    const { data: etapas } = await supabase.from('vsm_snapshot_etapa').select('*').eq('snapshot_id', snap.id).order('ordem_seq');
+    // cross-check: lead medido (dias) vs média do lt_dias dos pulmões da família
+    let cross = null;
+    try {
+        const { data: fam } = await supabase.from('vsm_familia').select('*').eq('id', famId).maybeSingle();
+        const skus = await vsmSkusDaFamilia(fam);
+        const params = await fetchAllSelect('parametro_reposicao', 'codigo,lt_dias', q => q.eq('ativo', true));
+        const doFam = (params || []).filter(p => skus.has(String(p.codigo).toUpperCase()));
+        if (doFam.length) {
+            const ltMedio = doFam.reduce((s, p) => s + (Number(p.lt_dias) || 0), 0) / doFam.length;
+            const leadDiasMedido = snap.lead_time_min / 1440;
+            const desvio = ltMedio > 0 ? Math.abs(leadDiasMedido - ltMedio) / ltMedio * 100 : null;
+            cross = { lt_assumido_dias: Math.round(ltMedio * 10) / 10, lead_medido_dias: Math.round(leadDiasMedido * 10) / 10,
+                desvio_pct: desvio != null ? Math.round(desvio * 10) / 10 : null, alerta: desvio != null && desvio > 20, skus_pulmao: doFam.length };
+        }
+    } catch { }
+    res.json({ snapshot: snap, etapas: etapas || [], cross_check: cross });
+});
+
 // ── MAPA DA FÁBRICA: estado vivo por etapa (Cockpit + Modo TV) ────────────────
 // verde = rodando (sessão aberta) · âmbar = fila parada (WIP sem sessão) ·
 // vermelho = Andon aberto na etapa · cinza = sem atividade.

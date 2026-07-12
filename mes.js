@@ -1063,32 +1063,110 @@ const mf = {
 
     // ═══ LEAN MANUFACTURING ═════════════════════════════════════════════════════
     // VSM — Mapa do Fluxo de Valor
+    // ── VSM — Mapa de Fluxo de Valor por FAMÍLIA (diagnóstico, foto não filme) ──
+    _vsmMin(m) { m = Number(m) || 0; return m >= 1440 ? (m / 1440).toFixed(1) + ' d' : m >= 60 ? (m / 60).toFixed(1) + ' h' : Math.round(m) + ' min'; },
     async renderVsm() {
         const pan = $('mf-pan-vsm');
-        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando...</div>`;
-        const d = await api.get('/api/mf/vsm');
-        if (!d || !Array.isArray(d.etapas)) { pan.innerHTML = `<div class="summary-card" style="color:#ffca28;">Indisponível.</div>`; return; }
-        const maxLead = Math.max(1, ...d.etapas.map(e => e.lead_horas || 0));
-        const linhas = d.etapas.map(e => {
-            const wLead = e.lead_horas ? Math.round(e.lead_horas / maxLead * 100) : 0, wVa = e.lead_horas ? Math.round((e.va_horas || 0) / maxLead * 100) : 0;
-            // B5: marca de onde veio o lead — histórico medido vs espera atual do WIP (grandezas diferentes)
-            const fonteMark = e.lead_fonte === 'wip_atual'
-                ? ` <span title="lead = espera ATUAL do WIP (ainda sem histórico medido nesta etapa)" style="color:#ffca28;font-size:.66rem;">⧗wip</span>`
-                : (e.lead_fonte === 'historico' ? ` <span title="lead = média histórica medida de OPs concluídas" style="color:#26c6da;font-size:.66rem;">✓hist</span>` : '');
-            return `<div style="margin-bottom:12px;">
-                <div style="display:flex;justify-content:space-between;font-size:.82rem;margin-bottom:3px;"><span>${e.ordem}. ${esc(e.etapa)}</span>
-                    <span style="color:var(--text-dim);">WIP ${e.wip_ops} OP${e.wip_ops !== 1 ? 's' : ''}${e.wip_qtd ? ' · ' + e.wip_qtd.toLocaleString('pt-BR') : ''} · lead ${e.lead_horas}h${fonteMark}${e.va_horas ? ' · VA ' + e.va_horas + 'h' : ''}</span></div>
-                <div style="height:16px;background:var(--bg-card);border-radius:4px;overflow:hidden;position:relative;"><div style="height:100%;width:${wLead}%;background:#30363d;"></div><div style="height:100%;width:${wVa}%;background:#26a69a;position:absolute;top:0;left:0;"></div></div></div>`;
+        pan.innerHTML = `<div style="color:var(--text-dim);padding:12px;">Carregando famílias…</div>`;
+        const rf = await fetch('/api/mf/vsm/familias', { headers: api._h() });
+        if (rf.status === 503) { pan.innerHTML = `<div class="summary-card" style="border-left:3px solid #ffab76;"><div class="s-label" style="margin-bottom:6px;">VSM não inicializado</div><p style="font-size:.82rem;color:#ffab76;">Rode <code>mes_vsm.sql</code> no Supabase (SQL Editor) para criar as tabelas do fluxo de valor.</p></div>`; return; }
+        const fams = rf.ok ? await rf.json() : null;
+        if (!Array.isArray(fams) || !fams.length) {
+            pan.innerHTML = `<div class="summary-card" style="border-left:3px solid #26c6da;">
+                <div class="sec-title">${typeof icon==='function'?icon('grafico'):''} VSM — Mapa de Fluxo de Valor</div>
+                <p style="font-size:.84rem;color:var(--text-dim);margin-bottom:12px;">O VSM é <strong>por família</strong> (nunca SKU a SKU). Crie uma família piloto — sugerimos as de maior giro, que terão mais apontamento.</p>
+                <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+                    <div><span class="mf-label">NOME</span><input id="vsm-fnome" class="mf-input" placeholder="ex: Joelheira" style="width:160px;"></div>
+                    <div><span class="mf-label">MARCA (dos produtos)</span><input id="vsm-fmarca" class="mf-input" placeholder="ex: N1" style="width:140px;"></div>
+                    <button class="btn primary" style="font-size:.78rem;" onclick="mf._vsmCriarFamilia()">Criar família</button>
+                </div>
+                <p style="font-size:.72rem;color:var(--text-dim);margin-top:8px;">Depois de criada, clique em "Rodar VSM" — o mapa se calcula das OPs concluídas da família (apontamento + ledger).</p>
+            </div>`;
+            return;
+        }
+        this._vsmFam = this._vsmFam && fams.some(f => f.id === this._vsmFam) ? this._vsmFam : fams[0].id;
+        const d = await api.get('/api/mf/vsm/snapshot?familia_id=' + this._vsmFam);
+        const seletor = `<select id="vsm-sel" class="mf-input" onchange="mf._vsmFam=this.value;mf.renderVsm()">${fams.map(f => `<option value="${f.id}"${f.id === this._vsmFam ? ' selected' : ''}>${esc(f.nome)}</option>`).join('')}</select>`;
+        const cabecalho = `<div class="summary-card" style="margin-bottom:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <div style="flex:1;min-width:220px;"><div class="sec-title" style="margin:0 0 4px;">${typeof icon==='function'?icon('grafico'):''} VSM — Fluxo de Valor <span class="hint">foto do lead time real × valor agregado, por família</span></div></div>
+            ${seletor}
+            <button class="btn primary" style="font-size:.76rem;" onclick="mf._vsmRodar()">Rodar VSM</button>
+            <button class="btn secondary" style="font-size:.76rem;" onclick="mf._vsmFam=null;mf.renderVsm()">+ família</button>
+        </div>`;
+        const snap = d?.snapshot;
+        if (!snap) { pan.innerHTML = cabecalho + `<div class="summary-card" style="color:var(--text-dim);text-align:center;padding:26px;">Nenhum mapa calculado para esta família ainda. Clique <strong>Rodar VSM</strong>.<br><span style="font-size:.74rem;">O número real só aparece quando o chão apontar de ponta a ponta — hoje deve vir vazio.</span></div>`; return; }
+
+        const et = d.etapas || [];
+        const pctCor = snap.pct_va < 15 ? 'var(--bad)' : snap.pct_va < 30 ? 'var(--warn)' : 'var(--ok)';
+        // hero
+        const hero = `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+            <div class="kpi kpi--info"><div class="kpi__head">${icon('relogio')} LEAD TIME</div><div class="kpi__value">${this._vsmMin(snap.lead_time_min)}</div><div class="kpi__sub">da liberação à conclusão (mediana)</div></div>
+            <div class="kpi kpi--ok"><div class="kpi__head">${icon('check')} VALOR AGREGADO</div><div class="kpi__value">${this._vsmMin(snap.va_total_min)}</div><div class="kpi__sub">tempo que realmente transforma</div></div>
+            <div class="kpi"><div class="kpi__head">${icon('gauge')} % VALOR AGREGADO</div><div class="kpi__value" style="color:${pctCor};">${snap.pct_va}%</div><div class="kpi__sub">o resto (${(100 - snap.pct_va).toFixed(0)}%) é fila = desperdício</div></div>
+            <div class="kpi ${snap.baixa_confianca ? 'kpi--warn' : ''}"><div class="kpi__head">${icon('camadas')} AMOSTRA</div><div class="kpi__value">${snap.n_ordens_amostra}</div><div class="kpi__sub">OP(s)${snap.baixa_confianca ? ' · baixa confiança' : ''}</div></div>
+        </div>`;
+        // cross-check com o pulmão (a joia)
+        const cc = d.cross_check;
+        const crossPanel = cc ? `<div class="summary-card" style="margin-bottom:12px;border-left:3px solid ${cc.alerta ? 'var(--bad)' : 'var(--ok)'};">
+            <div class="sec-title" style="margin:0 0 6px;">${icon('gauge')} Cross-check com o pulmão <span class="hint">o VSM valida o lead time assumido na reposição</span></div>
+            <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:var(--fs-body);">
+                <span>Lead <b>medido</b> (VSM): <strong style="color:var(--text-main);">${cc.lead_medido_dias} d</strong></span>
+                <span>Lead <b>assumido</b> (pulmão): <strong style="color:var(--text-main);">${cc.lt_assumido_dias} d</strong></span>
+                <span>Desvio: <strong style="color:${cc.alerta ? 'var(--bad)' : 'var(--ok)'};">${cc.desvio_pct != null ? cc.desvio_pct + '%' : '—'}</strong></span>
+            </div>
+            ${cc.alerta ? `<p style="font-size:.78rem;color:var(--bad);margin-top:8px;">⚠ Divergência >20% — o pulmão de ${cc.skus_pulmao} SKU(s) provavelmente está mal dimensionado (lt_dias errado). Reveja o dado mestre.</p>` : `<p style="font-size:.76rem;color:var(--ok);margin-top:8px;">✓ Lead medido bate com o assumido — pulmão coerente.</p>`}
+        </div>` : '';
+
+        // ── o MAPA: caixas de processo + triângulos de espera ──
+        const caixas = et.map((e, i) => {
+            const tri = e.tempo_espera_min > 0 ? `<div title="espera antes de ${esc(e.etapa)}: ${this._vsmMin(e.tempo_espera_min)}" style="align-self:center;text-align:center;padding:0 4px;">
+                <div style="width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-bottom:22px solid ${e.tempo_espera_min > snap.lead_time_min * 0.1 ? '#f06292' : '#ffca28'};margin:0 auto;"></div>
+                <div style="font-size:.6rem;color:var(--text-dim);margin-top:2px;white-space:nowrap;">${this._vsmMin(e.tempo_espera_min)}</div></div>` : (i ? '<div style="width:20px;"></div>' : '');
+            const caixa = `<div style="min-width:130px;background:var(--bg-card);border:1px solid var(--border-color);border-radius:10px;padding:10px 12px;box-shadow:var(--shadow-1);">
+                <div style="font-size:.78rem;font-weight:700;margin-bottom:6px;">${e.ordem_seq}. ${esc(e.etapa)}</div>
+                <div style="font-size:.66rem;color:var(--text-dim);line-height:1.7;">
+                    VA: <b style="color:var(--ok);">${this._vsmMin(e.tempo_va_min)}</b><br>
+                    Processo: <b style="color:var(--text-main);">${this._vsmMin(e.tempo_proc_min)}</b><br>
+                    ${e.refugo_pct != null ? `Refugo: <b style="color:${e.refugo_pct > 3 ? 'var(--bad)' : 'var(--text-main)'};">${e.refugo_pct}%</b><br>` : ''}
+                    ${e.wip_atual != null ? `WIP agora: <b>${e.wip_atual}</b>` : ''}
+                </div></div>`;
+            return tri + caixa;
         }).join('');
-        pan.innerHTML = `
-            <div class="summary-card" style="margin-bottom:14px;"><div class="s-label">🌊 VSM — MAPA DO FLUXO DE VALOR</div>
-                <p style="font-size:.8rem;color:var(--text-dim);margin:8px 0 0;">Lead time (cinza) × valor agregado (verde) por etapa. O que está fora do verde é <strong>espera = desperdício</strong>.</p>
-                ${d.lead_misturado ? `<p style="font-size:.72rem;color:#ffca28;margin:6px 0 0;">⚠ Lead misto: etapas <span style="color:#26c6da;">✓hist</span> usam média histórica medida; etapas <span style="color:#ffca28;">⧗wip</span> usam a espera atual do WIP (ainda sem histórico). O total soma as duas — compare com ressalva até todas terem histórico.</p>` : ''}
-                <div style="display:flex;gap:24px;margin-top:12px;flex-wrap:wrap;">
-                    <div><div style="font-size:1.5rem;font-weight:800;color:#26c6da;">${d.lead_total_h}h</div><div style="font-size:.66rem;color:var(--text-dim);">LEAD TIME TOTAL</div></div>
-                    <div><div style="font-size:1.5rem;font-weight:800;color:#26a69a;">${d.va_total_h}h</div><div style="font-size:.66rem;color:var(--text-dim);">VALOR AGREGADO</div></div>
-                    <div><div style="font-size:1.5rem;font-weight:800;color:${d.pct_va == null ? 'var(--text-dim)' : d.pct_va < 15 ? '#f06292' : d.pct_va < 30 ? '#ffca28' : '#26a69a'};">${d.pct_va != null ? d.pct_va + '%' : '—'}</div><div style="font-size:.66rem;color:var(--text-dim);">% VALOR AGREGADO</div></div></div></div>
-            ${d.etapas.some(e => e.lead_horas || e.wip_ops) ? `<div class="summary-card">${linhas}</div>` : `<div class="summary-card" style="color:var(--text-dim);text-align:center;padding:28px;">Sem fluxo ainda. O VSM se preenche quando as OPs entrarem no WIP e o chão apontar (defina o tempo-padrão e jogue OPs no fluxo).</div>`}`;
+        const mapa = `<div class="summary-card" style="margin-bottom:12px;overflow-x:auto;">
+            <div class="s-label" style="margin-bottom:10px;">FLUXO — caixas de processo · triângulos = estoque/espera entre etapas</div>
+            <div style="display:flex;align-items:stretch;gap:2px;padding-bottom:6px;">${caixas}</div>
+        </div>`;
+
+        // ── linha do tempo (dente de serra): espera grande × VA minúsculo ──
+        const totalTL = et.reduce((s, e) => s + e.tempo_espera_min + e.tempo_proc_min, 0) || 1;
+        const barra = et.map(e => {
+            const wE = e.tempo_espera_min / totalTL * 100, wV = e.tempo_va_min / totalTL * 100;
+            return `${wE > 0 ? `<div title="espera ${this._vsmMin(e.tempo_espera_min)}" style="width:${wE}%;background:repeating-linear-gradient(45deg,#30363d,#30363d 4px,#262b33 4px,#262b33 8px);"></div>` : ''}<div title="${esc(e.etapa)} — valor agregado ${this._vsmMin(e.tempo_va_min)}" style="width:${Math.max(wV, 0.3)}%;background:var(--ok);"></div>`;
+        }).join('');
+        const timeline = `<div class="summary-card">
+            <div class="s-label" style="margin-bottom:8px;">LINHA DO TEMPO — <span style="color:var(--ok);">verde = valor agregado</span> · <span style="color:var(--text-dim);">hachurado = espera</span></div>
+            <div style="height:26px;display:flex;border-radius:5px;overflow:hidden;">${barra}</div>
+            <p style="font-size:.72rem;color:var(--text-dim);margin-top:8px;">A régua inteira é o lead time. A faixa verde (o trabalho que agrega valor) é <strong>${snap.pct_va}%</strong> — o resto é a peça esperando. <strong>Reduzir a maior espera é o maior ganho de lead time</strong> (não acelerar a máquina).</p>
+        </div>`;
+
+        pan.innerHTML = cabecalho + hero + crossPanel + mapa + timeline;
+    },
+    async _vsmCriarFamilia() {
+        const nome = $('vsm-fnome')?.value?.trim(), marca = $('vsm-fmarca')?.value?.trim();
+        if (!nome || !marca) return toast('Preencha nome e marca.', 'erro');
+        const r = await api.post('/api/mf/vsm/familias', { nome, filtro_tipo: 'marca', filtro_valor: marca });
+        if (!r?.ok) return toast(r?.erro || 'Erro ao criar família.', 'erro');
+        this._vsmFam = r.familia.id; toast('✓ Família criada — clique Rodar VSM.'); this.renderVsm();
+    },
+    async _vsmRodar() {
+        if (!this._vsmFam) return;
+        toast('Calculando o mapa…', 'info');
+        const r = await api.post('/api/mf/vsm/rodar', { familia_id: this._vsmFam, dias: 90 });
+        if (r?.erro) return toast(r.erro, 'erro');
+        if (r?.vazio) { toast((r.avisos || ['Sem OPs concluídas no período.'])[0], 'aviso'); return; }
+        toast(`✓ VSM calculado: %VA ${r.snapshot?.pct_va}% · ${r.snapshot?.n_ordens_amostra} OP(s).`);
+        (r.avisos || []).forEach(a => setTimeout(() => toast('⚠ ' + a, 'aviso'), 1200));
+        this.renderVsm();
     },
 
     // Heijunka — nivelamento
