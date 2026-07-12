@@ -4512,7 +4512,11 @@ app.post('/api/mf/vsm/rodar', auth, sigsEscrita, async (req, res) => {
             const rr = refugoPorEtapa[en] || (refugoPorEtapa[en] = { boa: 0, ref: 0 });
             rr.boa += Number(a.qtd_boa) || 0; rr.ref += Number(a.qtd_refugo) || 0;
         }
-        ordens.push({ id: op.id, numero: op.numero, liberadaMs: liberadaDe[op.id] || null, etapas: porEtapa });
+        // liberação = ledger, com piso no 1º apontamento (ledger ausente/posterior = dado ruim → piso)
+        const primeiroIni = Math.min(...Object.values(porEtapa).map(e => e.inicioMs).filter(Number.isFinite));
+        const lib = liberadaDe[op.id];
+        const liberadaMs = (lib != null && Number.isFinite(primeiroIni)) ? Math.min(lib, primeiroIni) : (lib ?? (Number.isFinite(primeiroIni) ? primeiroIni : null));
+        ordens.push({ id: op.id, numero: op.numero, liberadaMs, etapas: porEtapa });
     }
     // sequência: override da família OU ordem observada (por etapa_processo.ordem)
     const seq = (fam.sequencia_etapas && fam.sequencia_etapas.length)

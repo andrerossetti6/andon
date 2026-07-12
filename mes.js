@@ -1097,6 +1097,7 @@ const mf = {
         if (!snap) { pan.innerHTML = cabecalho + `<div class="summary-card" style="color:var(--text-dim);text-align:center;padding:26px;">Nenhum mapa calculado para esta família ainda. Clique <strong>Rodar VSM</strong>.<br><span style="font-size:.74rem;">O número real só aparece quando o chão apontar de ponta a ponta — hoje deve vir vazio.</span></div>`; return; }
 
         const et = d.etapas || [];
+        snap.pct_va = Math.round(Number(snap.pct_va) * 10) / 10;   // GENERATED vem com 3 casas
         const pctCor = snap.pct_va < 15 ? 'var(--bad)' : snap.pct_va < 30 ? 'var(--warn)' : 'var(--ok)';
         // hero
         const hero = `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
